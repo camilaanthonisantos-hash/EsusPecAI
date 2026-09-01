@@ -1,0 +1,97 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "FirebaseBlueprint",
+  "description": "Schema representation for PEC Prontuário Multiprofissional Firestore database",
+  "entities": {
+    "User": {
+      "collection": "users",
+      "description": "Healthcare professionals and system administrators registered in the system",
+      "fields": {
+        "id": { "type": "string", "description": "User UID" },
+        "name": { "type": "string", "description": "Full name of professional" },
+        "email": { "type": "string", "description": "Professional email address" },
+        "role": { "type": "string", "enum": ["admin", "user"], "description": "Role: admin (full system privileges) or user (standard professional)" },
+        "profession": { "type": "string", "description": "Profession ID (enfermeiro, medico, psicologo, etc.)" },
+        "professionalRegister": { "type": "string", "description": "Council register (CRM, COREN, CRP, etc.)" },
+        "workplace": { "type": "string", "description": "Health unit / UBS / CAPS / eMulti" },
+        "avatarUrl": { "type": "string", "description": "Optional avatar URL" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" }
+      },
+      "required": ["name", "email", "role", "profession", "professionalRegister", "workplace"]
+    },
+    "SystemSettings": {
+      "collection": "system_settings",
+      "description": "Global system configurations managed by system admin",
+      "fields": {
+        "geminiApiKey": { "type": "string", "description": "Global Gemini API key for fallback/shared execution" },
+        "defaultModel": { "type": "string", "description": "Default Gemini model for PEC generation" },
+        "defaultCiapCode": { "type": "string", "description": "Default CIAP-2 code for consultation finalization" },
+        "defaultSigtapCode": { "type": "string", "description": "Default SIGTAP code for health orientation" },
+        "municipalityName": { "type": "string", "description": "Municipal health authority name" },
+        "defaultUnitName": { "type": "string", "description": "Default health unit name" },
+        "systemCustomInstructions": { "type": "string", "description": "Custom prompt directives injected into AI" },
+        "allowUserSelfRegister": { "type": "boolean", "description": "Whether new users can register as standard users" },
+        "updatedAt": { "type": "number", "description": "Last update timestamp" },
+        "updatedBy": { "type": "string", "description": "Admin email who updated settings" }
+      },
+      "required": ["defaultModel", "defaultCiapCode", "defaultSigtapCode", "municipalityName"]
+    },
+    "Patient": {
+      "collection": "patients",
+      "description": "Patients registered in primary care / health network",
+      "fields": {
+        "id": { "type": "string", "description": "Patient UUID" },
+        "fullName": { "type": "string", "description": "Full name" },
+        "cns": { "type": "string", "description": "Cartão Nacional de Saúde (15 digits)" },
+        "cpf": { "type": "string", "description": "CPF document" },
+        "birthDate": { "type": "string", "description": "Birth date YYYY-MM-DD" },
+        "gender": { "type": "string", "description": "Gender identity" },
+        "phone": { "type": "string", "description": "Contact phone" },
+        "address": { "type": "string", "description": "Address" },
+        "legalGuardianName": { "type": "string", "description": "Legal guardian name for minors/dependents" },
+        "guardianKinship": { "type": "string", "description": "Kinship relation" },
+        "guardianKinshipCustom": { "type": "string", "description": "Custom kinship note" },
+        "createdAt": { "type": "number", "description": "Registration timestamp" },
+        "updatedAt": { "type": "number", "description": "Last updated timestamp" }
+      },
+      "required": ["fullName", "cns", "birthDate"]
+    },
+    "Consultation": {
+      "collection": "consultations",
+      "description": "Consolidated PEC consultation records",
+      "fields": {
+        "id": { "type": "string", "description": "Record ID" },
+        "patientId": { "type": "string", "description": "Foreign key to Patient" },
+        "patientName": { "type": "string", "description": "Patient display name" },
+        "authorId": { "type": "string", "description": "User ID of author" },
+        "authorName": { "type": "string", "description": "Author full name" },
+        "authorProfession": { "type": "string", "description": "Profession ID" },
+        "authorRegister": { "type": "string", "description": "Professional council register" },
+        "workplace": { "type": "string", "description": "UBS / Health Unit" },
+        "timestamp": { "type": "number", "description": "Consultation date and time" },
+        "isFirstConsultation": { "type": "boolean", "description": "Whether it is first consultation / intake or return" },
+        "clinicalAudit": { "type": "string", "description": "Cross-checked audit alerts from previous visits" },
+        "avaliacao": { "type": "string", "description": "PEC Field 1: Avaliação" },
+        "plano": { "type": "string", "description": "PEC Field 2: Plano" },
+        "conduta": { "type": "string", "description": "PEC Field 3: Conduta (Enfermeiro)" },
+        "rawNotes": { "type": "string", "description": "Raw dictation or summary notes" },
+        "modelUsed": { "type": "string", "description": "Gemini model identifier" }
+      },
+      "required": ["patientId", "patientName", "authorName", "authorProfession", "avaliacao", "plano", "timestamp"]
+    },
+    "KnowledgeItem": {
+      "collection": "knowledge_items",
+      "description": "Municipal health protocols, REMUME, and clinical guides",
+      "fields": {
+        "id": { "type": "string", "description": "Knowledge document ID" },
+        "title": { "type": "string", "description": "Protocol title" },
+        "category": { "type": "string", "description": "Category (remume, protocolo_aps, raps, personalizado)" },
+        "content": { "type": "string", "description": "Protocol markdown or text" },
+        "isActive": { "type": "boolean", "description": "Active in prompt injection" },
+        "isSystemDefault": { "type": "boolean", "description": "Built-in standard protocol" },
+        "createdAt": { "type": "number", "description": "Creation timestamp" }
+      },
+      "required": ["title", "category", "content"]
+    }
+  }
+}
