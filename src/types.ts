@@ -23,14 +23,24 @@ export interface ProfessionConfig {
   hasBlock3: boolean; // Enfermeiro has 3 blocks (Avaliação, Plano, Bloco 06 Conduta)
 }
 
-export type GeminiModelId =
+export type AIModelId =
   | 'gemini-3.7-flash'
   | 'gemini-3.6-flash'
   | 'gemini-3.1-flash-lite'
-  | 'gemini-3.1-pro-preview';
+  | 'gemini-3.1-pro-preview'
+  | 'openai:gpt-4o'
+  | 'openai:gpt-4o-mini'
+  | 'openai:o1-preview'
+  | 'openai:o1-mini'
+  | 'openrouter:anthropic/claude-3.5-sonnet'
+  | 'openrouter:meta-llama/llama-3.1-8b-instruct'
+  | 'openrouter:meta-llama/llama-3.3-70b-instruct'
+  | 'openrouter:google/gemma-2-9b-it'
+  | 'openrouter:mistralai/mistral-nemo'
+  | string;
 
 export interface ModelOption {
-  id: GeminiModelId;
+  id: AIModelId;
   name: string;
   badge: string;
   description: string;
@@ -71,6 +81,78 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     speed: 'Moderado',
     recommendedFor: 'Casos complexos e multiprofissionais',
   },
+  {
+    id: 'openai:gpt-4o',
+    name: 'OpenAI GPT-4o',
+    badge: 'Poderoso',
+    description: 'Excelente para raciocínio clínico e transcrições complexas.',
+    speed: 'Moderado',
+    recommendedFor: 'Estruturação de casos detalhados',
+  },
+  {
+    id: 'openai:gpt-4o-mini',
+    name: 'OpenAI GPT-4o Mini',
+    badge: 'Rápido',
+    description: 'Alternativa rápida e econômica da OpenAI.',
+    speed: 'Muito Rápido',
+    recommendedFor: 'Consultas padrão',
+  },
+  {
+    id: 'openai:o1-preview',
+    name: 'OpenAI o1 Preview',
+    badge: 'Alta Complexidade',
+    description: 'Modelo mais avançado da OpenAI focado em raciocínio complexo.',
+    speed: 'Lento',
+    recommendedFor: 'Casos clínicos extremamente complexos',
+  },
+  {
+    id: 'openai:o1-mini',
+    name: 'OpenAI o1 Mini',
+    badge: 'Raciocínio Rápido',
+    description: 'Excelente capacidade analítica com maior agilidade.',
+    speed: 'Moderado',
+    recommendedFor: 'Diagnósticos diferenciais',
+  },
+  {
+    id: 'openrouter:anthropic/claude-3.5-sonnet',
+    name: 'Claude 3.5 Sonnet (OpenRouter)',
+    badge: 'Escrita Natural',
+    description: 'Texto mais humano e focado em nuances.',
+    speed: 'Rápido',
+    recommendedFor: 'Textos longos e evoluções',
+  },
+  {
+    id: 'openrouter:meta-llama/llama-3.3-70b-instruct',
+    name: 'Llama 3.3 70B (OpenRouter)',
+    badge: 'Avançado / Open Source',
+    description: 'Poderoso modelo open source de alto desempenho (Free via OpenRouter).',
+    speed: 'Moderado',
+    recommendedFor: 'Consultas detalhadas',
+  },
+  {
+    id: 'openrouter:meta-llama/llama-3.1-8b-instruct',
+    name: 'Llama 3.1 8B (OpenRouter)',
+    badge: 'Rápido / Free',
+    description: 'Modelo ágil e acessível para análises rápidas.',
+    speed: 'Muito Rápido',
+    recommendedFor: 'Consultas de rotina',
+  },
+  {
+    id: 'openrouter:google/gemma-2-9b-it',
+    name: 'Google Gemma 2 9B (OpenRouter)',
+    badge: 'Balanceado / Free',
+    description: 'Eficiência e precisão com o padrão de qualidade Google.',
+    speed: 'Rápido',
+    recommendedFor: 'Atendimentos de saúde primária',
+  },
+  {
+    id: 'openrouter:mistralai/mistral-nemo',
+    name: 'Mistral Nemo (OpenRouter)',
+    badge: 'Eficiente / Free',
+    description: 'Alto desempenho para compreensão contextual.',
+    speed: 'Rápido',
+    recommendedFor: 'Prontuários e resumos clínicos',
+  }
 ];
 
 export interface AttachmentItem {
@@ -106,7 +188,7 @@ export interface GeneratedPECRecord {
   id: string;
   timestamp: number;
   professionId: ProfessionId;
-  modelUsed: GeminiModelId;
+  modelUsed: AIModelId;
   isFirstConsultation?: boolean;
   clinicalAudit?: string;
   patientId?: string;
@@ -158,7 +240,10 @@ export interface User {
 
 export interface SystemSettings {
   geminiApiKey?: string;
-  defaultModel: GeminiModelId;
+  openaiApiKey?: string;
+  openrouterApiKey?: string;
+  groqApiKey?: string;
+  defaultModel: AIModelId;
   defaultCiapCode: string;
   defaultSigtapCode: string;
   municipalityName: string;
@@ -230,7 +315,7 @@ export interface Consultation {
   plano: string;
   conduta?: string;
   rawNotes?: string;
-  modelUsed: GeminiModelId;
+  modelUsed: AIModelId;
   qualitativeChecks: {
     hasQualitativeVitals: boolean;
     hasFixedCiapSigtap: boolean;

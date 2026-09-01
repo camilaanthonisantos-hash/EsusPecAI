@@ -1,7 +1,6 @@
 import {
   ProfessionConfig,
   ProfessionId,
-  ModelOption,
   KnowledgeItem,
   User,
   Patient,
@@ -288,24 +287,6 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionConfig> = {
   },
 };
 
-export const MODELS_AVAILABLE: ModelOption[] = [
-  {
-    id: 'gemini-3.7-flash',
-    name: 'Gemini 3.7 Flash',
-    badge: 'Rápido / Recomendado',
-    description: 'Processamento ultra veloz de texto, áudio e imagens. Ideal para atendimentos rotineiros.',
-    speed: '< 2.0s',
-    recommendedFor: 'Consultas diárias, visitas domiciliares rápidas e relatos por áudio.',
-  },
-  {
-    id: 'gemini-3.1-pro-preview',
-    name: 'Gemini 3.1 Pro',
-    badge: 'Alta Precisão Multimodal',
-    description: 'Raciocínio clínico aprofundado, OCR avançado para receitas manuscritas e exames complexos.',
-    speed: '~ 4.5s',
-    recommendedFor: 'Receitas médicas ilegíveis, laudos de exames extensos e casos de alta complexidade.',
-  },
-];
 
 export const DEFAULT_KNOWLEDGE_BASE: KnowledgeItem[] = [
   {

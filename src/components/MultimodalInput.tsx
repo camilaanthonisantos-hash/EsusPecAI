@@ -18,7 +18,7 @@ import {
   RotateCcw,
   UserCheck,
 } from 'lucide-react';
-import { AudioRecorder } from './AudioRecorder';
+import { AudioRecorderButton } from './AudioRecorderButton';
 import { AttachmentItem, ProfessionConfig } from '../types';
 import { QUICK_CLINICAL_TEMPLATES } from '../data/professions';
 import { fileToBase64 } from '../services/gemini';
@@ -39,6 +39,9 @@ interface MultimodalInputProps {
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
   activeKnowledgeCount: number;
   onOpenKnowledgeBase: () => void;
+  userApiKey?: string;
+  openaiApiKey?: string;
+  groqApiKey?: string;
 }
 
 export const MultimodalInput: React.FC<MultimodalInputProps> = ({
@@ -57,6 +60,9 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
   onShowToast,
   activeKnowledgeCount,
   onOpenKnowledgeBase,
+  userApiKey,
+  openaiApiKey,
+  groqApiKey,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -482,12 +488,16 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
         </div>
       )}
 
-      {/* Audio Recorder Module (Web Audio API) */}
-      <AudioRecorder
-        onAudioReady={setAudioAttachment}
-        currentAudio={audioAttachment}
+      {/* Groq Whisper Large v3 Audio Recorder */}
+      <AudioRecorderButton
+        onTranscriptionComplete={(text) => {
+          setRawNotes((prev) => (prev ? `${prev.trim()}\n\n${text}` : text));
+          onShowToast('success', 'Áudio transcrito com sucesso via Groq Whisper!', 'Transcrição Concluída');
+        }}
+        groqApiKey={groqApiKey}
         disabled={isGenerating}
       />
+
 
       {/* Main Action Button */}
       <div className="pt-2">

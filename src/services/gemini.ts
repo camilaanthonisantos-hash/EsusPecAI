@@ -1,9 +1,9 @@
-import { ProfessionId, GeminiModelId, GeneratedPECRecord, AttachmentItem, PatientHistorySummary } from '../types';
+import { ProfessionId, AIModelId, GeneratedPECRecord, AttachmentItem, PatientHistorySummary } from '../types';
 
 export interface GenerateParams {
   professionId: ProfessionId;
   professionName: string;
-  modelName: GeminiModelId;
+  modelName: AIModelId;
   rawNotes: string;
   isFirstConsultation?: boolean;
   patientHistory?: PatientHistorySummary[] | string;
@@ -11,6 +11,8 @@ export interface GenerateParams {
   images?: AttachmentItem[];
   customContext?: string;
   userApiKey?: string;
+  openaiApiKey?: string;
+  openrouterApiKey?: string;
 }
 
 export interface GenerationResponse {
@@ -22,7 +24,7 @@ export interface GenerationResponse {
   clinicalAudit?: string;
   isFirstConsultation?: boolean;
   hasBlock3: boolean;
-  modelUsed: GeminiModelId;
+  modelUsed: AIModelId;
   profession: string;
   timestamp: number;
 }
@@ -47,6 +49,8 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
     })),
     customContext: params.customContext,
     userApiKey: params.userApiKey || undefined,
+    openaiApiKey: params.openaiApiKey || undefined,
+    openrouterApiKey: params.openrouterApiKey || undefined,
   };
 
   const response = await fetch('/api/gemini/generate', {
@@ -132,41 +136,20 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
   };
 }
 
-// Clean markdown tags or duplicated headers from individual blocks
+import { copyPecToClipboard, formatPecText } from '../utils/pecFormatter';
+
+// Clean markdown tags or duplicated headers from individual blocks and format cleanly
 function cleanBlockOutput(blockText: string): string {
   if (!blockText) return '';
-  return blockText
+  const cleaned = blockText
     .replace(/^#+\s*CAMPO:?\s*(AVALIA[ÇC][ÃA]O|PLANO|06[^\n]*)\s*/i, '')
     .trim();
+  return formatPecText(cleaned);
 }
 
-// Utility to copy text to clipboard with fallback
-export async function copyToClipboard(text: string): Promise<boolean> {
-  if (!text) return false;
-  try {
-    if (navigator?.clipboard?.writeText) {
-      await navigator.clipboard.writeText(text);
-      return true;
-    }
-  } catch (err) {
-    console.warn('Navigator clipboard failed, using fallback textarea', err);
-  }
-
-  try {
-    const textArea = document.createElement('textarea');
-    textArea.value = text;
-    textArea.style.position = 'fixed';
-    textArea.style.left = '-999999px';
-    textArea.style.top = '-999999px';
-    document.body.appendChild(textArea);
-    textArea.focus();
-    textArea.select();
-    const successful = document.execCommand('copy');
-    document.body.removeChild(textArea);
-    return successful;
-  } catch {
-    return false;
-  }
+// Utility to copy text to clipboard with Rich HTML and Plain Text fallback
+export async function copyToClipboard(text: string, customHtml?: string): Promise<boolean> {
+  return copyPecToClipboard(text, customHtml);
 }
 
 // Helper to convert File to base64

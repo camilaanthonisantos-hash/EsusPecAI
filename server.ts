@@ -2,7 +2,9 @@ import express from "express";
 import path from "path";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
+import OpenAI from "openai";
 import { createServer as createViteServer } from "vite";
+import multer from "multer";
 
 dotenv.config();
 
@@ -135,21 +137,34 @@ function buildSystemPrompt(professionName: string, isFirstConsultation: boolean 
   if (isEnfermeiro) {
     prompt += "Deverá gerar estritamente 3 blocos bem demarcados com os seguintes cabeçalhos exatos:\n\n";
     prompt += "### CAMPO: AVALIAÇÃO\n";
-    prompt += "(Histórico/Evolução comparativa + Exame Clínico/Mental com sinais vitais estritamente qualitativos + Diagnósticos de Enfermagem NANDA-I + Códigos CIAP-2 pertinentes + CID-10 pertinentes)\n\n";
+    prompt += "Siga EXATAMENTE esta estrutura de tópicos, colocando o título SEMPRE EM MAIÚSCULAS e com dois pontos no final (SEM asteriscos), e o conteúdo correspondente logo na linha seguinte formatado como citação (iniciando com >):\n";
+    prompt += "HISTÓRICO/EVOLUÇÃO:\n> [Texto do histórico...]\n\n";
+    prompt += "EXAME CLÍNICO:\n> [Texto do exame clínico com sinais vitais qualitativos...]\n\n";
+    prompt += "DIAGNÓSTICOS DE ENFERMAGEM (NANDA-I):\n> - [Diagnóstico 1]\n> - [Diagnóstico 2]\n\n";
+    prompt += "CIAP-2:\n> - [Código] ([Descrição])\n\n";
+    prompt += "CID-10:\n> - [Código] ([Descrição])\n\n";
+
     prompt += "### CAMPO: PLANO\n";
-    prompt += "(Metas NOC + Intervenções de Enfermagem NIC + Linhas fixas obrigatórias no final:\n";
-    prompt += "CIAP-2: -69 (Outras orientações / Aconselhamento / Educação em saúde)\n";
-    prompt += "SIGTAP: 0301080445 (Orientação Individual em Saúde))\n\n";
+    prompt += "Siga EXATAMENTE esta estrutura de tópicos:\n";
+    prompt += "METAS (NOC):\n> - [Meta 1]\n> - [Meta 2]\n\n";
+    prompt += "INTERVENÇÕES (NIC):\n> - [Intervenção 1]\n> - [Intervenção 2]\n\n";
+    prompt += "CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n";
+    prompt += "SIGTAP:\n> - 0301080445 (Orientação Individual em Saúde)\n\n";
+
     prompt += "### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n";
-    prompt += "(Conduta Imediata + Prescrições de Enfermagem/Transcrições conforme protocolos municipais + Guias de Referência/Contrarreferência ou Solicitação de Exames + Retorno/Agendamento)\n\n";
+    prompt += "Siga EXATAMENTE a divisão em subseções com títulos em MAIÚSCULAS e citação > na linha seguinte:\n";
+    prompt += "CONDUTA IMEDIATA:\n> [Acolhimento e orientações imediatas...]\n\n";
+    prompt += "PRESCRIÇÕES DE ENFERMAGEM / TRANSCRIÇÕES:\n> [Prescrições conforme protocolos municipais...]\n\n";
+    prompt += "GUIAS DE REFERÊNCIA / SOLICITAÇÃO DE EXAMES:\n> [Exames laboratoriais ou encaminhamentos...]\n\n";
+    prompt += "RETORNO / AGENDAMENTO:\n> [Agendamento de retorno ou sinais de alerta...]\n\n";
   } else {
     prompt += "Deverá gerar estritamente 2 blocos bem demarcados com os seguintes cabeçalhos exatos:\n\n";
     prompt += "### CAMPO: AVALIAÇÃO\n";
-    prompt += "(Relato/Evolução do Cidadão + Impressões Técnicas e Avaliação Clínico-Comportamental/Funcional/Social com sinais vitais e dados antropométricos estritamente qualitativos + Códigos CIAP-2 pertinentes + Códigos CID-10 pertinentes)\n\n";
+    prompt += "Divida em subseções com títulos em MAIÚSCULAS (ex: RELATO/EVOLUÇÃO DO CIDADÃO:, IMPRESSÕES TÉCNICAS E AVALIAÇÃO CLÍNICA:, CIAP-2:, CID-10:), e o conteúdo logo na linha seguinte formatado como citação (> ).\n\n";
     prompt += "### CAMPO: PLANO\n";
-    prompt += "(Conduta Terapêutica & Intervenções Realizadas + Encaminhamentos, Articulação de Rede, Suporte e Seguimento + Linhas fixas obrigatórias no final:\n";
-    prompt += "CIAP-2: -69 (Outras orientações / Aconselhamento / Educação em saúde)\n";
-    prompt += "SIGTAP: 0301080445 (Orientação Individual em Saúde))\n\n";
+    prompt += "Divida em subseções com títulos em MAIÚSCULAS (ex: CONDUTA TERAPÊUTICA E INTERVENÇÕES:, ENCAMINHAMENTOS E ARTICULAÇÃO DE REDE:, CIAP-2:, SIGTAP:), e o conteúdo logo na linha seguinte formatado como citação (> ). Finalize com:\n";
+    prompt += "CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n";
+    prompt += "SIGTAP:\n> - 0301080445 (Orientação Individual em Saúde)\n\n";
   }
 
   if (safeContext) {
@@ -157,10 +172,11 @@ function buildSystemPrompt(professionName: string, isFirstConsultation: boolean 
   }
 
   prompt += "INSTRUÇÃO DE FORMATAÇÃO RIGOROSA PARA O PEC DO e-SUS:\n";
-  prompt += '1. NUNCA utilize asteriscos duplos (**) ou formatação markdown de negrito nos títulos das subseções (ex: escreva exatamente "Histórico/Evolução:" ou "Exame Clínico:" em texto simples, sem **).\n';
-  prompt += "2. O conteúdo e a descrição de cada subseção DEVEM ser formatados obrigatoriamente como uma citação em bloco (utilizando o caractere > no início de cada linha do texto), garantindo a estrutura visual de citação com barra lateral.\n";
-  prompt += "3. Aplique este mesmo padrão rigoroso em TODOS os campos do prontuário (CAMPO: AVALIAÇÃO, CAMPO: PLANO e CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA).\n";
-  prompt += "4. Mantenha o texto extremamente limpo, técnico e pronto para cópia direta nas abas do e-SUS PEC.";
+  prompt += '1. Escreva SEMPRE os títulos das subseções em LETRAS MAIÚSCULAS com dois pontos no final (ex: "HISTÓRICO/EVOLUÇÃO:", "EXAME CLÍNICO:", "DIAGNÓSTICOS DE ENFERMAGEM (NANDA-I):", "METAS (NOC):", "INTERVENÇÕES (NIC):", "CIAP-2:", "CID-10:", "SIGTAP:"). NUNCA utilize asteriscos duplos (**) nos títulos.\n';
+  prompt += "2. O conteúdo e a descrição abaixo do título DEVEM ser formatados como uma citação em bloco (iniciando cada linha com o caractere > e um espaço), colocado IMEDIATAMENTE na linha seguinte após o título (sem linha em branco intermediária entre o título e a citação).\n";
+  prompt += "3. Pule uma linha em branco apenas para separar um bloco/seção completo do próximo.\n";
+  prompt += "4. Aplique este mesmo padrão rigoroso em TODOS os campos do prontuário.\n";
+  prompt += "5. Mantenha o texto limpo, técnico e pronto para cópia direta nas abas do e-SUS PEC.";
 
   return prompt;
 }
@@ -186,6 +202,8 @@ app.post("/api/gemini/generate", async (req, res) => {
     const images = Array.isArray(req.body.images) ? req.body.images : [];
     const customContext = typeof req.body.customContext === "string" ? req.body.customContext : "";
     const userApiKey = typeof req.body.userApiKey === "string" ? req.body.userApiKey : undefined;
+    const openaiApiKey = typeof req.body.openaiApiKey === "string" ? req.body.openaiApiKey : undefined;
+    const openrouterApiKey = typeof req.body.openrouterApiKey === "string" ? req.body.openrouterApiKey : undefined;
 
     if (!rawNotes && !audioData && (!images || images.length === 0)) {
       return res.status(400).json({
@@ -193,51 +211,30 @@ app.post("/api/gemini/generate", async (req, res) => {
       });
     }
 
-    const ai = getGeminiClient(userApiKey);
     const systemInstruction = buildSystemPrompt(profession, Boolean(isFirstConsultation), customContext);
 
-    // Map requested model to supported current model versions
-    let targetModel = "gemini-3.7-flash";
-    const validModels = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-pro"];
-    if (validModels.includes(modelName)) {
-      targetModel = modelName === "gemini-2.5-pro" || modelName === "gemini-pro" ? "gemini-3.1-pro-preview" : modelName;
-    } else if (modelName?.includes("pro")) {
-      targetModel = "gemini-3.1-pro-preview";
-    } else if (modelName?.includes("lite")) {
-      targetModel = "gemini-3.1-flash-lite";
-    } else if (modelName?.includes("3.6")) {
-      targetModel = "gemini-3.6-flash";
+    // Determine model routing
+    const isGemini = modelName.includes("gemini");
+    const isOpenAI = modelName.includes("gpt");
+    const isOpenRouter = !isGemini && !isOpenAI;
+
+    let targetModel = modelName;
+    if (isGemini) {
+      const validModels = ["gemini-3.7-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite", "gemini-3.1-pro-preview", "gemini-2.5-pro", "gemini-pro"];
+      if (validModels.includes(modelName)) {
+        targetModel = modelName === "gemini-2.5-pro" || modelName === "gemini-pro" ? "gemini-3.1-pro-preview" : modelName;
+      } else if (modelName?.includes("pro")) {
+        targetModel = "gemini-3.1-pro-preview";
+      } else if (modelName?.includes("lite")) {
+        targetModel = "gemini-3.1-flash-lite";
+      } else {
+        targetModel = "gemini-3.7-flash";
+      }
     }
 
     console.log(`[AI Generation] Model requested from client: "${modelName}" -> Executing on model: "${targetModel}"`);
 
-    const contentsParts: Array<any> = [];
-
-    // Add audio if present
-    if (audioData?.data) {
-      contentsParts.push({
-        inlineData: {
-          mimeType: audioData.mimeType || "audio/webm",
-          data: audioData.data,
-        },
-      });
-    }
-
-    // Add images / documents if present
-    if (Array.isArray(images)) {
-      for (const img of images) {
-        if (img?.data) {
-          contentsParts.push({
-            inlineData: {
-              mimeType: img.mimeType || "image/jpeg",
-              data: img.data,
-            },
-          });
-        }
-      }
-    }
-
-    // Add user text prompt / raw clinical notes
+    // Prepare User Prompt
     let userTextPrompt = `Por favor, elabore o registro clínico formal para o PEC do e-SUS para o profissional: ${profession}.\n`;
     userTextPrompt += `TIPO DE ATENDIMENTO: ${isFirstConsultation ? "PRIMEIRO ATENDIMENTO / ACOLHIMENTO INICIAL" : "RETORNO / REAVALIAÇÃO / ALTA"}\n\n`;
 
@@ -264,53 +261,138 @@ app.post("/api/gemini/generate", async (req, res) => {
       }
     }
 
-    if (audioData) {
-      userTextPrompt += `OBSERVAÇÃO: Há um áudio anexado com o relato verbal da consulta/visita. Faça a transcrição e extração clínica integral dos pontos relatados.\n\n`;
+    let transcribedText = "";
+
+    // 1. Process Multimedia (Audio/Image) using Gemini if needed
+    if (audioData || (images && images.length > 0)) {
+      const ai = getGeminiClient(userApiKey);
+      const contentsParts: Array<any> = [];
+
+      if (audioData?.data) {
+        contentsParts.push({
+          inlineData: {
+            mimeType: audioData.mimeType || "audio/webm",
+            data: audioData.data,
+          },
+        });
+      }
+
+      if (Array.isArray(images)) {
+        for (const img of images) {
+          if (img?.data) {
+            contentsParts.push({
+              inlineData: {
+                mimeType: img.mimeType || "image/jpeg",
+                data: img.data,
+              },
+            });
+          }
+        }
+      }
+
+      const validParts = contentsParts
+        .filter((p) => p && typeof p === "object")
+        .map((p) => {
+          if (p.inlineData && typeof p.inlineData === "object" && typeof p.inlineData.data === "string") {
+            return {
+              inlineData: {
+                mimeType: String(p.inlineData.mimeType || "image/jpeg"),
+                data: String(p.inlineData.data),
+              },
+            };
+          }
+          return null;
+        })
+        .filter((p): p is { inlineData: { mimeType: string; data: string } } => p !== null);
+
+      if (isGemini) {
+        // Direct processing
+        if (audioData) {
+          userTextPrompt += `OBSERVAÇÃO: Há um áudio anexado com o relato verbal da consulta/visita. Faça a transcrição e extração clínica integral dos pontos relatados.\n\n`;
+        }
+        if (images && images.length > 0) {
+          userTextPrompt += `OBSERVAÇÃO: Há ${images.length} imagem(ns)/documento(s) anexados (receitas, exames ou monitores de sinais vitais). Extraia todos os dados clínicos pertinentes e incorpore no prontuário conforme as regras do PEC.\n\n`;
+        }
+        validParts.push({ text: userTextPrompt } as any);
+        
+        userTextPrompt += `Gere o prontuário estruturado pronto para cópia conforme os blocos e regras obrigatórias.`;
+        
+        const { response, modelUsed } = await generateContentWithFallback(ai, targetModel, {
+          contents: [{ role: "user", parts: validParts }],
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+            topP: 0.9,
+          },
+        });
+        
+        transcribedText = response.text || "";
+        targetModel = modelUsed;
+      } else {
+        // Pre-transcribe for OpenAI/OpenRouter
+        console.log(`[AI Generation] Transcribing multimedia using Gemini for external model: ${targetModel}`);
+        validParts.push({ text: "Transcreva o áudio (se houver) e descreva os documentos/fotos anexados com o máximo de detalhes clínicos possíveis. Não estruture o prontuário ainda." } as any);
+        
+        const { response } = await generateContentWithFallback(ai, "gemini-3.7-flash", {
+          contents: [{ role: "user", parts: validParts }],
+          config: {
+            temperature: 0.1,
+          },
+        });
+        
+        if (response.text) {
+          userTextPrompt += `[TRANSCRIÇÃO/DESCRIÇÃO DO MULTIMÍDIA GERADA POR IA]:\n${response.text}\n\n`;
+        }
+      }
     }
 
-    if (images && images.length > 0) {
-      userTextPrompt += `OBSERVAÇÃO: Há ${images.length} imagem(ns)/documento(s) anexados (receitas, exames ou monitores de sinais vitais). Extraia todos os dados clínicos pertinentes e incorpore no prontuário conforme as regras do PEC.\n\n`;
+    let fullText = transcribedText;
+
+    // 2. Generate Text if using OpenAI / OpenRouter (or if it was a text-only Gemini request)
+    if (!isGemini || (!audioData && (!images || images.length === 0))) {
+      userTextPrompt += `Gere o prontuário estruturado pronto para cópia conforme os blocos e regras obrigatórias.`;
+      
+      if (isGemini) {
+        const ai = getGeminiClient(userApiKey);
+        const { response, modelUsed } = await generateContentWithFallback(ai, targetModel, {
+          contents: [{ role: "user", parts: [{ text: userTextPrompt }] }],
+          config: {
+            systemInstruction,
+            temperature: 0.2,
+            topP: 0.9,
+          },
+        });
+        fullText = response.text || "";
+        targetModel = modelUsed;
+      } else {
+        // OpenAI or OpenRouter logic
+        const keyToUse = isOpenAI ? openaiApiKey : openrouterApiKey;
+        const envKey = isOpenAI ? process.env.OPENAI_API_KEY : process.env.OPENROUTER_API_KEY;
+        const finalKey = (keyToUse || envKey || "").trim();
+        
+        if (!finalKey) {
+          throw new Error(`Chave de API da ${isOpenAI ? 'OpenAI' : 'OpenRouter'} não configurada.`);
+        }
+
+        const client = new OpenAI({
+          apiKey: finalKey,
+          baseURL: isOpenRouter ? "https://openrouter.ai/api/v1" : undefined,
+        });
+
+        console.log(`[AI Generation] Calling ${isOpenAI ? 'OpenAI' : 'OpenRouter'} with model: ${targetModel}`);
+        const response = await client.chat.completions.create({
+          model: targetModel,
+          temperature: 0.2,
+          top_p: 0.9,
+          messages: [
+            { role: "system", content: systemInstruction },
+            { role: "user", content: userTextPrompt }
+          ],
+        });
+
+        fullText = response.choices[0]?.message?.content || "";
+      }
     }
-
-    userTextPrompt += `Gere o prontuário estruturado pronto para cópia conforme os blocos e regras obrigatórias.`;
-
-    contentsParts.push({
-      text: userTextPrompt,
-    });
-
-    const validParts = contentsParts
-      .filter((p) => p && typeof p === "object")
-      .map((p) => {
-        if (p.text && typeof p.text === "string") {
-          return { text: p.text };
-        }
-        if (p.inlineData && typeof p.inlineData === "object" && typeof p.inlineData.data === "string") {
-          return {
-            inlineData: {
-              mimeType: String(p.inlineData.mimeType || "image/jpeg"),
-              data: String(p.inlineData.data),
-            },
-          };
-        }
-        return null;
-      })
-      .filter((p): p is { text: string } | { inlineData: { mimeType: string; data: string } } => p !== null);
-
-    const { response, modelUsed } = await generateContentWithFallback(ai, targetModel, {
-      contents: [
-        {
-          role: "user",
-          parts: validParts,
-        },
-      ],
-      config: {
-        systemInstruction,
-        temperature: 0.2, // Low temperature for high clinical consistency and exact adherence to rules
-        topP: 0.9,
-      },
-    });
-
-    const fullText = response.text || "";
 
     // Parse the output into distinct blocks for the PEC cards
     const parsed = parsePECBlocks(fullText, profession);
@@ -324,7 +406,7 @@ app.post("/api/gemini/generate", async (req, res) => {
       clinicalAudit: parsed.clinicalAudit,
       isFirstConsultation: Boolean(isFirstConsultation),
       hasBlock3: parsed.hasBlock3,
-      modelUsed: modelUsed || targetModel,
+      modelUsed: targetModel,
       profession,
       timestamp: Date.now(),
     });
@@ -366,6 +448,156 @@ app.post("/api/gemini/test", async (req, res) => {
     });
   }
 });
+
+// Test Groq API Key Endpoint
+app.post("/api/groq/test", async (req, res) => {
+  try {
+    const apiKey = typeof req.body.apiKey === "string" ? req.body.apiKey.trim() : "";
+    if (!apiKey) {
+      return res.status(400).json({ success: false, error: "Chave da Groq não informada." });
+    }
+
+    const groq = new OpenAI({
+      apiKey,
+      baseURL: "https://api.groq.com/openai/v1",
+    });
+
+    const models = await groq.models.list();
+    const hasWhisper = models.data.some((m) => m.id.includes("whisper"));
+
+    res.json({
+      success: true,
+      message: `Chave da Groq válida! Modelos disponíveis (incluindo whisper-large-v3).`,
+    });
+  } catch (err: any) {
+    console.error("Erro no teste da Groq API Key:", err);
+    res.status(500).json({
+      success: false,
+      error: err?.message || "Falha na validação da chave com a Groq API.",
+    });
+  }
+});
+
+// ── Audio Transcription Endpoint ─────────────────────────────────────────────
+// Uses multer for proper file upload handling and calls Groq API directly
+// via fetch + FormData (no OpenAI SDK intermediary)
+const audioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 25 * 1024 * 1024 } });
+
+app.post(
+  ["/api/audio/transcribe", "/api/gemini/transcribe"],
+  audioUpload.single("audio"),
+  async (req: any, res) => {
+    try {
+      // ── Resolve the audio buffer ──────────────────────────────────────────
+      let audioBuffer: Buffer | null = null;
+      let fileName = "audio.webm";
+      let fileMime = "audio/webm";
+
+      if (req.file) {
+        // Multipart upload path (new)
+        audioBuffer = req.file.buffer;
+        fileName = req.file.originalname || "audio.webm";
+        fileMime = req.file.mimetype || "audio/webm";
+      } else if (req.body?.audioData?.data) {
+        // Legacy base64 JSON path (backward compat)
+        const base64Data = String(req.body.audioData.data);
+        const rawMime = String(req.body.audioData.mimeType || "audio/webm");
+        fileMime = rawMime.split(";")[0].trim();
+        const ext = fileMime.includes("mp4") ? "mp4" : fileMime.includes("ogg") ? "ogg" : fileMime.includes("wav") ? "wav" : "webm";
+        fileName = `audio.${ext}`;
+        audioBuffer = Buffer.from(base64Data, "base64");
+      }
+
+      if (!audioBuffer || audioBuffer.length < 500) {
+        return res.status(400).json({ success: false, error: "Nenhum dado de áudio fornecido ou áudio muito curto." });
+      }
+
+      // ── Resolve API keys ──────────────────────────────────────────────────
+      const groqApiKey = (typeof req.body?.groqApiKey === "string" ? req.body.groqApiKey : "").trim()
+        || process.env.GROQ_API_KEY || "";
+
+      console.log(`[AudioTranscription] file="${fileName}" | size=${audioBuffer.length} bytes | mime="${fileMime}" | groqKey=${groqApiKey ? groqApiKey.slice(0, 8) + "..." : "MISSING"}`);
+
+      if (!groqApiKey) {
+        return res.status(400).json({
+          success: false,
+          error: "Chave de API da Groq não configurada. Vá em Configurações do Sistema → Chaves de API → Groq.",
+        });
+      }
+
+      // ── Call Groq Whisper API directly via fetch + FormData ────────────────
+      const formData = new FormData();
+      const blob = new Blob([audioBuffer], { type: fileMime });
+      formData.append("file", blob, fileName);
+      formData.append("model", "whisper-large-v3-turbo");
+      formData.append("language", "pt");
+      formData.append("response_format", "verbose_json");
+      formData.append("temperature", "0");
+
+      console.log("[AudioTranscription] Sending to Groq Whisper API (whisper-large-v3-turbo)...");
+
+      let groqResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${groqApiKey}` },
+        body: formData,
+      });
+
+      // Fallback to whisper-large-v3 if turbo is not available
+      if (groqResponse.status === 400 || groqResponse.status === 404) {
+        console.warn("[AudioTranscription] Turbo model unavailable, falling back to whisper-large-v3...");
+        const formData2 = new FormData();
+        const blob2 = new Blob([audioBuffer], { type: fileMime });
+        formData2.append("file", blob2, fileName);
+        formData2.append("model", "whisper-large-v3");
+        formData2.append("language", "pt");
+        formData2.append("response_format", "verbose_json");
+        formData2.append("temperature", "0");
+
+        groqResponse = await fetch("https://api.groq.com/openai/v1/audio/transcriptions", {
+          method: "POST",
+          headers: { Authorization: `Bearer ${groqApiKey}` },
+          body: formData2,
+        });
+      }
+
+      const groqResult = await groqResponse.json();
+      console.log("[AudioTranscription/Groq] Response status:", groqResponse.status, "| Body:", JSON.stringify(groqResult).slice(0, 500));
+
+      if (!groqResponse.ok) {
+        const errMsg = groqResult?.error?.message || groqResult?.error || JSON.stringify(groqResult);
+        return res.status(500).json({
+          success: false,
+          error: `Erro na API da Groq (${groqResponse.status}): ${errMsg}`,
+        });
+      }
+
+      const transcription = (groqResult.text || "").trim();
+
+      if (transcription && transcription !== ".") {
+        console.log(`[AudioTranscription/Groq] ✅ Transcription: "${transcription}"`);
+        return res.json({
+          success: true,
+          text: transcription,
+          transcription,
+          duration: groqResult.duration,
+          engine: "groq-whisper",
+        });
+      } else {
+        console.warn("[AudioTranscription/Groq] ⚠️ Empty transcription returned.");
+        return res.status(422).json({
+          success: false,
+          error: "Nenhuma fala compreensível foi detectada no áudio gravado.",
+        });
+      }
+    } catch (err: any) {
+      console.error("[AudioTranscription] Fatal error:", err);
+      res.status(500).json({ success: false, error: err?.message || "Erro interno ao transcrever o áudio." });
+    }
+  }
+);
+
+
+
 
 // Longitudinal Clinical Evolution Endpoint
 app.post("/api/gemini/evolution", async (req, res) => {

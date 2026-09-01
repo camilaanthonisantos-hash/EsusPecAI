@@ -23,7 +23,7 @@ import {
 } from 'lucide-react';
 import {
   ProfessionId,
-  GeminiModelId,
+  AIModelId,
   AttachmentItem,
   KnowledgeItem,
   GeneratedPECRecord,
@@ -166,7 +166,7 @@ export default function App() {
     return currentUser.profession || 'enfermeiro';
   });
 
-  const [selectedModel, setSelectedModel] = useState<GeminiModelId>(() => {
+  const [selectedModel, setSelectedModel] = useState<AIModelId>(() => {
     const saved = localStorage.getItem('pec_model');
     if (saved === 'gemini-3.1-pro-preview' || saved === 'gemini-2.5-pro' || saved === 'gemini-pro') {
       return 'gemini-3.1-pro-preview';
@@ -803,7 +803,9 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         audioAttachment,
         images: attachments,
         customContext: mergedCustomContext,
-        userApiKey,
+        userApiKey: systemSettings.geminiApiKey || userApiKey,
+        openaiApiKey: systemSettings.openaiApiKey,
+        openrouterApiKey: systemSettings.openrouterApiKey,
       });
 
       // Attach patient info if selected
@@ -1064,6 +1066,9 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                 onShowToast={showToast}
                 activeKnowledgeCount={activeKnowledgeCount}
                 onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+                userApiKey={systemSettings.geminiApiKey || userApiKey}
+                openaiApiKey={systemSettings.openaiApiKey}
+                groqApiKey={systemSettings.groqApiKey}
               />
             </section>
 

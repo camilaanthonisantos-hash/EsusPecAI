@@ -15,34 +15,64 @@ import {
 } from 'lucide-react';
 import { GeneratedPECRecord, ProfessionConfig, Patient } from '../types';
 import { copyToClipboard } from '../services/gemini';
+import { parsePecText } from '../utils/pecFormatter';
+import { PecQuickCodesBar } from './PecQuickCodesBar';
 
 function renderFormattedPECContent(text: string) {
-  const lines = text.split('\n');
-  return lines.map((line, idx) => {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('>')) {
-      const content = trimmed.replace(/^>\s*/, '');
-      return (
-        <div key={idx} className="my-1.5 pl-4 border-l-4 border-teal-500/70 italic text-slate-700 dark:text-slate-300">
-          {content}
-        </div>
-      );
-    } else if (trimmed.endsWith(':') && trimmed.length < 50 && !trimmed.startsWith('-')) {
-      return (
-        <div key={idx} className="font-bold text-slate-900 dark:text-slate-100 mt-4 mb-1">
-          {trimmed}
-        </div>
-      );
-    } else if (trimmed === '') {
-      return <div key={idx} className="h-2" />;
-    } else {
-      return (
-        <div key={idx} className="my-1 text-slate-800 dark:text-slate-200">
-          {line}
-        </div>
-      );
-    }
-  });
+  const blocks = parsePecText(text);
+  if (blocks.length === 0) {
+    return <span className="text-slate-400 italic">Nenhum conteúdo.</span>;
+  }
+
+  return (
+    <div className="space-y-3">
+      {blocks.map((block, idx) => {
+        if (block.type === 'banner') {
+          return (
+            <div
+              key={idx}
+              className="font-bold text-xs uppercase tracking-wider text-teal-700 dark:text-teal-300 py-1.5 border-b border-teal-500/20"
+            >
+              {block.text}
+            </div>
+          );
+        }
+
+        if (block.type === 'header') {
+          return (
+            <div
+              key={idx}
+              className="font-bold uppercase tracking-wide text-slate-900 dark:text-slate-100 text-sm mt-3.5 mb-1 flex items-center gap-2"
+            >
+              <span className="w-2 h-2 rounded-full bg-teal-500 inline-block shadow-xs" />
+              <span>{block.title}</span>
+            </div>
+          );
+        }
+
+        if (block.type === 'quote') {
+          return (
+            <blockquote
+              key={idx}
+              className="my-1.5 pl-4 py-2 border-l-4 border-teal-500 bg-teal-500/5 dark:bg-teal-950/20 rounded-r-xl italic text-slate-700 dark:text-slate-200 text-sm leading-relaxed"
+            >
+              {block.lines?.map((line, lIdx) => (
+                <div key={lIdx} className={lIdx > 0 ? 'mt-1' : ''}>
+                  {line}
+                </div>
+              ))}
+            </blockquote>
+          );
+        }
+
+        return (
+          <div key={idx} className="my-1 text-slate-800 dark:text-slate-200 text-sm leading-relaxed">
+            {block.text}
+          </div>
+        );
+      })}
+    </div>
+  );
 }
 
 interface OutputCardProps {
@@ -375,6 +405,13 @@ export const OutputCard: React.FC<OutputCardProps> = ({
             </div>
           )}
 
+          {/* Quick-Copy Codes Bar (CIAP-2 & Clean CID-10) */}
+          <PecQuickCodesBar
+            type="avaliacao"
+            text={avaliacaoText}
+            onShowToast={onShowToast}
+          />
+
           {/* Footer character counter */}
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex items-center justify-between text-[11px] text-slate-400">
             <span>{avaliacaoText.length} caracteres • {avaliacaoText.split(/\s+/).filter(Boolean).length} palavras</span>
@@ -466,6 +503,13 @@ export const OutputCard: React.FC<OutputCardProps> = ({
               {renderFormattedPECContent(planoText)}
             </div>
           )}
+
+          {/* Quick-Copy Codes Bar (CIAP-2 & SIGTAP / SIA) */}
+          <PecQuickCodesBar
+            type="plano"
+            text={planoText}
+            onShowToast={onShowToast}
+          />
 
           {/* Footer character counter & Fixed Code Highlight */}
           <div className="mt-4 pt-3 border-t border-slate-100 dark:border-slate-800/80 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-[11px] text-slate-400">

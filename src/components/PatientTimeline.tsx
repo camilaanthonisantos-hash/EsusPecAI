@@ -27,6 +27,7 @@ import { Patient, Consultation, User, ProfessionId } from '../types';
 import { PROFESSIONS, isUserAdmin } from '../data/professions';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
 import { copyToClipboard } from '../services/gemini';
+import { PecContentRenderer } from './PecContentRenderer';
 
 interface PatientTimelineProps {
   patient: Patient;
@@ -461,8 +462,8 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
                             <span>Copiar Avaliação</span>
                           </button>
                         </div>
-                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 whitespace-pre-line leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
-                          {consultation.avaliacao}
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                          <PecContentRenderer text={consultation.avaliacao} />
                         </div>
                       </div>
 
@@ -481,8 +482,8 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
                             <span>Copiar Plano</span>
                           </button>
                         </div>
-                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 whitespace-pre-line leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
-                          {consultation.plano}
+                        <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                          <PecContentRenderer text={consultation.plano} />
                         </div>
                       </div>
 
@@ -504,8 +505,8 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
                               <span>Copiar Conduta 06</span>
                             </button>
                           </div>
-                          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 whitespace-pre-line leading-relaxed text-slate-800 dark:text-slate-200 font-normal">
-                            {consultation.conduta}
+                          <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800">
+                            <PecContentRenderer text={consultation.conduta} />
                           </div>
                         </div>
                       )}

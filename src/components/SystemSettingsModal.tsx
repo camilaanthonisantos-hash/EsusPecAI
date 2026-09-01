@@ -33,7 +33,7 @@ import {
   ProfessionId,
   ProfessionConfig,
   SystemSettings,
-  GeminiModelId,
+  AIModelId,
   Patient,
   Consultation,
   AVAILABLE_MODELS,
@@ -101,7 +101,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
 
   // Settings form state
   const [geminiApiKey, setGeminiApiKey] = useState(systemSettings.geminiApiKey || '');
-  const [defaultModel, setDefaultModel] = useState<GeminiModelId>(() => {
+  const [openaiApiKey, setOpenaiApiKey] = useState(systemSettings.openaiApiKey || '');
+  const [openrouterApiKey, setOpenrouterApiKey] = useState(systemSettings.openrouterApiKey || '');
+  const [groqApiKey, setGroqApiKey] = useState(systemSettings.groqApiKey || '');
+  const [defaultModel, setDefaultModel] = useState<AIModelId>(() => {
     const saved = systemSettings.defaultModel;
     if (saved === 'gemini-3.1-pro-preview' || saved === 'gemini-2.5-pro' || saved === 'gemini-pro') {
       return 'gemini-3.1-pro-preview';
@@ -230,6 +233,17 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   // Testing API key state
   const [isTestingKey, setIsTestingKey] = useState(false);
   const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isTestingGroqKey, setIsTestingGroqKey] = useState(false);
+  const [groqTestResult, setGroqTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Model Dropdown state
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+  const filteredModels = AVAILABLE_MODELS.filter(m =>
+    m.name.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+    m.description.toLowerCase().includes(modelSearchQuery.toLowerCase()) ||
+    m.badge.toLowerCase().includes(modelSearchQuery.toLowerCase())
+  );
 
   // Filtered users list
   const filteredUsers = users.filter((u) => {
@@ -254,6 +268,9 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
     const updated: SystemSettings = {
       ...systemSettings,
       geminiApiKey: geminiApiKey.trim(),
+      openaiApiKey: openaiApiKey.trim(),
+      openrouterApiKey: openrouterApiKey.trim(),
+      groqApiKey: groqApiKey.trim(),
       defaultModel,
       defaultCiapCode: defaultCiapCode.trim() || '-69',
       defaultSigtapCode: defaultSigtapCode.trim() || '0301080445',
@@ -264,6 +281,7 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       updatedBy: currentUser.email,
     };
 
+    localStorage.setItem('pec_groq_api_key', groqApiKey.trim());
     onUpdateSystemSettings(updated);
     onShowToast('success', 'Configurações gerais do sistema salvas com sucesso!', 'Configurações Atualizadas');
   };
@@ -305,6 +323,44 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       onShowToast('error', 'Não foi possível contatar o servidor da Google AI.', 'Erro de Rede');
     } finally {
       setIsTestingKey(false);
+    }
+  };
+
+  const handleTestGroqKey = async () => {
+    if (!groqApiKey.trim()) {
+      onShowToast('error', 'Insira uma chave da Groq para realizar o teste.', 'Chave Vazia');
+      return;
+    }
+
+    setIsTestingGroqKey(true);
+    setGroqTestResult(null);
+
+    try {
+      const response = await fetch('/api/groq/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ apiKey: groqApiKey.trim() }),
+      });
+
+      const data = await response.json().catch(() => ({}));
+
+      if (response.ok && data?.success) {
+        setGroqTestResult({
+          success: true,
+          message: data.message || 'Chave da Groq válida e conectada com sucesso!',
+        });
+        localStorage.setItem('pec_groq_api_key', groqApiKey.trim());
+        onShowToast('success', 'Chave da Groq validada com sucesso!', 'Conexão Groq OK');
+      } else {
+        const errMsg = data?.error || `Erro HTTP ${response.status}`;
+        setGroqTestResult({ success: false, message: `Falha na validação: ${errMsg}` });
+        onShowToast('error', `Chave inválida: ${errMsg}`, 'Falha Groq');
+      }
+    } catch (err: any) {
+      setGroqTestResult({ success: false, message: `Erro de rede: ${err?.message || 'Falha ao conectar'}` });
+      onShowToast('error', 'Erro de conexão ao validar chave Groq.', 'Falha de Rede');
+    } finally {
+      setIsTestingGroqKey(false);
     }
   };
 
@@ -1244,6 +1300,106 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                         )}
                       </div>
 
+                      {/* OpenAI API Key Input */}
+                      <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                          <Key className="w-4 h-4 text-indigo-600" />
+                          <span>Chave de API da OpenAI</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Necessária para usar modelos como GPT-4o.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                          <input
+                            type="password"
+                            id="system-openai-api-key-input"
+                            value={openaiApiKey}
+                            onChange={(e) => setOpenaiApiKey(e.target.value)}
+                            placeholder="sk-proj-..."
+                            className="flex-1 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* OpenRouter API Key Input */}
+                      <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                          <Key className="w-4 h-4 text-indigo-600" />
+                          <span>Chave de API da OpenRouter</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Necessária para usar modelos como Claude 3.5 Sonnet ou Llama.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                          <input
+                            type="password"
+                            id="system-openrouter-api-key-input"
+                            value={openrouterApiKey}
+                            onChange={(e) => setOpenrouterApiKey(e.target.value)}
+                            placeholder="sk-or-..."
+                            className="flex-1 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
+                          />
+                        </div>
+                      </div>
+
+                      {/* Groq API Key Input */}
+                      <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
+                        <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
+                          <Key className="w-4 h-4 text-emerald-600" />
+                          <span>Chave de API da Groq (Whisper Large v3)</span>
+                        </div>
+                        <p className="text-xs text-slate-500 dark:text-slate-400">
+                          Utilizada para o ditado clínico por voz ultra-rápido com o modelo <strong className="text-emerald-600 dark:text-emerald-400 font-mono">whisper-large-v3</strong>.
+                        </p>
+
+                        <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+                          <input
+                            type="password"
+                            id="system-groq-api-key-input"
+                            value={groqApiKey}
+                            onChange={(e) => {
+                              setGroqApiKey(e.target.value);
+                              localStorage.setItem('pec_groq_api_key', e.target.value.trim());
+                            }}
+                            placeholder="gsk_..."
+                            className="flex-1 px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                          <button
+                            type="button"
+                            id="test-groq-key-btn"
+                            disabled={isTestingGroqKey || !groqApiKey.trim()}
+                            onClick={handleTestGroqKey}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-100 dark:bg-emerald-950/60 hover:bg-emerald-200 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+                          >
+                            {isTestingGroqKey ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Sparkles className="w-3.5 h-3.5 text-emerald-600" />
+                            )}
+                            <span>{isTestingGroqKey ? 'Testando...' : 'Testar Conexão Groq'}</span>
+                          </button>
+                        </div>
+
+                        {groqTestResult && (
+                          <div
+                            className={`p-3 rounded-2xl text-xs flex items-center gap-2 ${
+                              groqTestResult.success
+                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
+                                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
+                            }`}
+                          >
+                            {groqTestResult.success ? (
+                              <CheckCircle2 className="w-4 h-4 text-emerald-600 shrink-0" />
+                            ) : (
+                              <AlertTriangle className="w-4 h-4 text-rose-600 shrink-0" />
+                            )}
+                            <span>{groqTestResult.message}</span>
+                          </div>
+                        )}
+                      </div>
+
                       {/* Model Selector */}
                       <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
@@ -1251,37 +1407,77 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                           <span>Modelo Padrão do Sistema</span>
                         </div>
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          {AVAILABLE_MODELS.map((model) => (
-                            <label
-                              key={model.id}
-                              className={`p-4 rounded-2xl border cursor-pointer transition-all flex items-start gap-3 ${
-                                defaultModel === model.id
-                                  ? 'bg-indigo-50/80 dark:bg-indigo-950/50 border-indigo-500 shadow-xs'
-                                  : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800'
-                              }`}
-                            >
-                              <input
-                                type="radio"
-                                name="defaultModel"
-                                value={model.id}
-                                checked={defaultModel === model.id}
-                                onChange={() => setDefaultModel(model.id)}
-                                className="mt-1"
-                              />
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={() => setIsModelDropdownOpen(!isModelDropdownOpen)}
+                            className="w-full flex items-center justify-between px-4 py-3 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-xl text-left focus:ring-2 focus:ring-indigo-500 outline-none"
+                          >
+                            {defaultModel ? (
                               <div>
-                                <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
-                                  <span>{model.name}</span>
+                                <div className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                                  {AVAILABLE_MODELS.find(m => m.id === defaultModel)?.name}
                                   <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px]">
-                                    {model.badge}
+                                    {AVAILABLE_MODELS.find(m => m.id === defaultModel)?.badge}
                                   </span>
                                 </div>
-                                <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
-                                  {model.description}
-                                </p>
+                                <div className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                  {AVAILABLE_MODELS.find(m => m.id === defaultModel)?.description}
+                                </div>
                               </div>
-                            </label>
-                          ))}
+                            ) : (
+                              <span className="text-sm text-slate-500 dark:text-slate-400">Selecione um modelo...</span>
+                            )}
+                            <div className="text-slate-400">
+                              <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><polyline points="6 9 12 15 18 9"></polyline></svg>
+                            </div>
+                          </button>
+
+                          {isModelDropdownOpen && (
+                            <div className="absolute z-50 w-full mt-2 bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 rounded-xl shadow-lg max-h-80 flex flex-col overflow-hidden">
+                              <div className="p-2 border-b border-slate-100 dark:border-slate-800 bg-slate-50 dark:bg-slate-950/50 sticky top-0">
+                                <input
+                                  type="text"
+                                  placeholder="Pesquisar modelos (ex: GPT-4o, Llama, Gemini)..."
+                                  value={modelSearchQuery}
+                                  onChange={(e) => setModelSearchQuery(e.target.value)}
+                                  className="w-full px-3 py-2 bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 rounded-lg text-xs outline-none focus:ring-2 focus:ring-indigo-500"
+                                />
+                              </div>
+                              <div className="overflow-y-auto">
+                                {filteredModels.length > 0 ? (
+                                  filteredModels.map((model) => (
+                                    <button
+                                      key={model.id}
+                                      type="button"
+                                      onClick={() => {
+                                        setDefaultModel(model.id);
+                                        setIsModelDropdownOpen(false);
+                                        setModelSearchQuery('');
+                                      }}
+                                      className={`w-full text-left p-3 border-b border-slate-100 dark:border-slate-800 last:border-0 hover:bg-indigo-50 dark:hover:bg-indigo-900/20 transition-colors ${
+                                        defaultModel === model.id ? 'bg-indigo-50/50 dark:bg-indigo-900/10' : ''
+                                      }`}
+                                    >
+                                      <div className="flex items-center gap-2 font-bold text-xs text-slate-900 dark:text-slate-100">
+                                        <span>{model.name}</span>
+                                        <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-950 text-indigo-700 dark:text-indigo-300 text-[10px]">
+                                          {model.badge}
+                                        </span>
+                                      </div>
+                                      <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-1">
+                                        {model.description}
+                                      </p>
+                                    </button>
+                                  ))
+                                ) : (
+                                  <div className="p-4 text-center text-xs text-slate-500 dark:text-slate-400">
+                                    Nenhum modelo encontrado.
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          )}
                         </div>
                       </div>
 

@@ -19,8 +19,9 @@ import {
   ShieldCheck,
   LogOut,
 } from 'lucide-react';
-import { ProfessionId, GeminiModelId, User, Patient } from '../types';
-import { PROFESSIONS, MODELS_AVAILABLE, isUserAdmin } from '../data/professions';
+import { ProfessionId, AIModelId, User, Patient } from '../types';
+import { PROFESSIONS, isUserAdmin } from '../data/professions';
+import { AVAILABLE_MODELS } from '../types';
 
 interface HeaderProps {
   activeTab: 'generator' | 'patients';
@@ -32,8 +33,8 @@ interface HeaderProps {
   selectedPatient: Patient | null;
   selectedProfession: ProfessionId;
   onSelectProfession: (id: ProfessionId) => void;
-  selectedModel: GeminiModelId;
-  onSelectModel: (model: GeminiModelId) => void;
+  selectedModel: AIModelId;
+  onSelectModel: (model: AIModelId) => void;
   isDarkMode: boolean;
   onToggleDarkMode: () => void;
   onOpenApiKeyModal: () => void;
@@ -196,29 +197,22 @@ export const Header: React.FC<HeaderProps> = ({
               <span className="hidden xl:inline">Firestore</span>
             </div>
 
-            {/* Model Selector Pill */}
+            {/* Model Selector Dropdown */}
             <div
               id="model-selector-group"
-              className="hidden xl:flex items-center p-1 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700"
+              className="hidden xl:flex items-center"
             >
-              {MODELS_AVAILABLE.map((m) => {
-                const isSelected = m.id === selectedModel;
-                return (
-                  <button
-                    key={m.id}
-                    id={`model-toggle-${m.id}`}
-                    type="button"
-                    onClick={() => onSelectModel(m.id)}
-                    className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-semibold transition-all cursor-pointer ${
-                      isSelected
-                        ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900'
-                    }`}
-                  >
-                    <span>{m.name.replace('Gemini 2.5 ', '')}</span>
-                  </button>
-                );
-              })}
+              <select
+                value={selectedModel}
+                onChange={(e) => onSelectModel(e.target.value as AIModelId)}
+                className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
+              >
+                {AVAILABLE_MODELS.map((m) => (
+                  <option key={m.id} value={m.id}>
+                    {m.name.replace('Gemini 2.5 ', '')}
+                  </option>
+                ))}
+              </select>
             </div>
 
             {/* Knowledge Base Button */}
