@@ -94,80 +94,164 @@ async function generateContentWithFallback(
 // System prompt generator based on profession and guidelines
 function buildSystemPrompt(professionName: string, isFirstConsultation: boolean = false, customContext?: string): string {
   const profUpper = professionName.trim().toUpperCase();
-  const isEnfermeiro = profUpper === "ENFERMEIRO";
   const safeContext = typeof customContext === "string" ? customContext : "";
 
-  let prompt = `# SYSTEM PROMPT: MOTOR DE PROCESSAMENTO CLÍNICO MULTIPROFISSIONAL (PEC / e-SUS)
+  let prompt = `# MOTOR DE PROCESSAMENTO CLÍNICO MULTIPROFISSIONAL (e-SUS PEC / APS / RAPS / eMulti)\n\n`;
+  prompt += `CATEGORIA PROFISSIONAL ATUAL: ${profUpper}\n`;
+  prompt += `TIPO DE ATENDIMENTO: ${isFirstConsultation ? "PRIMEIRO ATENDIMENTO / ACOLHIMENTO INICIAL" : "RETORNO / REAVALIAÇÃO / ALTA"}\n\n`;
 
-## 1. PAPEL E PROPÓSITO DO SISTEMA
-Você é o motor de inteligência clínica integrado ao sistema de prontuário eletrônico.
-Sua função é receber insumos brutos de atendimentos (áudio em tempo real ou gravado, transcrições, textos livres, relatórios ou imagens de fichas) da categoria profissional atual: **${professionName.toUpperCase()}**, com especial atenção para **Psicologia**, **Psicopedagogia** e **Serviço Social**, além das demais especialidades.
+  prompt += `DIRETRIZES CONFORME O TIPO DE ATENDIMENTO:\n`;
+  if (isFirstConsultation) {
+    prompt += `- PRIMEIRO ATENDIMENTO / ACOLHIMENTO INICIAL: Gerar anamnese/histórico abrangente, relato detalhado da queixa/demanda e levantamento integral de diagnósticos e necessidades clínicas/sociais/funcionais.\n\n`;
+  } else {
+    prompt += `- RETORNO / REAVALIAÇÃO / ALTA: Focar na evolução comparativa em relação ao plano anterior, adesão às condutas/intervenções e reajuste terapêutico ou critérios de alta.\n`;
+    prompt += `- AUDITORIA CLÍNICA CRUZADA ATIVA: Se algum problema de saúde, medicação prévia, meta pendente ou exame/encaminhamento de atendimentos anteriores NÃO tiver sido mencionado ou resolvido hoje, acrescente obrigatoriamente no final da resposta o seguinte bloco:\n`;
+    prompt += `---\n### ⚠️ AUDITORIA CLÍNICA: PENDÊNCIAS DO HISTÓRICO ANTERIOR\n`;
+    prompt += `- ❓ [Problema/Sintoma Pendente]: [Pergunta para checar o desfecho]\n`;
+    prompt += `- ❓ [Medicamento / Conduta Anterior]: [Checagem de adesão/tolerância]\n`;
+    prompt += `- ❓ [Exame / Encaminhamento Pendente]: [Checagem de realização]\n\n`;
+  }
 
-O sistema já possui o cadastro prévio do profissional e do usuário. Sua tarefa é processar o conteúdo clínico e gerar estritamente a redação técnica para alimentar três campos da interface do PEC: ` + "`avaliacao`" + `, ` + "`plano`" + `, e ` + "`conduta_encaminhamentos`" + `.
+  prompt += `REGRAS OBRIGATÓRIAS DE PADRONIZAÇÃO E FORMATAÇÃO PARA O PEC:\n`;
+  prompt += `1. SINAIS VITAIS E ANTROPOMETRIA QUALITATIVOS: Nunca utilize valores numéricos brutos (ex: não escreva "120x80 mmHg", "IMC 24.2", "72 bpm"). Converta sempre para terminologia qualitativa padronizada (Eutrófico, Normotenso, Normocárdico, Eupneico, Normotérmico, Normossaturado, etc.).\n`;
+  prompt += `2. ESTRUTURA RIGOROSA DE 3 BLOCOS DO PEC: Você DEVE SEMPRE gerar estritamente 3 blocos delimitados exatamente pelos cabeçalhos:\n`;
+  prompt += `   ### CAMPO: AVALIAÇÃO\n`;
+  prompt += `   ### CAMPO: PLANO\n`;
+  prompt += `   ### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n\n`;
+  prompt += `3. FORMATAÇÃO RIGOROSA DAS SUBSEÇÕES (PADRÃO PROFISSIONAL DE ENFERMAGEM/MULTI):\n`;
+  prompt += `   - O título de cada subseção DEVE estar em LETRAS MAIÚSCULAS com dois pontos no final (SEM asteriscos duplos **).\n`;
+  prompt += `   - O conteúdo logo abaixo do título DEVE ser formatado como citação em bloco iniciando cada linha com "> " (garantindo a formatação nativa de citação do e-SUS PEC).\n`;
+  prompt += `   - O conteúdo citado deve estar imediatamente na linha seguinte ao título (sem linha em branco intermediária).\n`;
+  prompt += `   - Separe cada subseção completa da próxima com uma linha em branco.\n\n`;
 
----
+  prompt += `4. ESTRUTURAÇÃO ESPECÍFICA POR CATEGORIA PROFISSIONAL:\n\n`;
 
-## 2. REGRAS INEGOCIÁVEIS DE PROCESSAMENTO E FORMATAÇÃO
-1. **Sem Metadados ou Rótulos:** NÃO repita os nomes dos campos (ex.: "Avaliação:", "Plano:"), nem saudações, cabeçalhos ou introduções. O conteúdo de cada campo deve ser entregue limpo para inserção direta.
-2. **Sem Nomes Próprios:** NÃO mencione o nome do usuário nem o do profissional. Utilize termos técnicos padronizados de prontuário ("usuário", "criança", "paciente", "genitora", "responsável").
-3. **Direto ao Ponto:** Elimine conversas paralelas de áudio, ruídos de fundo ou hesitações. Traduza a linguagem leiga imediatamente em terminologia técnica da saúde pública e assistência social (SUS/SUAS).
-4. **Padronização Estrutural Única:** A arquitetura de campos segue estritamente a mesma lógica de distribuição. O que muda é exclusivamente o vocabulário, o objeto epistemológico e o escopo de atuação de cada especialidade.
+  if (profUpper.includes("ENFERM")) {
+    prompt += `ESTRUTURA PARA ENFERMAGEM:\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO/EVOLUÇÃO:\n> [Texto do histórico do usuário e queixa...]\n\n`;
+    prompt += `EXAME CLÍNICO:\n> [Exame físico/mental e sinais vitais qualitativos...]\n\n`;
+    prompt += `DIAGNÓSTICOS DE ENFERMAGEM (NANDA-I):\n> - [Diagnóstico 1]\n> - [Diagnóstico 2]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição])\n\n`;
 
----
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS (NOC):\n> - [Meta 1]\n> - [Meta 2]\n\n`;
+    prompt += `INTERVENÇÕES (NIC):\n> - [Intervenção 1]\n> - [Intervenção 2]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
-## 3. ESCOPO TÉCNICO E EPISTEMOLOGIA POR CATEGORIA
-* **Psicologia:** Foco na dinâmica psíquica, subjetivação, expressão emocional, afetos, humor, manejo de frustrações, autorregulação e vínculos.
-* **Psicopedagogia:** Foco nos processos de aprendizagem, funções executivas (atenção, memória de trabalho, controle inibitório), mediação cognitiva, raciocínio lógico e relação com o objeto de saber.
-* **Serviço Social:** Foco na garantia e violação de direitos, determinantes socioeconômicos, rede de proteção social (SUAS/CRAS/CREAS), benefícios (BPC/LOAS, CadÚnico) e dinâmica familiar/comunitária.
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Acolhimento e orientações imediatas...]\n\n`;
+    prompt += `PRESCRIÇÕES DE ENFERMAGEM / TRANSCRIÇÕES:\n> [Prescrições conforme protocolos municipais...]\n\n`;
+    prompt += `GUIAS DE REFERÊNCIA / SOLICITAÇÃO DE EXAMES:\n> [Solicitações laboratoriais ou encaminhamentos...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Agendamento de retorno e orientações de seguimento...]\n\n`;
+  } else if (profUpper.includes("ASSIST") || profUpper.includes("SOCIAL") || profUpper.includes("CRESS")) {
+    prompt += `ESTRUTURA PARA SERVIÇO SOCIAL (ASSISTENTE SOCIAL):\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO / EVOLUÇÃO SOCIAL:\n> [Relato das demandas socioeconômicas, dinâmica familiar, renda e contexto comunitário...]\n\n`;
+    prompt += `AVALIAÇÃO DA DETERMINAÇÃO SOCIAL E VULNERABILIDADE:\n> [Análise das condições de moradia, acesso a bens/serviços, barreiras sociais e violação de direitos...]\n\n`;
+    prompt += `DEMANDAS SOCIOASSISTENCIAIS IDENTIFICADAS:\n> - [Demanda 1: Ex. Insegurança de renda / Dificuldade de acesso a BPC/CadÚnico]\n> - [Demanda 2: Ex. Fragilidade de rede de apoio familiar/comunitária]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição: ex. Z01 Pobreza/problemas econômicos, Z04 Problema sociocultural/familiar])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição: ex. Z59.0 Falta de habitação, Z59.5 Extrema pobreza, Z73.0 Esgotamento])\n\n`;
 
----
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS E OBJETIVOS DO ACOMPANHAMENTO SOCIAL:\n> - [Meta 1: Ex. Regularização documental e inclusão no Cadastro Único]\n> - [Meta 2: Ex. Garantia de acesso a benefícios socioassistenciais]\n\n`;
+    prompt += `INTERVENÇÕES E ORIENTAÇÕES SOCIAIS:\n> - [Intervenção 1: Ex. Orientação técnica sobre critérios de concessão do BPC/LOAS]\n> - [Intervenção 2: Ex. Acompanhamento periódico da situação de vulnerabilidade]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
-## 4. FORMATO E SCHEMA DE SAÍDA (JSON)
-A resposta do agente deve ser estritamente um objeto JSON válido (ou bloco JSON delimitado), contendo apenas os 3 campos requeridos para colar diretamente no formulário:
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Acolhimento imediato e orientações prestadas ao usuário/família...]\n\n`;
+    prompt += `ENCAMINHAMENTOS E ARTICULAÇÃO INTERSETORIAL (CRAS / CREAS / INSS / SUAS):\n> [Encaminhamento formal ao CRAS de referência, setor de benefícios ou programas de transferência de renda...]\n\n`;
+    prompt += `SOLICITAÇÃO DE DOCUMENTOS / LAUDOS CIRCUNSTANCIADOS:\n> [Solicitação de laudo médico atualizado para instrução do BPC/LOAS ou emissão de relatório social...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Prazo estipulado para retorno, entrega de documentos e acompanhamento continuado...]\n\n`;
+  } else if (profUpper.includes("PSICOL") || profUpper.includes("CRP")) {
+    prompt += `ESTRUTURA PARA PSICOLOGIA:\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO / EVOLUÇÃO CLÍNICO-PSICOLÓGICA:\n> [Queixa principal, dinâmica afetiva, estado subjetivo e relato espontâneo...]\n\n`;
+    prompt += `EXAME DO ESTADO MENTAL E AVALIAÇÃO SUBJETIVA:\n> [Aparência, humor, afeto, orientação temporoespacial, discurso, pensamento, sensopercepção e sono...]\n\n`;
+    prompt += `DEMANDAS PSICOLÓGICAS E HIPÓTESES COMPREENSIVAS:\n> - [Demanda / Sofrimento psíquico identificado]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição: ex. P01 Sensação de ansiedade/nervosismo, P03 Sensação de depressão, P79 Outros transtornos psicológicos])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição: ex. F32.1 Episódio depressivo, F41.1 Ansiedade generalizada, F20.0 Esquizofrenia paranoide])\n\n`;
 
-\`\`\`json
-{
-  "avaliacao": "Texto contínuo com os achados do atendimento, estado do usuário e intervenções imediatas.",
-  "plano": "Metas terapêuticas singulares, ações contínuas e periodicidade do acompanhamento dentro da unidade.",
-  "conduta_encaminhamentos": "Articulações de rede externa (educação, rede básica, SUAS), solicitações médicas internas ou ações burocrático-legais."
-}
-\`\`\`
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS TERAPÊUTICAS (PTS - PROJETO TERAPÊUTICO SINGULAR):\n> - [Meta 1: Ex. Desenvolvimento de estratégias de autorregulação emocional e enfrentamento]\n\n`;
+    prompt += `INTERVENÇÕES PSICOTERAPÊUTICAS E MANEJOS:\n> - [Intervenção 1: Ex. Psicoterapia individual com foco em reestruturação cognitiva e expressão afetiva]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
----
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Intervenção em crise, acolhimento ou validação afetiva realizada no atendimento...]\n\n`;
+    prompt += `ARTICULAÇÃO DE REDE / ENCAMINHAMENTOS (RAPS / CAPS / APS):\n> [Articulação com equipe de Saúde da Família, matriciamento com Psiquiatria ou grupos terapêuticos...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Frequência dos atendimentos psicoterapêuticos e agendamento da próxima sessão...]\n\n`;
+  } else if (profUpper.includes("PSICOPEDAG")) {
+    prompt += `ESTRUTURA PARA PSICOPEDAGOGIA:\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO / EVOLUÇÃO PSICOPEDAGÓGICA:\n> [Histórico de aprendizagem, queixas escolares e desenvolvimento global...]\n\n`;
+    prompt += `AVALIAÇÃO DAS FUNÇÕES EXECUTIVAS E COGNIÇÃO:\n> [Atenção sustentada, controle inibitório, memória operacional e raciocínio lógico-matemático...]\n\n`;
+    prompt += `DEMANDAS DE APRENDIZAGEM IDENTIFICADAS:\n> - [Dificuldade ou potencialidade de aprendizagem observada]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição: ex. P24 Dificuldade de aprendizagem])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição: ex. F81.9 Transtorno do desenvolvimento das habilidades escolares])\n\n`;
 
-## 5. EXEMPLOS DE REFERÊNCIA (FEW-SHOT POR ESPECIALIDADE)
-Contexto de Entrada Comum:
-Criança de 6 anos com diagnóstico de TEA, hiperatividade, labilidade atencional, barreiras de socialização e aprendizado, contexto de vulnerabilidade social e sobrecarga materna.
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS DE ESTIMULAÇÃO PSICOPEDAGÓGICA:\n> - [Meta 1: Ex. Fortalecimento da flexibilidade cognitiva e planejamento sequencial]\n\n`;
+    prompt += `INTERVENÇÕES E ESTRATÉGIAS DE MEDIAÇÃO:\n> - [Intervenção 1: Ex. Estimulação psicopedagógica mediada por recursos lúdicos e visuais concretos]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
-Exemplo de Saída: Psicologia:
-{
-  "avaliacao": "Criança comparece acompanhada pela genitora, apresentando agitação psicomotora acentuada e exploração desorganizada do ambiente, com contato visual fugaz e inconstante. Durante o atendimento lúdico, demonstrou baixa tolerância à frustração acompanhada de desorganização emocional (choro e recusa de contato) diante de transições de atividades. Houve resposta satisfatória à validação verbal dos afetos e à estruturação de limites mediada por recursos visuais. A genitora expressa sobrecarga significativa de cuidado e insegurança no manejo comportamental no ambiente domiciliar.",
-  "plano": "Continuidade da psicoterapia individual semanal focada no desenvolvimento de autorregulação emocional e expressão lúdica simbólica. Realização de escuta periódica com a genitora para orientação parental e suporte emocional. Discussão do caso em reunião de equipe multidisciplinar para pactuação de metas no Projeto Terapêutico Singular.",
-  "conduta_encaminhamentos": "Inserção da responsável no Grupo de Apoio a Familiares e Cuidadores da unidade. Articulação com a Psiquiatria Infantil para avaliação clínica de agitação psicomotora e prejuízos no ciclo sono-vigília."
-}
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Orientações imediatas aos responsáveis para estruturação da rotina domiciliar...]\n\n`;
+    prompt += `ARTICULAÇÃO ESCOLAR / INTERSETORIAL (AEE / PDI):\n> [Diálogo com coordenação pedagógica e subsídios para o Plano de Desenvolvimento Individual na escola...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Periodicidade e agendamento dos atendimentos psicopedagógicos...]\n\n`;
+  } else if (profUpper.includes("NUTRI")) {
+    prompt += `ESTRUTURA PARA NUTRIÇÃO:\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO / EVOLUÇÃO NUTRICIONAL:\n> [Hábitos alimentares, recordatório, intolerâncias, ingestão hídrica e comportamento à mesa...]\n\n`;
+    prompt += `AVALIAÇÃO ANTROPOMÉTRICA E CLÍNICO-NUTRICIONAL:\n> [Estado nutricional qualitativo (Eutrófico/Sobrepeso/Baixo Peso), sinais clínicos de carências e digestão...]\n\n`;
+    prompt += `DIAGNÓSTICOS DE NUTRIÇÃO / DEMANDAS DIETÉTICAS:\n> - [Inadequação ou diagnóstico nutricional identificado]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição: ex. T07 Ganho de peso, T08 Perda de peso, T89 Diabetes mellitus])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição: ex. E66 Obesidade, E46 Desnutrição, E11 Diabetes tipo 2])\n\n`;
 
-Exemplo de Saída: Psicopedagogia
-{
-  "avaliacao": "Atendimento individual direcionado à investigação das funções executivas e à relação com tarefas estruturadas. Observou-se acentuada labilidade atencional e condutas impulsivas de tentativa e erro, com abandono rápido de materiais pedagógicos. Em jogos de seriação e categorização mediada por regras curtas e apoio visual concreto, evidenciou assimilação lógica preservada e bom engajamento. Demonstrou bloqueio e recusa explícita perante comandos puramente verbais ou tarefas grafomotoras complexas.",
-  "plano": "Estimulação psicopedagógica quinzenal com foco em funções executivas (sustentação da atenção, controle inibitório e planejamento sequencial) por meio de mediação lúdica estruturada. Construção de estratégias de adaptação pedagógica compartilhadas com o corpo docente escolar.",
-  "conduta_encaminhamentos": "Articulação intersetorial com a equipe da escola de origem e com o Atendimento Educacional Especializado (AEE) para subsídio ao Plano de Desenvolvimento Individual (PDI). Indicação formal de mediação escolar em sala de aula regular."
-}
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS DO PLANO ALIMENTAR:\n> - [Meta 1: Ex. Adequação qualitativa da ingestão calórica e aumento do consumo de alimentos in natura]\n\n`;
+    prompt += `INTERVENÇÕES E ORIENTAÇÕES NUTRICIONAIS:\n> - [Intervenção 1: Ex. Elaboração de plano alimentar individualizado adaptado à realidade socioeconômica]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
-Exemplo de Saída: Serviço Social
-{
-  "avaliacao": "Atendimento social realizado com a genitora para identificação da rede de suporte e viabilização de direitos socioassistenciais. O núcleo familiar reside em imóvel alugado, com subsistência vulnerável vinculada a trabalhos informais intermitentes, limitada pela impossibilidade de inserção no mercado formal em razão dos cuidados contínuos exigidos pela criança. Constatou-se desconhecimento sobre direitos previdenciários e ausência de concessão do Benefício de Prestação Continuada. Identificou-se fragilidade na rede de apoio comunitária e impacto financeiro decorrente de deslocamentos frequentes para os serviços de saúde.",
-  "plano": "Acompanhamento social periódico para instrumentalização e viabilização de direitos da pessoa com deficiência. Orientação e compilação de relatórios e documentos para requisição de benefícios de transferência de renda e gratuidades de transporte.",
-  "conduta_encaminhamentos": "Encaminhamento formal ao CRAS de abrangência territorial para inserção no CadÚnico e acompanhamento pelo PAIF. Solicitação ao corpo médico do serviço para emissão de laudo circunstanciado para instrução do BPC/LOAS junto ao INSS. Encaminhamento ao setor competente de transportes para concessão de Passe Livre municipal/intermunicipal com acompanhante."
-}
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Orientações nutricionais e metas práticas pactuadas no atendimento...]\n\n`;
+    prompt += `ENCAMINHAMENTOS / SOLICITAÇÃO DE EXAMES LABORATORIAIS:\n> [Solicitação de exames pertinentes (perfil lipídico, glicemia) ou encaminhamento multidisciplinar...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Prazo para retorno, monitoramento ponderal e reavaliação do plano alimentar...]\n\n`;
+  } else {
+    // Demais especialidades (Médico, Educador Físico, Fisioterapeuta, etc.)
+    prompt += `ESTRUTURA PARA ${profUpper}:\n`;
+    prompt += `### CAMPO: AVALIAÇÃO\n`;
+    prompt += `HISTÓRICO / EVOLUÇÃO DO ATENDIMENTO:\n> [Relato detalhado da consulta, queixas principais e histórico...]\n\n`;
+    prompt += `AVALIAÇÃO TÉCNICA E EXAME CLÍNICO-FUNCIONAL:\n> [Achados do exame clínico/físico/funcional com parâmetros estritamente qualitativos...]\n\n`;
+    prompt += `DIAGNÓSTICOS / DEMANDAS TÉCNICAS IDENTIFICADAS:\n> - [Diagnóstico ou demanda principal]\n\n`;
+    prompt += `CIAP-2:\n> - [Código] ([Descrição])\n\n`;
+    prompt += `CID-10:\n> - [Código] ([Descrição])\n\n`;
 
----
+    prompt += `### CAMPO: PLANO\n`;
+    prompt += `METAS E OBJETIVOS TERAPÊUTICOS:\n> - [Meta 1]\n\n`;
+    prompt += `INTERVENÇÕES E CONDUTAS TÉCNICAS:\n> - [Intervenção 1]\n\n`;
+    prompt += `CIAP-2:\n> - 69 (Outras orientações / Aconselhamento / Educação em saúde)\n\n`;
+    prompt += `SIGTAP:\n> - ORIENTAÇÃO INDIVIDUAL EM SAÚDE\n\n`;
 
-## 6. DIRETRIZ FINAL DE EXECUÇÃO
-Ao receber qualquer mídia ou texto de atendimento, identifique a categoria profissional (${professionName}), aplique as regras descritas (tipo de atendimento: ${isFirstConsultation ? "Primeiro Atendimento" : "Retorno"}, códigos padrão CIAP-2 -69 e SIGTAP 0301080445) e retorne estritamente um objeto JSON válido contendo as chaves "avaliacao", "plano" e "conduta_encaminhamentos", sem qualquer texto adicional antes ou depois das chaves.`;
+    prompt += `### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA\n`;
+    prompt += `CONDUTA IMEDIATA:\n> [Condutas e orientações imediatas fornecidas ao usuário...]\n\n`;
+    prompt += `ENCAMINHAMENTOS E ARTICULAÇÃO DE REDE:\n> [Encaminhamentos intersetoriais ou para outros pontos da rede de saúde...]\n\n`;
+    prompt += `PRESCRIÇÕES / GUIAS / DOCUMENTOS:\n> [Prescrições, guias ou atestados pertinentes...]\n\n`;
+    prompt += `RETORNO / AGENDAMENTO:\n> [Prazo para retorno e seguimento...]\n\n`;
+  }
 
   if (safeContext) {
-    prompt += `\n\n--- BASE DE CONHECIMENTO / PROTOCOLOS LOCAIS INJETADOS ---\n${safeContext}\n`;
+    prompt += `\n--- BASE DE CONHECIMENTO / PROTOCOLOS LOCAIS E REMUME MUNICIPAL INJETADOS ---\n${safeContext}\n\n`;
   }
+
+  prompt += `INSTRUÇÃO FINAL:\n`;
+  prompt += `Gere rigorosamente os 3 blocos com os cabeçalhos '### CAMPO: AVALIAÇÃO', '### CAMPO: PLANO' e '### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA'. Mantenha todos os títulos das subseções em LETRAS MAIÚSCULAS e todo o conteúdo correspondente formatado com '> '. Mantenha o texto limpo, técnico e pronto para o e-SUS PEC.`;
 
   return prompt;
 }
@@ -812,35 +896,7 @@ function parsePECBlocks(text: string, profession: string) {
     clinicalAudit = auditMatch[0].trim();
   }
 
-  // 1. Try parsing as JSON first
-  try {
-    let cleanJsonStr = text.trim();
-    if (cleanJsonStr.startsWith("```json")) {
-      cleanJsonStr = cleanJsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
-    } else if (cleanJsonStr.startsWith("```")) {
-      cleanJsonStr = cleanJsonStr.replace(/^```\s*/, "").replace(/\s*```$/, "");
-    }
-    const parsedObj = JSON.parse(cleanJsonStr);
-    if (parsedObj && typeof parsedObj === 'object') {
-      avaliacao = parsedObj.avaliacao || parsedObj.Avaliacao || "";
-      plano = parsedObj.plano || parsedObj.Plano || "";
-      conduta = parsedObj.conduta_encaminhamentos || parsedObj.conduta || parsedObj.condutaEncaminhamentos || parsedObj.Conduta || "";
-    }
-  } catch {
-    // Fall back to markdown regex parsing
-  }
-
-  if (avaliacao || plano || conduta) {
-    return {
-      avaliacao,
-      plano,
-      conduta,
-      clinicalAudit: clinicalAudit || undefined,
-      hasBlock3: isEnfermeiro || Boolean(conduta),
-    };
-  }
-
-  // 2. Fallback to markdown regex parsing
+  // 1. Primary: Markdown Regex Parsing (Standard PEC 3 Blocks)
   const avaliacaoRegex =
     /(?:###?\s*CAMPO:?\s*AVALIA[ÇC][ÃA]O|CAMPO\s*AVALIA[ÇC][ÃA]O|AVALIA[ÇC][ÃA]O:?)([\s\S]*?)(?=(?:###?\s*CAMPO:?\s*PLANO|CAMPO\s*PLANO|###?\s*CAMPO\s*06|###?\s*⚠️?\s*AUDITORIA|$))/i;
   const planoRegex =
@@ -862,7 +918,7 @@ function parsePECBlocks(text: string, profession: string) {
     conduta = condutaMatch[1].trim();
   }
 
-  // Fallbacks if regex did not capture clearly
+  // 2. Fallbacks if regex did not capture clearly
   if (!avaliacao && !plano) {
     const parts = text.split(/###?\s*CAMPO:?/i);
     if (parts.length >= 2) {
@@ -874,7 +930,23 @@ function parsePECBlocks(text: string, profession: string) {
         conduta = parts[3]?.replace(/^[\s:]*06[^\n]*/i, "").trim() || "";
       }
     } else {
-      avaliacao = text;
+      // 3. Fallback: try parsing JSON if generated in json format
+      try {
+        let cleanJsonStr = text.trim();
+        if (cleanJsonStr.startsWith("```json")) {
+          cleanJsonStr = cleanJsonStr.replace(/^```json\s*/, "").replace(/\s*```$/, "");
+        } else if (cleanJsonStr.startsWith("```")) {
+          cleanJsonStr = cleanJsonStr.replace(/^```\s*/, "").replace(/\s*```$/, "");
+        }
+        const parsedObj = JSON.parse(cleanJsonStr);
+        if (parsedObj && typeof parsedObj === 'object') {
+          avaliacao = parsedObj.avaliacao || parsedObj.Avaliacao || "";
+          plano = parsedObj.plano || parsedObj.Plano || "";
+          conduta = parsedObj.conduta_encaminhamentos || parsedObj.conduta || parsedObj.condutaEncaminhamentos || parsedObj.Conduta || "";
+        }
+      } catch {
+        avaliacao = text;
+      }
     }
   }
 
@@ -883,7 +955,7 @@ function parsePECBlocks(text: string, profession: string) {
     plano: plano || "",
     conduta: conduta || "",
     clinicalAudit: clinicalAudit || undefined,
-    hasBlock3: isEnfermeiro,
+    hasBlock3: Boolean(conduta) || isEnfermeiro,
   };
 }
 

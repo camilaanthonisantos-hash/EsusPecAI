@@ -14,7 +14,7 @@ import {
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
-import { Patient, Consultation, KnowledgeItem, User, SystemSettings } from '../types';
+import { Patient, Consultation, KnowledgeItem, User, SystemSettings, SubscriptionPlan, SubscriptionRecord } from '../types';
 import { ADMIN_MASTER_EMAIL } from '../data/professions';
 
 // Initialize Firebase App singleton
@@ -398,6 +398,26 @@ export async function seedFirestoreIfEmpty(
           console.log(`Usuário admin ${masterUser.email} sincronizado no Cloud Firestore.`);
         }
       }
+
+      // Migração/Inicialização: Garante que todos os usuários já existentes tenham os campos de assinatura
+      usersSnap.forEach(async (uDoc) => {
+        const data = uDoc.data();
+        if (data.subscription_status === undefined || data.free_used === undefined) {
+          const role = data.email?.toLowerCase().trim() === ADMIN_MASTER_EMAIL.toLowerCase() ? 'admin' : (data.role || 'user');
+          const updates: Record<string, any> = {};
+          if (data.subscription_status === undefined) {
+            updates.subscription_status = role === 'admin' ? 'pago' : 'free';
+          }
+          if (data.free_used === undefined) {
+            updates.free_used = role === 'admin' ? true : false;
+          }
+          if (role === 'admin' && data.subscription_expires_at === undefined) {
+            // Admin com acesso vitalício (ano 2099)
+            updates.subscription_expires_at = new Date('2099-12-31').getTime();
+          }
+          await setDoc(doc(db, 'users', uDoc.id), updates, { merge: true });
+        }
+      });
     }
 
     const settingsSnap = await getDoc(doc(db, 'system_settings', 'global'));
@@ -417,4 +437,160 @@ export async function seedFirestoreIfEmpty(
     console.warn('Nota sobre inicialização do Firestore:', error);
   }
 }
+
+// ================= SUBSCRIPTION PLANS & BILLING =================
+
+export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
+  {
+    id: 'quinzenal',
+    name: 'Plano Quinzenal',
+    price: 13.90,
+    durationDays: 15,
+    description: 'Acesso completo para 15 dias de atendimentos.',
+    badge: 'Flexível',
+    features: [
+      'Geração ilimitada de prontuários',
+      'Gravação de voz e anexos de exames/receitas',
+      'Adequação e-SUS PEC para todas as profissões',
+      'Validade de 15 dias corridos',
+    ],
+    active: true,
+  },
+  {
+    id: 'mensal',
+    name: 'Plano Mensal',
+    price: 19.90,
+    durationDays: 30,
+    description: 'O mais escolhido para a rotina diária das unidades.',
+    badge: 'Mais Popular',
+    features: [
+      'Geração ilimitada de prontuários',
+      'Gravação de voz e anexos de exames/receitas',
+      'Histórico completo e Linha do Tempo',
+      'Auditoria de Evolução Clínica Longitudinal com IA',
+      'Validade de 30 dias corridos',
+    ],
+    active: true,
+  },
+  {
+    id: 'anual',
+    name: 'Plano Anual',
+    price: 199.90,
+    durationDays: 365,
+    description: 'Máxima economia e tranquilidade para o ano todo.',
+    badge: 'Melhor Custo-Benefício',
+    features: [
+      'Geração ilimitada durante 365 dias',
+      'Economia equivalente a 2 meses grátis',
+      'Acesso antecipado a novos modelos de IA',
+      'Todas as atualizações do sistema incluídas',
+      'Suporte prioritário',
+    ],
+    active: true,
+  },
+];
+
+export function subscribeToSubscriptionPlans(
+  onUpdate: (plans: SubscriptionPlan[]) => void,
+  onError?: (err: Error) => void
+) {
+  const q = collection(db, 'subscription_plans');
+  return onSnapshot(
+    q,
+    (snapshot) => {
+      if (snapshot.empty) {
+        onUpdate(DEFAULT_SUBSCRIPTION_PLANS);
+        return;
+      }
+      const items: SubscriptionPlan[] = [];
+      snapshot.forEach((docSnap) => {
+        items.push({ ...(docSnap.data() as SubscriptionPlan), id: docSnap.id });
+      });
+      // Sort by price ascending
+      items.sort((a, b) => a.price - b.price);
+      onUpdate(items);
+    },
+    (error) => {
+      console.warn('Firestore subscription_plans subscription error:', error);
+      onError?.(error);
+      onUpdate(DEFAULT_SUBSCRIPTION_PLANS);
+    }
+  );
+}
+
+export async function saveSubscriptionPlanToFirestore(plan: SubscriptionPlan): Promise<void> {
+  const path = `subscription_plans/${plan.id}`;
+  try {
+    const planRef = doc(db, 'subscription_plans', plan.id);
+    const data = sanitizeForFirestore({ ...plan });
+    await setDoc(planRef, data, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function seedSubscriptionPlansIfEmpty(): Promise<void> {
+  try {
+    const plansSnap = await getDocs(collection(db, 'subscription_plans'));
+    if (plansSnap.empty) {
+      const batch = writeBatch(db);
+      for (const p of DEFAULT_SUBSCRIPTION_PLANS) {
+        batch.set(doc(db, 'subscription_plans', p.id), sanitizeForFirestore(p));
+      }
+      await batch.commit();
+      console.log('Planos de assinatura padrão inicializados no Firestore.');
+    }
+  } catch (err) {
+    console.warn('Erro ao inicializar planos padrão no Firestore:', err);
+  }
+}
+
+export async function saveSubscriptionRecord(record: SubscriptionRecord): Promise<void> {
+  const path = `subscriptions/${record.id}`;
+  try {
+    const subRef = doc(db, 'subscriptions', record.id);
+    const data = sanitizeForFirestore({
+      ...record,
+      createdAt: record.createdAt || Date.now(),
+    });
+    await setDoc(subRef, data, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function updateUserFreeTrialUsed(userId: string): Promise<void> {
+  const path = `users/${userId}`;
+  try {
+    const userRef = doc(db, 'users', userId);
+    await setDoc(userRef, { free_used: true }, { merge: true });
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
+export async function updateUserSubscriptionDirectly(
+  userId: string,
+  status: 'free' | 'pendente' | 'pago',
+  durationDays: number,
+  planName: string
+): Promise<void> {
+  const path = `users/${userId}`;
+  try {
+    const userRef = doc(db, 'users', userId);
+    const expiresAt = Date.now() + durationDays * 24 * 60 * 60 * 1000;
+    await setDoc(
+      userRef,
+      {
+        subscription_status: status,
+        subscription_expires_at: expiresAt,
+        plan_name: planName,
+      },
+      { merge: true }
+    );
+  } catch (error) {
+    handleFirestoreError(error, OperationType.WRITE, path);
+  }
+}
+
 

@@ -22,6 +22,7 @@ import {
   AlertTriangle,
   Trash2,
   ShieldAlert,
+  Lock,
 } from 'lucide-react';
 import { Patient, Consultation, User, ProfessionId } from '../types';
 import { PROFESSIONS, isUserAdmin } from '../data/professions';
@@ -33,6 +34,7 @@ interface PatientTimelineProps {
   patient: Patient;
   consultations: Consultation[];
   currentUser: User;
+  hasValidAccess?: boolean;
   onNewConsultation: (patient: Patient) => void;
   onGenerateEvolution: (patient: Patient, consultations: Consultation[]) => void;
   onEditPatient: (patient: Patient) => void;
@@ -46,6 +48,7 @@ export const PatientTimeline: React.FC<PatientTimelineProps> = ({
   patient,
   consultations,
   currentUser,
+  hasValidAccess = true,
   onNewConsultation,
   onGenerateEvolution,
   onEditPatient,
@@ -209,9 +212,22 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
               id="generate-evolution-btn"
               onClick={() => onGenerateEvolution(patient, allPatientConsultations)}
               disabled={allPatientConsultations.length === 0}
-              className="px-4 py-2 rounded-xl bg-gradient-to-r from-teal-600 via-indigo-600 to-purple-600 hover:from-teal-500 hover:to-purple-500 text-white text-xs font-bold shadow-md shadow-indigo-600/20 transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer"
+              className={`px-4 py-2 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 disabled:opacity-50 cursor-pointer ${
+                !hasValidAccess && !isAdmin
+                  ? 'bg-slate-700 hover:bg-slate-600 border border-amber-500/40 text-slate-300'
+                  : 'bg-gradient-to-r from-teal-600 via-indigo-600 to-purple-600 hover:from-teal-500 hover:to-purple-500 shadow-indigo-600/20'
+              }`}
+              title={
+                !hasValidAccess && !isAdmin
+                  ? 'Recurso bloqueado: requer assinatura de plano'
+                  : 'Gerar análise longitudinal e evolução clínica do paciente com IA'
+              }
             >
-              <Sparkles className="w-4 h-4 animate-pulse" />
+              {!hasValidAccess && !isAdmin ? (
+                <Lock className="w-4 h-4 text-amber-400" />
+              ) : (
+                <Sparkles className="w-4 h-4 animate-pulse" />
+              )}
               <span>Gerar Análise de Evolução Clínica ✨</span>
             </button>
 
@@ -219,9 +235,22 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
               type="button"
               id="new-consultation-for-patient-btn"
               onClick={() => onNewConsultation(patient)}
-              className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center gap-1.5 cursor-pointer"
+              className={`px-4 py-2 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-1.5 cursor-pointer ${
+                !hasValidAccess && !isAdmin
+                  ? 'bg-amber-600/90 hover:bg-amber-600 shadow-amber-600/20'
+                  : 'bg-emerald-600 hover:bg-emerald-500 shadow-emerald-600/20'
+              }`}
+              title={
+                !hasValidAccess && !isAdmin
+                  ? 'Acesso bloqueado: requer plano ativo para registrar novo atendimento'
+                  : 'Registrar novo atendimento clínico para este cidadão'
+              }
             >
-              <PlusCircle className="w-4 h-4" />
+              {!hasValidAccess && !isAdmin ? (
+                <Lock className="w-4 h-4 text-amber-200" />
+              ) : (
+                <PlusCircle className="w-4 h-4" />
+              )}
               <span>+ Novo Atendimento</span>
             </button>
           </div>
@@ -298,9 +327,19 @@ ${consultation.conduta ? `\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${consult
           <button
             type="button"
             onClick={() => onNewConsultation(patient)}
-            className="mt-2 px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-bold hover:bg-teal-500 transition-colors"
+            className={`mt-2 px-4 py-2 rounded-xl text-white text-xs font-bold transition-colors inline-flex items-center gap-1.5 cursor-pointer ${
+              !hasValidAccess && !isAdmin
+                ? 'bg-amber-600 hover:bg-amber-500'
+                : 'bg-teal-600 hover:bg-teal-500'
+            }`}
+            title={
+              !hasValidAccess && !isAdmin
+                ? 'Acesso bloqueado: requer assinatura de plano'
+                : 'Cadastrar primeiro atendimento'
+            }
           >
-            + Registrar Primeiro Atendimento
+            {!hasValidAccess && !isAdmin && <Lock className="w-3.5 h-3.5 text-amber-200" />}
+            <span>+ Registrar Primeiro Atendimento</span>
           </button>
         </div>
       ) : (

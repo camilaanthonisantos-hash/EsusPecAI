@@ -236,6 +236,42 @@ export interface User {
   workplace: WorkplaceType;
   avatarUrl?: string;
   createdAt: number;
+  // Subscription & Free Trial
+  free_used?: boolean;
+  subscription_status?: 'free' | 'pendente' | 'pago';
+  subscription_expires_at?: number;
+  plan_name?: string;
+  cpf?: string;
+  phone?: string;
+}
+
+export interface SubscriptionPlan {
+  id: string; // 'quinzenal' | 'mensal' | 'anual' | string
+  name: string;
+  price: number; // e.g. 13.90, 19.90, 199.90
+  durationDays: number; // 15, 30, 365
+  description: string;
+  badge?: string;
+  features: string[];
+  active: boolean;
+}
+
+export interface SubscriptionRecord {
+  id: string;
+  userId: string;
+  userName: string;
+  userEmail: string;
+  userCpf: string;
+  userPhone: string;
+  planId: string;
+  planName: string;
+  amount: number;
+  durationDays: number;
+  status: 'pendente' | 'pago' | 'expirado' | 'cancelado';
+  createdAt: number;
+  pixQrCode?: string;
+  pixCopiaECola?: string;
+  pixId?: string;
 }
 
 export interface SystemSettings {
@@ -253,6 +289,7 @@ export interface SystemSettings {
   customProfessions?: ProfessionConfig[];
   customCouncilBodies?: string[];
   customWorkplaces?: string[];
+  n8nPixWebhookUrl?: string; // URL do webhook n8n para gerar PIX
   updatedAt?: number;
   updatedBy?: string;
 }

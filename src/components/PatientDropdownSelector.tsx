@@ -111,14 +111,14 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
             ) : (
               <div className="flex items-center gap-2">
                 <span className="text-xs font-bold text-slate-900 dark:text-slate-100">
-                  Selecionar Paciente ({patients.length} no banco)
+                  Selecionar Cidadão ({patients.length} no banco)
                 </span>
               </div>
             )}
             <div className="text-[10px] font-medium text-slate-700 dark:text-slate-300 truncate">
               {selectedPatient
                 ? `CNS: ${selectedPatient.cns || 'S/N'} • ${getPatientConsultationCount(selectedPatient.id)} atendimentos`
-                : 'Clique para escolher um paciente da lista ou cadastrar'}
+                : 'Clique para escolher um cidadão da lista ou cadastrar'}
             </div>
           </div>
         </div>
@@ -152,7 +152,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                   id="patient-search-dropdown-input"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}
-                  placeholder="Buscar paciente por nome, CNS ou CPF..."
+                  placeholder="Buscar cidadão por nome, CNS ou CPF..."
                   className="w-full pl-9 pr-8 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 placeholder-slate-400 outline-none focus:ring-2 focus:ring-teal-500 focus:border-transparent"
                 />
                 {searchTerm && (
@@ -169,10 +169,10 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
               </div>
               <div className="flex items-center justify-between px-1 mt-2 text-[11px] text-slate-500 dark:text-slate-400">
                 <span>
-                  {filteredPatients.length} paciente(s) disponível(is)
+                  {filteredPatients.length} cidadão(s) disponível(is)
                 </span>
                 <span className="font-semibold text-teal-600 dark:text-teal-400">
-                  Banco Central de Pacientes
+                  Banco Central de Cidadãos
                 </span>
               </div>
             </div>
@@ -191,7 +191,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                 className="flex-1 flex items-center justify-center gap-1.5 px-3 py-1.5 bg-teal-600 hover:bg-teal-700 text-white shadow-xs border-teal-500/40"
               >
                 <UserPlus className="w-3.5 h-3.5" />
-                <span>+ Cadastrar Novo Paciente</span>
+                <span>+ Cadastrar Novo Cidadão</span>
               </SpecularButton>
 
               {selectedPatient && (
@@ -205,7 +205,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                   size="sm"
                   radius={12}
                   className="px-3 py-1.5 bg-slate-200/80 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent"
-                  title="Desvincular paciente atual"
+                  title="Desvincular cidadão atual"
                 >
                   Desvincular
                 </SpecularButton>
@@ -220,7 +220,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                     <Users className="w-5 h-5" />
                   </div>
                   <p className="text-xs font-medium text-slate-600 dark:text-slate-300">
-                    Nenhum paciente encontrado com "{searchTerm}".
+                    Nenhum cidadão encontrado com "{searchTerm}".
                   </p>
                   <SpecularButton
                     type="button"
@@ -233,7 +233,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                     className="inline-flex items-center gap-1.5 text-xs text-teal-600 dark:text-teal-400 font-bold hover:underline border-transparent"
                   >
                     <UserPlus className="w-3.5 h-3.5" />
-                    Cadastrar novo paciente com este nome
+                    Cadastrar novo cidadão com este nome
                   </SpecularButton>
                 </div>
               ) : (

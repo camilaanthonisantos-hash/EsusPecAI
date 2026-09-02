@@ -34,6 +34,7 @@ import {
   Consultation,
   EvolutionSummary,
   SystemSettings,
+  SubscriptionPlan,
 } from './types';
 import {
   PROFESSIONS,
@@ -62,6 +63,12 @@ import {
   subscribeToSystemSettings,
   saveSystemSettingsToFirestore,
   seedFirestoreIfEmpty,
+  subscribeToSubscriptionPlans,
+  saveSubscriptionPlanToFirestore,
+  seedSubscriptionPlansIfEmpty,
+  updateUserFreeTrialUsed,
+  updateUserSubscriptionDirectly,
+  DEFAULT_SUBSCRIPTION_PLANS,
 } from './services/firebase';
 import { calculateChronologicalAge } from './utils/dateCalculator';
 import { Header } from './components/Header';
@@ -80,6 +87,7 @@ import { SystemSettingsModal } from './components/SystemSettingsModal';
 import { EditConsultationModal } from './components/EditConsultationModal';
 import { PatientDropdownSelector } from './components/PatientDropdownSelector';
 import { SpecularButton } from './components/SpecularButton';
+import { PaywallModal } from './components/PaywallModal';
 
 export default function App() {
   // Navigation tab: 'generator' | 'patients'
@@ -238,6 +246,46 @@ export default function App() {
   const [isEditConsultationModalOpen, setIsEditConsultationModalOpen] = useState(false);
   const [consultationToEdit, setConsultationToEdit] = useState<Consultation | null>(null);
 
+  // Subscription Plans & Paywall
+  const [plans, setPlans] = useState<SubscriptionPlan[]>(DEFAULT_SUBSCRIPTION_PLANS);
+  const [isPaywallModalOpen, setIsPaywallModalOpen] = useState(false);
+
+  // Access control validation considering Brazil Timezone
+  const hasValidAccess = (): boolean => {
+    // Admin master has full unrestricted access
+    if (isUserAdmin(currentUser)) return true;
+
+    // Check paid subscription
+    if (currentUser.subscription_status === 'pago') {
+      const expiresAt = currentUser.subscription_expires_at || 0;
+      if (expiresAt > Date.now()) {
+        return true;
+      }
+    }
+
+    // Check free trial (1 free consultation)
+    if (!currentUser.free_used) {
+      return true;
+    }
+
+    return false;
+  };
+
+  const verifyAccessOrOpenPaywall = (action?: () => void): boolean => {
+    if (hasValidAccess()) {
+      action?.();
+      return true;
+    }
+
+    setIsPaywallModalOpen(true);
+    showToast(
+      'info',
+      'Você utilizou seu teste gratuito de 1 prontuário. Escolha um plano para continuar utilizando todas as funções.',
+      'Acesso Restrito'
+    );
+    return false;
+  };
+
   // Longitudinal Evolution Modal state
   const [isEvolutionModalOpen, setIsEvolutionModalOpen] = useState(false);
   const [evolutionSummary, setEvolutionSummary] = useState<EvolutionSummary | null>(null);
@@ -265,6 +313,14 @@ export default function App() {
     }
   }, [currentUser?.profession]);
 
+  // Proteção da aba de pacientes: se usuário comum estiver inativo, redireciona para 'generator' e abre Paywall
+  useEffect(() => {
+    if (activeTab === 'patients' && !hasValidAccess() && !isUserAdmin(currentUser)) {
+      setActiveTab('generator');
+      setIsPaywallModalOpen(true);
+    }
+  }, [currentUser, activeTab]);
+
   // Real-time Cloud Firestore synchronization with offline fallback
   useEffect(() => {
     // 1. Seed initial standard data if Firestore is fresh
@@ -275,8 +331,19 @@ export default function App() {
       DEFAULT_USERS,
       DEFAULT_SYSTEM_SETTINGS
     );
+    seedSubscriptionPlansIfEmpty();
 
-    // 2. Real-time subscription to Patients
+    // 2. Real-time subscription to Subscription Plans (SaaS)
+    const unsubPlans = subscribeToSubscriptionPlans(
+      (livePlans) => {
+        if (livePlans && livePlans.length > 0) {
+          setPlans(livePlans);
+        }
+      },
+      (err) => console.warn('Plans fallback to local:', err)
+    );
+
+    // 3. Real-time subscription to Patients
     const unsubPatients = subscribeToPatients(
       (livePatients) => {
         const cleanedPatients = (livePatients || []).filter(
@@ -355,6 +422,7 @@ export default function App() {
     );
 
     return () => {
+      unsubPlans();
       unsubPatients();
       unsubConsultations();
       unsubKnowledge();
@@ -691,15 +759,17 @@ export default function App() {
 
   // Start new consultation for a specific patient
   const handleStartConsultationForPatient = (patient: Patient) => {
-    setSelectedPatient(patient);
-    setActiveTab('generator');
-    setCurrentRecord(null);
-    setIsRecordSavedToTimeline(false);
-    showToast(
-      'info',
-      `Paciente ${patient.fullName} selecionado para o atendimento.`,
-      'Paciente em Atendimento'
-    );
+    verifyAccessOrOpenPaywall(() => {
+      setSelectedPatient(patient);
+      setActiveTab('generator');
+      setCurrentRecord(null);
+      setIsRecordSavedToTimeline(false);
+      showToast(
+        'info',
+        `Paciente ${patient.fullName} selecionado para o atendimento.`,
+        'Paciente em Atendimento'
+      );
+    });
   };
 
   // Trigger Longitudinal AI Evolution Analysis
@@ -707,6 +777,8 @@ export default function App() {
     patient: Patient,
     patientConsultations: Consultation[]
   ) => {
+    if (!verifyAccessOrOpenPaywall()) return;
+
     if (!patientConsultations || patientConsultations.length === 0) {
       showToast('error', 'Nenhum atendimento registrado para este paciente para analisar.');
       return;
@@ -741,6 +813,17 @@ export default function App() {
 
   // Main Generation Action
   const handleGenerate = async () => {
+    // Check SaaS access permission
+    if (!hasValidAccess()) {
+      setIsPaywallModalOpen(true);
+      showToast(
+        'error',
+        'Seu teste gratuito de 1 prontuário foi concluído. Escolha um plano para continuar gerando.',
+        'Acesso Restrito'
+      );
+      return;
+    }
+
     if (!rawNotes.trim() && !audioAttachment && attachments.length === 0) {
       showToast(
         'error',
@@ -816,6 +899,19 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       }
 
       setCurrentRecord(generated);
+
+      // Consume 1-time trial if user is on free tier and not admin
+      if (currentUser.subscription_status !== 'pago' && !currentUser.free_used && !isUserAdmin(currentUser)) {
+        updateUserFreeTrialUsed(currentUser.id).catch((err) =>
+          console.warn('Erro ao atualizar free_used no Firestore:', err)
+        );
+        setCurrentUser((prev) => ({ ...prev, free_used: true }));
+        showToast(
+          'info',
+          'Você utilizou seu 1º prontuário grátis de teste! Para os próximos atendimentos, escolha um plano.',
+          'Teste Gratuito Concluído'
+        );
+      }
 
       // Prepend to history (keep max 50 items)
       setHistory((prev) => [generated, ...prev.slice(0, 49)]);
@@ -912,7 +1008,14 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       {/* Top Application Header */}
       <Header
         activeTab={activeTab}
-        onSelectTab={setActiveTab}
+        onSelectTab={(tab) => {
+          if (tab === 'patients') {
+            verifyAccessOrOpenPaywall(() => setActiveTab('patients'));
+          } else {
+            setActiveTab(tab);
+          }
+        }}
+        hasAccess={hasValidAccess()}
         currentUser={currentUser}
         onOpenAuthModal={() => setIsAuthModalOpen(true)}
         onLogout={handleLogout}
@@ -948,7 +1051,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                     <User className="w-4 h-4" />
                   </div>
                   <span className="text-xs font-extrabold uppercase tracking-wider text-slate-700 dark:text-slate-300">
-                    Identificação do Paciente no Atendimento:
+                    SELECIONAR CIDADÃO:
                   </span>
                   <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-500 dark:text-slate-400 text-[10px] font-bold">
                     {patients.length} no banco
@@ -960,10 +1063,16 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                     patients={patients}
                     consultations={consultations}
                     selectedPatient={selectedPatient}
-                    onSelectPatient={(pat) => setSelectedPatient(pat)}
+                    onSelectPatient={(pat) => {
+                      verifyAccessOrOpenPaywall(() => {
+                        setSelectedPatient(pat);
+                      });
+                    }}
                     onOpenNewPatientModal={() => {
-                      setPatientToEdit(null);
-                      setIsPatientFormModalOpen(true);
+                      verifyAccessOrOpenPaywall(() => {
+                        setPatientToEdit(null);
+                        setIsPatientFormModalOpen(true);
+                      });
                     }}
                   />
                 </div>
@@ -1003,8 +1112,10 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                   type="button"
                   id="banner-new-patient-btn"
                   onClick={() => {
-                    setPatientToEdit(null);
-                    setIsPatientFormModalOpen(true);
+                    verifyAccessOrOpenPaywall(() => {
+                      setPatientToEdit(null);
+                      setIsPatientFormModalOpen(true);
+                    });
                   }}
                   size="sm"
                   radius={12}
@@ -1017,63 +1128,80 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               </div>
             </div>
 
-            {/* Multimodal Input Area (Text + Web Audio Recorder + Image/PDF Attachments) */}
-            <section id="section-multimodal-input">
-              <MultimodalInput
-                profession={PROFESSIONS[selectedProfession]}
-                rawNotes={rawNotes}
-                setRawNotes={setRawNotes}
-                isFirstConsultation={isFirstConsultation}
-                setIsFirstConsultation={setIsFirstConsultation}
-                patientPreviousConsultationsCount={
-                  selectedPatient
-                    ? consultations.filter((c) => c.patientId === selectedPatient.id).length
-                    : 0
-                }
-                audioAttachment={audioAttachment}
-                setAudioAttachment={setAudioAttachment}
-                attachments={attachments}
-                setAttachments={setAttachments}
-                isGenerating={isGenerating}
-                onGenerate={handleGenerate}
-                onShowToast={showToast}
-                activeKnowledgeCount={activeKnowledgeCount}
-                onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
-                userApiKey={systemSettings.geminiApiKey || userApiKey}
-                openaiApiKey={systemSettings.openaiApiKey}
-                groqApiKey={systemSettings.groqApiKey}
-              />
-            </section>
+            {/* Multimodal Input Area (Text + Web Audio Recorder + Image/PDF Attachments) - ONLY WHEN CITIZEN IS SELECTED */}
+            {selectedPatient ? (
+              <>
+                <section id="section-multimodal-input">
+                  <MultimodalInput
+                    profession={PROFESSIONS[selectedProfession]}
+                    rawNotes={rawNotes}
+                    setRawNotes={setRawNotes}
+                    isFirstConsultation={isFirstConsultation}
+                    setIsFirstConsultation={setIsFirstConsultation}
+                    patientPreviousConsultationsCount={
+                      consultations.filter((c) => c.patientId === selectedPatient.id).length
+                    }
+                    audioAttachment={audioAttachment}
+                    setAudioAttachment={setAudioAttachment}
+                    attachments={attachments}
+                    setAttachments={setAttachments}
+                    isGenerating={isGenerating}
+                    onGenerate={handleGenerate}
+                    onShowToast={showToast}
+                    activeKnowledgeCount={activeKnowledgeCount}
+                    onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+                    userApiKey={systemSettings.geminiApiKey || userApiKey}
+                    openaiApiKey={systemSettings.openaiApiKey}
+                    groqApiKey={systemSettings.groqApiKey}
+                  />
+                </section>
 
-            {/* 3. Output Ready for Copy (PEC Distinct Cards) */}
-            <section id="section-output-results" ref={outputRef}>
-              {currentRecord ? (
-                <OutputCard
-                  record={currentRecord}
-                  profession={PROFESSIONS[currentRecord.professionId]}
-                  patient={selectedPatient}
-                  onSaveToTimeline={handleSaveToPatientTimeline}
-                  isSavedToTimeline={isRecordSavedToTimeline}
-                  onShowToast={showToast}
-                />
-              ) : (
-                /* Placeholder / Empty State */
-                <div className="p-8 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 text-center space-y-3">
-                  <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 mx-auto flex items-center justify-center border border-teal-200 dark:border-teal-800/40 shadow-xs">
-                    <Activity className="w-6 h-6" />
-                  </div>
-                  <div>
-                    <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
-                      Pronto para gerar o prontuário eletrônico
-                    </h3>
-                    <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
-                      Digite as anotações do paciente, grave um áudio da consulta ou anexe fotos de
-                      receitas médicas e clique em <strong>"Gerar Prontuário PEC ✨"</strong>.
-                    </p>
-                  </div>
+                {/* 3. Output Ready for Copy (PEC Distinct Cards) */}
+                <section id="section-output-results" ref={outputRef}>
+                  {currentRecord ? (
+                    <OutputCard
+                      record={currentRecord}
+                      profession={PROFESSIONS[currentRecord.professionId]}
+                      patient={selectedPatient}
+                      onSaveToTimeline={handleSaveToPatientTimeline}
+                      isSavedToTimeline={isRecordSavedToTimeline}
+                      onShowToast={showToast}
+                    />
+                  ) : (
+                    /* Placeholder / Empty State */
+                    <div className="p-8 rounded-3xl border-2 border-dashed border-slate-200 dark:border-slate-800 bg-white/40 dark:bg-slate-900/30 text-center space-y-3">
+                      <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 mx-auto flex items-center justify-center border border-teal-200 dark:border-teal-800/40 shadow-xs">
+                        <Activity className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
+                          Pronto para gerar o prontuário eletrônico
+                        </h3>
+                        <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1 leading-relaxed">
+                          Digite as anotações do cidadão, grave um áudio da consulta ou anexe fotos de
+                          receitas médicas e clique em <strong>"Gerar Prontuário PEC ✨"</strong>.
+                        </p>
+                      </div>
+                    </div>
+                  )}
+                </section>
+              </>
+            ) : (
+              /* Awaiting Citizen Selection Notice */
+              <div className="p-10 sm:p-12 rounded-3xl border-2 border-dashed border-teal-500/25 dark:border-teal-500/20 bg-gradient-to-b from-teal-500/5 to-transparent text-center space-y-4 animate-in fade-in zoom-in-95 duration-200">
+                <div className="w-14 h-14 rounded-2xl bg-teal-500/10 text-teal-600 dark:text-teal-400 mx-auto flex items-center justify-center border border-teal-500/30 shadow-sm">
+                  <User className="w-7 h-7" />
                 </div>
-              )}
-            </section>
+                <div className="space-y-1.5 max-w-md mx-auto">
+                  <h3 className="text-base font-extrabold text-slate-900 dark:text-slate-100">
+                    Selecione um Cidadão para Iniciar o Atendimento
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                    Escolha um cidadão no campo acima ou clique em <strong>"+ Novo Cadastro"</strong> para liberar o registro do relato clínico, gravação de voz e geração do prontuário oficial e-SUS PEC.
+                  </p>
+                </div>
+              </div>
+            )}
           </>
         ) : (
           /* Patients & Timeline Tab View */
@@ -1094,11 +1222,14 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                   patient={selectedPatient}
                   consultations={consultations}
                   currentUser={currentUser}
+                  hasValidAccess={hasValidAccess()}
                   onNewConsultation={handleStartConsultationForPatient}
                   onGenerateEvolution={handleGenerateEvolution}
                   onEditPatient={(pat) => {
-                    setPatientToEdit(pat);
-                    setIsPatientFormModalOpen(true);
+                    verifyAccessOrOpenPaywall(() => {
+                      setPatientToEdit(pat);
+                      setIsPatientFormModalOpen(true);
+                    });
                   }}
                   onDeletePatient={handleDeletePatient}
                   onEditConsultation={handleEditConsultation}
@@ -1111,14 +1242,20 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                 patients={patients}
                 consultations={consultations}
                 currentUser={currentUser}
-                onSelectPatient={(pat) => setSelectedPatient(pat)}
+                onSelectPatient={(pat) => {
+                  verifyAccessOrOpenPaywall(() => setSelectedPatient(pat));
+                }}
                 onOpenNewPatientModal={() => {
-                  setPatientToEdit(null);
-                  setIsPatientFormModalOpen(true);
+                  verifyAccessOrOpenPaywall(() => {
+                    setPatientToEdit(null);
+                    setIsPatientFormModalOpen(true);
+                  });
                 }}
                 onEditPatient={(pat) => {
-                  setPatientToEdit(pat);
-                  setIsPatientFormModalOpen(true);
+                  verifyAccessOrOpenPaywall(() => {
+                    setPatientToEdit(pat);
+                    setIsPatientFormModalOpen(true);
+                  });
                 }}
                 onDeletePatient={handleDeletePatient}
                 onNewConsultationForPatient={handleStartConsultationForPatient}
@@ -1239,6 +1376,9 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         patients={patients}
         consultations={consultations}
         systemSettings={systemSettings}
+        plans={plans}
+        onUpdatePlan={(plan) => saveSubscriptionPlanToFirestore(plan)}
+        onUpdateUserSubscription={updateUserSubscriptionDirectly}
         onUpdateSystemSettings={handleSaveSystemSettings}
         onUpdateUser={handleUpdateUser}
         onDeleteUser={handleDeleteUser}
@@ -1262,6 +1402,21 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         consultation={consultationToEdit}
         onSaveConsultation={handleSaveEditedConsultation}
         onShowToast={showToast}
+      />
+
+      {/* Paywall & PIX Subscription Modal */}
+      <PaywallModal
+        isOpen={isPaywallModalOpen}
+        onClose={() => setIsPaywallModalOpen(false)}
+        currentUser={currentUser}
+        plans={plans}
+        systemSettings={systemSettings}
+        onUpdateCurrentUser={setCurrentUser}
+        onShowToast={showToast}
+        onPaymentSuccess={() => {
+          setIsPaywallModalOpen(false);
+          showToast('success', 'Pagamento confirmado! Acesso liberado.', 'Assinatura Ativa');
+        }}
       />
     </div>
   );

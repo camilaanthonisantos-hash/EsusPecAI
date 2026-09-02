@@ -540,11 +540,11 @@ export const OutputCard: React.FC<OutputCardProps> = ({
                 <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
                   CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA
                   <span className="text-[11px] font-normal text-indigo-600 dark:text-indigo-400">
-                    (Enfermagem PEC)
+                    (e-SUS / PEC)
                   </span>
                 </h4>
                 <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                  Conduta Imediata, Prescrições/Transcrições, Guias de Referência e Agendamentos
+                  Conduta Imediata, Articulação de Rede, Encaminhamentos/Guias e Agendamentos
                 </p>
               </div>
             </div>

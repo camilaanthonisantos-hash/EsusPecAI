@@ -51,5 +51,17 @@ service cloud.firestore {
       allow read: if true;
       allow write: if true;
     }
+
+    // Subscription Plans (Planos e Preços SaaS)
+    match /subscription_plans/{planId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // Subscriptions & Payments (Histórico e Intenções de PIX)
+    match /subscriptions/{subscriptionId} {
+      allow read: if true;
+      allow write: if true;
+    }
   }
 }

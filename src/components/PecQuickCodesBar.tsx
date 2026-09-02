@@ -1,5 +1,5 @@
-import React, { useState } from 'react';
-import { Copy, Check, Hash, Activity, FileText, CheckCircle2 } from 'lucide-react';
+import React, { useState, useRef, useEffect } from 'react';
+import { Copy, Check, ChevronDown, ChevronUp, FileText, Hash, Activity, Sparkles } from 'lucide-react';
 import {
   extractCiap2Codes,
   extractCid10Codes,
@@ -16,128 +16,221 @@ interface PecQuickCodesBarProps {
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
 }
 
+// Standard generic CIAP-2 intervention / procedure codes (60 to 69) for Plano in e-SUS PEC
+export const PLANO_CIAP2_CODES_60_TO_69: ExtractedCiap2[] = [
+  { code: '60', description: 'Resultados de testes / exames laboratoriais / radiologia', raw: '60' },
+  { code: '61', description: 'Resultados de exames / procedimentos de outros prestadores', raw: '61' },
+  { code: '62', description: 'Procedimento administrativo / atestado / relatório técnico / guia', raw: '62' },
+  { code: '63', description: 'Consulta de seguimento / retorno programado / continuidade do cuidado', raw: '63' },
+  { code: '64', description: 'Iniciação / interrupção de tratamento / adesão terapêutica', raw: '64' },
+  { code: '65', description: 'Discussão / articulação com outros prestadores / matriciamento', raw: '65' },
+  { code: '66', description: 'Aconselhamento / discussão sobre o problema de saúde / conduta', raw: '66' },
+  { code: '67', description: 'Educação para a saúde / orientação preventiva / hábitos de vida', raw: '67' },
+  { code: '68', description: 'Prescrição / renovação de tratamento medicamentoso / vacinas', raw: '68' },
+  { code: '69', description: 'Outras orientações / aconselhamento / educação em saúde', raw: '69' },
+];
+
 export const PecQuickCodesBar: React.FC<PecQuickCodesBarProps> = ({
   type,
   text,
   onShowToast,
 }) => {
+  const [openDropdown, setOpenDropdown] = useState<'ciap' | 'cid' | 'sigtap' | null>(null);
   const [copiedKey, setCopiedKey] = useState<string | null>(null);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const ciap2List = extractCiap2Codes(text);
   const cid10List = extractCid10Codes(text);
   const sigtapList = extractSigtapCodes(text);
 
-  const handleCopyCode = async (key: string, value: string, label: string) => {
+  // Close dropdown when clicking outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setOpenDropdown(null);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
+
+  const handleCopy = async (key: string, value: string, toastLabel: string) => {
     const success = await copyToClipboard(value);
     if (success) {
       setCopiedKey(key);
-      onShowToast('success', `Código ${value} copiado! Pronto para colar no campo de busca do PEC.`, label);
-      setTimeout(() => setCopiedKey(null), 2000);
+      onShowToast(
+        'success',
+        `"${value}" copiado! Pronto para colar no campo correspondente do PEC.`,
+        toastLabel
+      );
+      setTimeout(() => setCopiedKey(null), 2200);
     } else {
-      onShowToast('error', 'Falha ao copiar código.', 'Erro');
+      onShowToast('error', 'Falha ao copiar.', 'Erro');
     }
   };
 
-  if (type === 'avaliacao') {
-    const hasCiap = ciap2List.length > 0;
-    const hasCid = cid10List.length > 0;
+  const toggleDropdown = (name: 'ciap' | 'cid' | 'sigtap') => {
+    setOpenDropdown((prev) => (prev === name ? null : name));
+  };
 
-    if (!hasCiap && !hasCid) {
-      return null;
+  // Avaliação CIAP fallback / list
+  const displayAvaliacaoCiap =
+    ciap2List.length > 0
+      ? ciap2List
+      : [{ code: 'P79', description: 'Outros problemas psicológicos/sociais', raw: 'P79' }];
+
+  // Plano CIAP list with complete 60-69 codes + any extras from text
+  const displayPlanoCiap = (() => {
+    const list = [...PLANO_CIAP2_CODES_60_TO_69];
+    const seenCodes = new Set(list.map((c) => c.code));
+    for (const extracted of ciap2List) {
+      if (!seenCodes.has(extracted.code)) {
+        list.push(extracted);
+        seenCodes.add(extracted.code);
+      }
     }
+    return list;
+  })();
 
+  const displayCid =
+    cid10List.length > 0
+      ? cid10List
+      : [{ rawCode: 'Z00.4', cleanCode: 'Z004', description: 'Exame psiquiátrico geral', raw: 'Z00.4' }];
+
+  if (type === 'avaliacao') {
     return (
-      <div
-        id="quick-codes-bar-avaliacao"
-        className="mt-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/80 border border-teal-500/30 shadow-xs space-y-3"
-      >
-        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2.5">
-          <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-teal-600 text-white">
-              <Hash className="w-3.5 h-3.5" />
-            </div>
-            <div>
-              <h5 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                Codificação Rápida para o PEC (CIAP-2 & CID-10)
-                <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-teal-500/20 text-teal-700 dark:text-teal-300">
-                  1-Clique
-                </span>
-              </h5>
-              <p className="text-[11px] text-slate-500 dark:text-slate-400">
-                Copie apenas os códigos limpos para os campos de diagnóstico do e-SUS PEC (CID-10 sem pontos).
-              </p>
-            </div>
-          </div>
+      <div ref={containerRef} className="mt-3 relative" id="quick-codes-bar-avaliacao">
+        {/* Dropdown Toggle Buttons Bar */}
+        <div className="flex flex-wrap items-center gap-2">
+          <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1">
+            Codificações Rápidas:
+          </span>
+
+          {/* CIAP 2 Dropdown Button */}
+          <button
+            type="button"
+            onClick={() => toggleDropdown('ciap')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+              openDropdown === 'ciap'
+                ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+                : 'bg-white dark:bg-slate-900 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-teal-800 dark:text-teal-200 border-teal-500/40 hover:border-teal-500'
+            }`}
+          >
+            <Hash className="w-3.5 h-3.5" />
+            <span>CIAP 2</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+                openDropdown === 'ciap'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-teal-500/15 text-teal-700 dark:text-teal-300'
+              }`}
+            >
+              {displayAvaliacaoCiap.length}
+            </span>
+            {openDropdown === 'ciap' ? (
+              <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+            )}
+          </button>
+
+          {/* CID 10 Dropdown Button */}
+          <button
+            type="button"
+            onClick={() => toggleDropdown('cid')}
+            className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+              openDropdown === 'cid'
+                ? 'bg-indigo-600 text-white border-indigo-600 shadow-sm'
+                : 'bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/50 text-indigo-800 dark:text-indigo-200 border-indigo-500/40 hover:border-indigo-500'
+            }`}
+          >
+            <Hash className="w-3.5 h-3.5" />
+            <span>CID 10</span>
+            <span
+              className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+                openDropdown === 'cid'
+                  ? 'bg-white/20 text-white'
+                  : 'bg-indigo-500/15 text-indigo-700 dark:text-indigo-300'
+              }`}
+            >
+              {displayCid.length}
+            </span>
+            {openDropdown === 'cid' ? (
+              <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+            ) : (
+              <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+            )}
+          </button>
         </div>
 
-        <div className="grid grid-cols-1 md:grid-cols-2 gap-3 pt-1">
-          {/* CIAP-2 List */}
-          {hasCiap && (
-            <div className="space-y-2">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-800 dark:text-teal-300 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-                CIAP-2 (Condições / Problemas)
+        {/* Dropdown Content Menu for CIAP 2 */}
+        {openDropdown === 'ciap' && (
+          <div className="mt-2 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-teal-500/40 shadow-xl space-y-2 z-20 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="font-bold text-teal-800 dark:text-teal-300 uppercase">
+                Lista Suspensa: Códigos CIAP-2 (Avaliação)
               </span>
-              <div className="flex flex-wrap gap-2">
-                {ciap2List.map((item, idx) => {
-                  const key = `ciap-${idx}-${item.code}`;
-                  const isCopied = copiedKey === key;
-                  return (
-                    <button
-                      key={key}
-                      type="button"
-                      onClick={() => handleCopyCode(key, item.code, `CIAP-2: ${item.code}`)}
-                      title={`Copiar código ${item.code} (${item.description || 'CIAP-2'})`}
-                      className={`group flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                        isCopied
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 hover:bg-teal-50 dark:hover:bg-teal-950/40 text-slate-800 dark:text-slate-200 border-teal-500/40 hover:border-teal-500 shadow-2xs'
-                      }`}
-                    >
-                      <span className="font-mono font-bold text-teal-700 dark:text-teal-300 group-hover:text-teal-600">
+              <span>Clique para copiar o código</span>
+            </div>
+            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+              {displayAvaliacaoCiap.map((item, idx) => {
+                const key = `ciap-item-${idx}-${item.code}`;
+                const isCopied = copiedKey === key;
+                return (
+                  <div
+                    key={key}
+                    onClick={() => handleCopy(key, item.code, `CIAP-2: ${item.code}`)}
+                    className="flex items-center justify-between gap-3 p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 hover:bg-teal-50 dark:hover:bg-teal-950/40 border border-slate-200/80 dark:border-slate-800 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="px-2.5 py-1 rounded-lg bg-teal-500/15 text-teal-800 dark:text-teal-300 font-mono font-extrabold text-xs border border-teal-500/30">
                         {item.code}
                       </span>
                       {item.description && (
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[150px] truncate">
+                        <span className="text-xs text-slate-700 dark:text-slate-300 truncate">
                           {item.description}
                         </span>
                       )}
-                      {isCopied ? (
-                        <Check className="w-3.5 h-3.5 stroke-[3] text-white shrink-0 ml-auto" />
-                      ) : (
-                        <Copy className="w-3 h-3 text-slate-400 group-hover:text-teal-600 shrink-0 ml-auto" />
-                      )}
-                    </button>
-                  );
-                })}
-              </div>
-            </div>
-          )}
-
-          {/* CID-10 List */}
-          {hasCid && (
-            <div className="space-y-2">
-              <span className="text-[11px] font-extrabold uppercase tracking-wider text-indigo-800 dark:text-indigo-300 flex items-center gap-1.5">
-                <span className="w-1.5 h-1.5 rounded-full bg-indigo-500" />
-                CID-10 (Código Limpo sem Pontos)
-              </span>
-              <div className="flex flex-wrap gap-2">
-                {cid10List.map((item, idx) => {
-                  const key = `cid-${idx}-${item.cleanCode}`;
-                  const isCopied = copiedKey === key;
-                  return (
+                    </div>
                     <button
-                      key={key}
                       type="button"
-                      onClick={() => handleCopyCode(key, item.cleanCode, `CID-10: ${item.cleanCode}`)}
-                      title={`Copiar código ${item.cleanCode} (${item.description || 'CID-10'})`}
-                      className={`group flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 ${
                         isCopied
-                          ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                          : 'bg-white dark:bg-slate-900 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 text-slate-800 dark:text-slate-200 border-indigo-500/40 hover:border-indigo-500 shadow-2xs'
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 group-hover:bg-teal-600 group-hover:text-white group-hover:border-teal-600'
                       }`}
                     >
-                      <span className="font-mono font-extrabold text-indigo-700 dark:text-indigo-300 group-hover:text-indigo-600">
+                      {isCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                      <span>{isCopied ? 'Copiado!' : 'Copiar'}</span>
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        )}
+
+        {/* Dropdown Content Menu for CID 10 */}
+        {openDropdown === 'cid' && (
+          <div className="mt-2 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-indigo-500/40 shadow-xl space-y-2 z-20 animate-in fade-in zoom-in-95 duration-150">
+            <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+              <span className="font-bold text-indigo-800 dark:text-indigo-300 uppercase">
+                Lista Suspensa: Códigos CID-10 (Sem Pontos para o PEC)
+              </span>
+              <span>Clique para copiar o código</span>
+            </div>
+            <div className="space-y-1.5 max-h-60 overflow-y-auto pr-1">
+              {displayCid.map((item, idx) => {
+                const key = `cid-item-${idx}-${item.cleanCode}`;
+                const isCopied = copiedKey === key;
+                return (
+                  <div
+                    key={key}
+                    onClick={() => handleCopy(key, item.cleanCode, `CID-10: ${item.cleanCode}`)}
+                    className="flex items-center justify-between gap-3 p-2 rounded-xl bg-slate-50 dark:bg-slate-950/60 hover:bg-indigo-50 dark:hover:bg-indigo-950/40 border border-slate-200/80 dark:border-slate-800 transition-colors cursor-pointer group"
+                  >
+                    <div className="flex items-center gap-2.5 min-w-0">
+                      <span className="px-2.5 py-1 rounded-lg bg-indigo-500/15 text-indigo-800 dark:text-indigo-300 font-mono font-extrabold text-xs border border-indigo-500/30">
                         {item.cleanCode}
                       </span>
                       {item.rawCode !== item.cleanCode && (
@@ -146,171 +239,286 @@ export const PecQuickCodesBar: React.FC<PecQuickCodesBarProps> = ({
                         </span>
                       )}
                       {item.description && (
-                        <span className="text-[11px] text-slate-500 dark:text-slate-400 max-w-[150px] truncate">
+                        <span className="text-xs text-slate-700 dark:text-slate-300 truncate">
                           {item.description}
                         </span>
                       )}
-                      {isCopied ? (
-                        <Check className="w-3.5 h-3.5 stroke-[3] text-white shrink-0 ml-auto" />
-                      ) : (
-                        <Copy className="w-3 h-3 text-slate-400 group-hover:text-indigo-600 shrink-0 ml-auto" />
-                      )}
+                    </div>
+                    <button
+                      type="button"
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 ${
+                        isCopied
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 group-hover:bg-indigo-600 group-hover:text-white group-hover:border-indigo-600'
+                      }`}
+                    >
+                      {isCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                      <span>{isCopied ? 'Copiado!' : 'Copiar'}</span>
                     </button>
-                  );
-                })}
-              </div>
+                  </div>
+                );
+              })}
             </div>
-          )}
-        </div>
+          </div>
+        )}
       </div>
     );
   }
 
   // type === 'plano'
   return (
-    <div
-      id="quick-codes-bar-plano"
-      className="mt-4 p-4 rounded-2xl bg-slate-50 dark:bg-slate-950/80 border border-emerald-500/30 shadow-xs space-y-3.5"
-    >
-      <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 dark:border-slate-800 pb-2.5">
-        <div className="flex items-center gap-2">
-          <div className="p-1.5 rounded-lg bg-emerald-600 text-white">
-            <Activity className="w-3.5 h-3.5" />
-          </div>
-          <div>
-            <h5 className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-              Procedimentos e Codificações para o PEC (CIAP-2 & SIGTAP / SIA)
-              <span className="text-[10px] font-semibold px-2 py-0.5 rounded-full bg-emerald-500/20 text-emerald-700 dark:text-emerald-300">
-                1-Clique
-              </span>
-            </h5>
-            <p className="text-[11px] text-slate-500 dark:text-slate-400">
-              Copie o código SIA ou a nomenclatura completa para lançar no campo de Procedimentos do PEC.
-            </p>
-          </div>
-        </div>
+    <div ref={containerRef} className="mt-3 relative" id="quick-codes-bar-plano">
+      {/* Dropdown Toggle Buttons Bar */}
+      <div className="flex flex-wrap items-center gap-2">
+        <span className="text-[11px] font-bold text-slate-500 dark:text-slate-400 uppercase tracking-wider mr-1">
+          Codificações Rápidas:
+        </span>
+
+        {/* CIAP 2 Dropdown Button (Intervenções 60 a 69) */}
+        <button
+          type="button"
+          onClick={() => toggleDropdown('ciap')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+            openDropdown === 'ciap'
+              ? 'bg-teal-600 text-white border-teal-600 shadow-sm'
+              : 'bg-white dark:bg-slate-900 hover:bg-teal-50 dark:hover:bg-teal-950/50 text-teal-800 dark:text-teal-200 border-teal-500/40 hover:border-teal-500'
+          }`}
+        >
+          <Hash className="w-3.5 h-3.5" />
+          <span>CIAP 2</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+              openDropdown === 'ciap'
+                ? 'bg-white/20 text-white'
+                : 'bg-teal-500/15 text-teal-700 dark:text-teal-300'
+            }`}
+          >
+            {displayPlanoCiap.length}
+          </span>
+          {openDropdown === 'ciap' ? (
+            <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+          )}
+        </button>
+
+        {/* SIGTAP Dropdown Button */}
+        <button
+          type="button"
+          onClick={() => toggleDropdown('sigtap')}
+          className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl border text-xs font-bold transition-all cursor-pointer shadow-2xs ${
+            openDropdown === 'sigtap'
+              ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
+              : 'bg-white dark:bg-slate-900 hover:bg-emerald-50 dark:hover:bg-emerald-950/50 text-emerald-800 dark:text-emerald-200 border-emerald-500/40 hover:border-emerald-500'
+          }`}
+        >
+          <Activity className="w-3.5 h-3.5" />
+          <span>SIGTAP</span>
+          <span
+            className={`px-1.5 py-0.2 rounded-md text-[10px] font-mono font-bold ${
+              openDropdown === 'sigtap'
+                ? 'bg-white/20 text-white'
+                : 'bg-emerald-500/15 text-emerald-700 dark:text-emerald-300'
+            }`}
+          >
+            {sigtapList.length + 1}
+          </span>
+          {openDropdown === 'sigtap' ? (
+            <ChevronUp className="w-3.5 h-3.5 ml-0.5" />
+          ) : (
+            <ChevronDown className="w-3.5 h-3.5 ml-0.5" />
+          )}
+        </button>
       </div>
 
-      {/* CIAP-2 of Plano (e.g. 69 or others) */}
-      {ciap2List.length > 0 && (
-        <div className="space-y-2">
-          <span className="text-[11px] font-extrabold uppercase tracking-wider text-teal-800 dark:text-teal-300 flex items-center gap-1.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-teal-500" />
-            CIAP-2 do Plano
-          </span>
-          <div className="flex flex-wrap gap-2">
-            {ciap2List.map((item, idx) => {
+      {/* Dropdown Content Menu for CIAP 2 (60 a 69) */}
+      {openDropdown === 'ciap' && (
+        <div className="mt-2 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-teal-500/40 shadow-xl space-y-2 z-20 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="font-bold text-teal-800 dark:text-teal-300 uppercase flex items-center gap-1.5">
+              <Hash className="w-3.5 h-3.5 text-teal-600" />
+              Lista Suspensa: CIAP-2 do Plano (Intervenções 60 a 69)
+            </span>
+            <span className="text-[10px]">Clique para copiar o código</span>
+          </div>
+
+          <div className="space-y-1.5 max-h-72 overflow-y-auto pr-1">
+            {displayPlanoCiap.map((item, idx) => {
               const key = `plano-ciap-${idx}-${item.code}`;
               const isCopied = copiedKey === key;
+              const isStandard69 = item.code === '69';
+
               return (
-                <button
+                <div
                   key={key}
-                  type="button"
-                  onClick={() => handleCopyCode(key, item.code, `CIAP-2: ${item.code}`)}
-                  title={`Copiar código CIAP-2 ${item.code}`}
-                  className={`group flex items-center gap-2 px-3 py-1.5 rounded-xl border text-xs font-semibold transition-all cursor-pointer ${
-                    isCopied
-                      ? 'bg-emerald-600 text-white border-emerald-600 shadow-sm'
-                      : 'bg-white dark:bg-slate-900 hover:bg-teal-50 dark:hover:bg-teal-950/40 text-slate-800 dark:text-slate-200 border-teal-500/40 hover:border-teal-500 shadow-2xs'
+                  onClick={() => handleCopy(key, item.code, `CIAP-2: ${item.code}`)}
+                  className={`flex items-center justify-between gap-3 p-2.5 rounded-xl border transition-colors cursor-pointer group ${
+                    isStandard69
+                      ? 'bg-teal-50/80 dark:bg-teal-950/40 border-teal-500/40 hover:bg-teal-100/70 dark:hover:bg-teal-900/40'
+                      : 'bg-slate-50 dark:bg-slate-950/60 hover:bg-teal-50 dark:hover:bg-teal-950/40 border-slate-200/80 dark:border-slate-800'
                   }`}
                 >
-                  <span className="font-mono font-bold text-teal-700 dark:text-teal-300">
-                    {item.code}
-                  </span>
-                  {item.description && (
-                    <span className="text-[11px] text-slate-500 dark:text-slate-400">
-                      {item.description}
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span
+                      className={`px-2.5 py-1 rounded-lg font-mono font-extrabold text-xs border shrink-0 ${
+                        isStandard69
+                          ? 'bg-teal-600 text-white border-teal-600 shadow-2xs'
+                          : 'bg-teal-500/15 text-teal-800 dark:text-teal-300 border-teal-500/30'
+                      }`}
+                    >
+                      {item.code}
                     </span>
-                  )}
-                  {isCopied ? (
-                    <Check className="w-3.5 h-3.5 stroke-[3] text-white shrink-0" />
-                  ) : (
-                    <Copy className="w-3 h-3 text-slate-400 group-hover:text-teal-600 shrink-0" />
-                  )}
-                </button>
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5">
+                        <span className="text-xs font-semibold text-slate-800 dark:text-slate-200 truncate">
+                          {item.description}
+                        </span>
+                        {isStandard69 && (
+                          <span className="text-[9px] font-bold px-1.5 py-0.2 rounded bg-teal-600 text-white shrink-0 hidden sm:inline">
+                            Padrão PEC
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  <button
+                    type="button"
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 shrink-0 ${
+                      isCopied
+                        ? 'bg-emerald-600 text-white'
+                        : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 group-hover:bg-teal-600 group-hover:text-white group-hover:border-teal-600'
+                    }`}
+                  >
+                    {isCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                    <span>{isCopied ? 'Copiado!' : 'Copiar'}</span>
+                  </button>
+                </div>
               );
             })}
           </div>
         </div>
       )}
 
-      {/* SIGTAP List */}
-      <div className="space-y-2.5">
-        <span className="text-[11px] font-extrabold uppercase tracking-wider text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
-          <span className="w-1.5 h-1.5 rounded-full bg-emerald-500" />
-          Procedimentos SIGTAP / SIA (e-SUS PEC)
-        </span>
+      {/* Dropdown Content Menu for SIGTAP */}
+      {openDropdown === 'sigtap' && (
+        <div className="mt-2 p-3 rounded-2xl bg-white dark:bg-slate-900 border border-emerald-500/40 shadow-xl space-y-2 z-20 animate-in fade-in zoom-in-95 duration-150">
+          <div className="flex items-center justify-between pb-2 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400">
+            <span className="font-bold text-emerald-800 dark:text-emerald-300 uppercase">
+              Lista Suspensa: Procedimentos SIGTAP & Nomenclaturas PEC
+            </span>
+            <span>Copie para a interface oficial do PEC</span>
+          </div>
 
-        <div className="grid grid-cols-1 gap-2">
-          {sigtapList.map((item, idx) => {
-            const codeKey = `sigtap-code-${idx}-${item.code}`;
-            const fullKey = `sigtap-full-${idx}-${item.code}`;
-            const isCodeCopied = copiedKey === codeKey;
-            const isFullCopied = copiedKey === fullKey;
-
-            return (
-              <div
-                key={item.code}
-                className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-emerald-500/40 transition-colors shadow-2xs"
-              >
-                <div className="flex items-center gap-2.5">
-                  <span className="font-mono font-extrabold text-xs px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shrink-0">
-                    {item.code}
+          <div className="space-y-2 max-h-72 overflow-y-auto pr-1">
+            {/* 1. Item Especial: ORIENTAÇÃO INDIVIDUAL EM SAÚDE (Sem Código Numérico) */}
+            <div className="p-2.5 rounded-xl bg-teal-500/10 border border-teal-500/30 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+              <div className="min-w-0">
+                <div className="flex items-center gap-2">
+                  <span className="text-xs font-extrabold text-teal-900 dark:text-teal-100">
+                    ORIENTAÇÃO INDIVIDUAL EM SAÚDE
                   </span>
-                  <div>
-                    <span className="text-xs font-bold text-slate-900 dark:text-slate-100 flex items-center gap-1.5">
-                      {item.name}
-                      {item.isFixed && (
-                        <span className="text-[10px] font-normal px-1.5 py-0.2 rounded bg-teal-500/15 text-teal-700 dark:text-teal-300 border border-teal-500/30">
-                          Padrão Fixo
-                        </span>
-                      )}
+                  <span className="text-[10px] font-semibold px-2 py-0.5 rounded bg-teal-600 text-white">
+                    Nomenclatura PEC (Sem Código)
+                  </span>
+                </div>
+                <p className="text-[11px] text-teal-700 dark:text-teal-300">
+                  Campo de texto/procedimentos no PEC oficial
+                </p>
+              </div>
+
+              <button
+                type="button"
+                onClick={() =>
+                  handleCopy(
+                    'orientacao-individual',
+                    'ORIENTAÇÃO INDIVIDUAL EM SAÚDE',
+                    'Nomenclatura PEC'
+                  )
+                }
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer shrink-0 ${
+                  copiedKey === 'orientacao-individual'
+                    ? 'bg-emerald-600 text-white shadow-xs'
+                    : 'bg-teal-600 hover:bg-teal-700 text-white shadow-xs'
+                }`}
+              >
+                {copiedKey === 'orientacao-individual' ? (
+                  <Check className="w-3.5 h-3.5 stroke-[3]" />
+                ) : (
+                  <Copy className="w-3.5 h-3.5" />
+                )}
+                <span>
+                  {copiedKey === 'orientacao-individual'
+                    ? 'Copiado!'
+                    : 'Copiar Nomenclatura'}
+                </span>
+              </button>
+            </div>
+
+            {/* 2. Other SIGTAP Procedures */}
+            {sigtapList.map((item, idx) => {
+              const codeKey = `sigtap-code-${idx}-${item.code}`;
+              const fullKey = `sigtap-full-${idx}-${item.code}`;
+              const isCodeCopied = copiedKey === codeKey;
+              const isFullCopied = copiedKey === fullKey;
+
+              return (
+                <div
+                  key={item.code}
+                  className="p-2.5 rounded-xl bg-slate-50 dark:bg-slate-950/60 border border-slate-200 dark:border-slate-800 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2.5 min-w-0">
+                    <span className="font-mono font-extrabold text-xs px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-300 dark:border-emerald-800 shrink-0">
+                      {item.code}
                     </span>
+                    <div className="min-w-0">
+                      <span className="text-xs font-bold text-slate-900 dark:text-slate-100 block truncate">
+                        {item.name}
+                      </span>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                    <button
+                      type="button"
+                      onClick={() => handleCopy(codeKey, item.code, `Código SIGTAP: ${item.code}`)}
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                        isCodeCopied
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 border border-slate-200 dark:border-slate-700 hover:bg-emerald-50 dark:hover:bg-emerald-950/60'
+                      }`}
+                      title={`Copiar código ${item.code}`}
+                    >
+                      {isCodeCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
+                      <span>{isCodeCopied ? 'Copiado!' : 'Código'}</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={() =>
+                        handleCopy(
+                          fullKey,
+                          item.name,
+                          `Nome SIGTAP: ${item.name}`
+                        )
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-xs font-bold flex items-center gap-1 cursor-pointer transition-all ${
+                        isFullCopied
+                          ? 'bg-emerald-600 text-white'
+                          : 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100'
+                      }`}
+                      title={`Copiar nome "${item.name}"`}
+                    >
+                      {isFullCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <FileText className="w-3 h-3" />}
+                      <span>{isFullCopied ? 'Copiado!' : 'Nome'}</span>
+                    </button>
                   </div>
                 </div>
-
-                <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                  {/* Button to copy only the code */}
-                  <button
-                    type="button"
-                    onClick={() => handleCopyCode(codeKey, item.code, `Código SIGTAP: ${item.code}`)}
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      isCodeCopied
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-emerald-100 dark:hover:bg-emerald-950 text-slate-700 dark:text-slate-300 hover:text-emerald-800 dark:hover:text-emerald-200'
-                    }`}
-                    title={`Copiar apenas o código ${item.code}`}
-                  >
-                    {isCodeCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <Copy className="w-3 h-3" />}
-                    <span>{isCodeCopied ? 'Copiado!' : 'Copiar Código'}</span>
-                  </button>
-
-                  {/* Button to copy code + nomenclature */}
-                  <button
-                    type="button"
-                    onClick={() =>
-                      handleCopyCode(
-                        fullKey,
-                        `${item.code} - ${item.name}`,
-                        `SIGTAP Completo: ${item.code}`
-                      )
-                    }
-                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold transition-all cursor-pointer ${
-                      isFullCopied
-                        ? 'bg-emerald-600 text-white'
-                        : 'bg-emerald-50 dark:bg-emerald-950/40 hover:bg-emerald-100 dark:hover:bg-emerald-900 text-emerald-800 dark:text-emerald-200 border border-emerald-300/60 dark:border-emerald-700/60'
-                    }`}
-                    title={`Copiar "${item.code} - ${item.name}"`}
-                  >
-                    {isFullCopied ? <Check className="w-3 h-3 stroke-[3]" /> : <FileText className="w-3 h-3" />}
-                    <span>{isFullCopied ? 'Copiado!' : 'Copiar Nome + Código'}</span>
-                  </button>
-                </div>
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
-      </div>
+      )}
     </div>
   );
 };

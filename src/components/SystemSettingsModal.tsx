@@ -26,6 +26,12 @@ import {
   FileText,
   UserPlus,
   RefreshCw,
+  CreditCard,
+  Calendar,
+  Clock,
+  Ban,
+  DollarSign,
+  Zap,
 } from 'lucide-react';
 import {
   User,
@@ -37,6 +43,7 @@ import {
   Patient,
   Consultation,
   AVAILABLE_MODELS,
+  SubscriptionPlan,
 } from '../types';
 import {
   PROFESSIONS,
@@ -60,6 +67,14 @@ interface SystemSettingsModalProps {
   systemSettings: SystemSettings;
   patients: Patient[];
   consultations: Consultation[];
+  plans?: SubscriptionPlan[];
+  onUpdatePlan?: (plan: SubscriptionPlan) => void;
+  onUpdateUserSubscription?: (
+    userId: string,
+    status: 'free' | 'pendente' | 'pago',
+    durationDays: number,
+    planName: string
+  ) => void;
   onUpdateSystemSettings: (newSettings: SystemSettings) => void;
   onUpdateUser: (user: User) => void;
   onDeleteUser: (userId: string) => void;
@@ -73,7 +88,7 @@ interface SystemSettingsModalProps {
   activeKnowledgeCount?: number;
 }
 
-type TabType = 'overview' | 'users' | 'api_keys' | 'data_management' | 'pec_params';
+type TabType = 'overview' | 'users' | 'api_keys' | 'data_management' | 'pec_params' | 'plans';
 
 export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   isOpen,
@@ -83,6 +98,9 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   systemSettings,
   patients,
   consultations,
+  plans = [],
+  onUpdatePlan,
+  onUpdateUserSubscription,
   onUpdateSystemSettings,
   onUpdateUser,
   onDeleteUser,
@@ -129,6 +147,11 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [systemCustomInstructions, setSystemCustomInstructions] = useState(
     systemSettings.systemCustomInstructions || ''
   );
+  const [n8nPixWebhookUrl, setN8nPixWebhookUrl] = useState(
+    systemSettings.n8nPixWebhookUrl || 'https://n8n.mentoriajrs.com/webhook/gerar_pix_bronze_camila'
+  );
+  const [editingPlan, setEditingPlan] = useState<SubscriptionPlan | null>(null);
+  const [planSubscriberSearch, setPlanSubscriberSearch] = useState('');
 
   // User editing in modal
   const [editingUser, setEditingUser] = useState<User | null>(null);
@@ -282,6 +305,7 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       municipalityName: municipalityName.trim(),
       defaultUnitName: defaultUnitName.trim(),
       systemCustomInstructions: systemCustomInstructions.trim(),
+      n8nPixWebhookUrl: n8nPixWebhookUrl.trim(),
       updatedAt: Date.now(),
       updatedBy: currentUser.email,
     };
@@ -400,6 +424,38 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       `O usuário ${targetUser.name} agora é ${newRole === 'admin' ? 'ADMINISTRADOR' : 'USUÁRIO COMUM'}.`,
       'Perfil Atualizado'
     );
+  };
+
+  const handleToggleFreeTrial = (targetUser: User) => {
+    if (!isAdmin) {
+      onShowToast('error', 'Apenas administradores podem gerenciar cotas de teste.', 'Acesso Negado');
+      return;
+    }
+
+    const isCurrentlyFreeAvailable = !targetUser.free_used;
+    const newFreeUsed = isCurrentlyFreeAvailable ? true : false;
+
+    const updated: User = {
+      ...targetUser,
+      free_used: newFreeUsed,
+      subscription_status: targetUser.subscription_status === 'pago' ? 'pago' : 'free',
+    };
+
+    onUpdateUser(updated);
+
+    if (newFreeUsed) {
+      onShowToast(
+        'info',
+        `Cota de teste removida para ${targetUser.name}. O acesso foi bloqueado para exigir plano.`,
+        'Cota Removida'
+      );
+    } else {
+      onShowToast(
+        'success',
+        `Cota de teste renovada para ${targetUser.name}! Agora ele pode gerar mais 1 prontuário grátis.`,
+        'Cota Renovada'
+      );
+    }
   };
 
   // State for in-app deletion confirmation (replacing window.confirm which is blocked in iframes)
@@ -713,6 +769,25 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                 <Sliders className="w-4 h-4" />
                 <span>Parâmetros SUS / PEC</span>
               </button>
+
+              {isAdmin && (
+                <button
+                  type="button"
+                  id="tab-settings-plans"
+                  onClick={() => setActiveTab('plans')}
+                  className={`px-3.5 py-2 rounded-xl text-xs font-bold transition-all flex items-center gap-2 whitespace-nowrap ${
+                    activeTab === 'plans'
+                      ? 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 shadow-xs'
+                      : 'text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  }`}
+                >
+                  <CreditCard className="w-4 h-4 text-emerald-500" />
+                  <span>Planos & Assinaturas</span>
+                  <span className="px-1.5 py-0.2 rounded-md bg-emerald-100 dark:bg-emerald-900 text-emerald-800 dark:text-emerald-200 text-[10px] font-bold">
+                    SaaS
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Modal Body */}
@@ -1159,6 +1234,7 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                               <th className="py-3 px-4 font-bold">Especialidade & Conselho</th>
                               <th className="py-3 px-4 font-bold">Unidade de Saúde</th>
                               <th className="py-3 px-4 font-bold">Papel (Role)</th>
+                              <th className="py-3 px-4 font-bold">Cota / Teste</th>
                               <th className="py-3 px-4 font-bold text-right">Ações</th>
                             </tr>
                           </thead>
@@ -1230,12 +1306,63 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                     </button>
                                   </td>
 
+                                  {/* Coluna Cota / Teste Grátis */}
+                                  <td className="py-3 px-4">
+                                    {isTargetAdmin ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
+                                        <Sparkles className="w-3 h-3" /> Vitalício
+                                      </span>
+                                    ) : u.subscription_status === 'pago' && u.subscription_expires_at && u.subscription_expires_at > Date.now() ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
+                                        <CheckCircle2 className="w-3 h-3" /> Ativo
+                                      </span>
+                                    ) : !u.free_used ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-blue-500/10 text-blue-600 dark:text-blue-400 text-[11px] font-bold">
+                                        <Sparkles className="w-3 h-3" /> 1 Grátis
+                                      </span>
+                                    ) : (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-amber-500/10 text-amber-600 dark:text-amber-400 text-[11px] font-bold">
+                                        <Lock className="w-3 h-3" /> Esgotada
+                                      </span>
+                                    )}
+                                  </td>
+
                                   <td className="py-3 px-4 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
+                                      {/* Botão Alternador: Renovar Teste ou Remover Teste */}
+                                      {!isTargetAdmin && (
+                                        <button
+                                          type="button"
+                                          onClick={() => handleToggleFreeTrial(u)}
+                                          className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
+                                            !u.free_used
+                                              ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30'
+                                              : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
+                                          }`}
+                                          title={
+                                            !u.free_used
+                                              ? `Remover cota de teste de ${u.name} (bloquear para exigir contratação de plano)`
+                                              : `Renovar cota de teste para ${u.name} (concede mais 1 prontuário grátis)`
+                                          }
+                                        >
+                                          {!u.free_used ? (
+                                            <>
+                                              <Ban className="w-3 h-3" />
+                                              <span>Remover Teste</span>
+                                            </>
+                                          ) : (
+                                            <>
+                                              <RefreshCw className="w-3 h-3" />
+                                              <span>Renovar Teste</span>
+                                            </>
+                                          )}
+                                        </button>
+                                      )}
+
                                       <button
                                         type="button"
                                         onClick={() => handleStartEditingUser(u)}
-                                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                                        className="p-1.5 rounded-lg text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
                                         title="Editar Usuário"
                                       >
                                         <FileEdit className="w-4 h-4" />
@@ -1882,6 +2009,372 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                       </div>
                     </form>
                   )}
+                </div>
+              )}
+
+              {/* TAB 6: PLANOS & ASSINATURAS (SAAS ADMIN) */}
+              {activeTab === 'plans' && isAdmin && (
+                <div className="space-y-6">
+                  {/* Header / Intro Card */}
+                  <div className="p-5 rounded-3xl bg-gradient-to-r from-emerald-500/10 via-teal-500/10 to-emerald-500/10 border border-emerald-300 dark:border-emerald-800">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="flex items-center gap-3">
+                        <div className="p-3 rounded-2xl bg-emerald-600 text-white shadow-md shadow-emerald-600/20">
+                          <CreditCard className="w-6 h-6" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900 dark:text-white">
+                            Gestão de Planos, Preços e Assinantes
+                          </h3>
+                          <p className="text-xs text-slate-600 dark:text-slate-400">
+                            Configure os valores do SaaS cobrados via PIX (PagBank/n8n) e gerencie o acesso dos usuários.
+                          </p>
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <span className="px-3 py-1 text-xs font-semibold rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 flex items-center gap-1.5">
+                          <Zap className="w-3.5 h-3.5" />
+                          <span>Fuso Horário Oficial: América/São Paulo (BRT)</span>
+                        </span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Webhook Configuration */}
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
+                    <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                      <Zap className="w-4 h-4 text-emerald-600" />
+                      <span>URL do Webhook n8n para Gerar PIX</span>
+                    </h4>
+                    <p className="text-xs text-slate-500 dark:text-slate-400 leading-relaxed">
+                      Endpoint HTTP que recebe os dados do checkout (nome, e-mail, cpf, telefone, plano, valor) e retorna o QR Code do PagBank.
+                    </p>
+                    <div className="flex flex-col sm:flex-row gap-3">
+                      <input
+                        type="url"
+                        value={n8nPixWebhookUrl}
+                        onChange={(e) => setN8nPixWebhookUrl(e.target.value)}
+                        placeholder="https://seu-n8n.com/webhook/gerar_pix_bronze_camila"
+                        className="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const updated = {
+                            ...systemSettings,
+                            n8nPixWebhookUrl: n8nPixWebhookUrl.trim(),
+                            updatedAt: Date.now(),
+                            updatedBy: currentUser.email,
+                          };
+                          onUpdateSystemSettings(updated);
+                          onShowToast('success', 'URL do webhook n8n salva com sucesso!', 'Webhook Atualizado');
+                        }}
+                        className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer whitespace-nowrap"
+                      >
+                        <Save className="w-4 h-4" />
+                        <span>Salvar Webhook</span>
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* Plans Editor Grid */}
+                  <div className="space-y-4">
+                    <div className="flex items-center justify-between">
+                      <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                        <DollarSign className="w-4 h-4 text-emerald-600" />
+                        <span>Tabela de Planos Disponíveis</span>
+                      </h4>
+                      <span className="text-xs text-slate-500">
+                        Os valores salvos aqui refletem imediatamente na janela de pagamento dos usuários.
+                      </span>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                      {plans.map((plan) => (
+                        <div
+                          key={plan.id}
+                          className="p-5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col justify-between space-y-4"
+                        >
+                          <div className="space-y-3">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold uppercase tracking-wider text-emerald-600 dark:text-emerald-400">
+                                {plan.id}
+                              </span>
+                              <label className="flex items-center gap-1.5 text-xs text-slate-500 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={plan.active}
+                                  onChange={(e) => {
+                                    if (onUpdatePlan) {
+                                      onUpdatePlan({ ...plan, active: e.target.checked });
+                                      onShowToast('info', `Plano ${plan.name} ${e.target.checked ? 'ativado' : 'desativado'}.`);
+                                    }
+                                  }}
+                                  className="rounded text-emerald-600 focus:ring-emerald-500"
+                                />
+                                <span>{plan.active ? 'Ativo' : 'Inativo'}</span>
+                              </label>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Nome do Plano
+                              </label>
+                              <input
+                                type="text"
+                                value={plan.name}
+                                onChange={(e) => {
+                                  if (onUpdatePlan) {
+                                    onUpdatePlan({ ...plan, name: e.target.value });
+                                  }
+                                }}
+                                className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-semibold text-slate-900 dark:text-white"
+                              />
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-2">
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                  Preço (R$)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="0.10"
+                                  min="0"
+                                  value={plan.price}
+                                  onChange={(e) => {
+                                    const val = parseFloat(e.target.value) || 0;
+                                    if (onUpdatePlan) {
+                                      onUpdatePlan({ ...plan, price: val });
+                                    }
+                                  }}
+                                  className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                                />
+                              </div>
+
+                              <div>
+                                <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                  Duração (Dias)
+                                </label>
+                                <input
+                                  type="number"
+                                  step="1"
+                                  min="1"
+                                  value={plan.durationDays}
+                                  onChange={(e) => {
+                                    const val = parseInt(e.target.value, 10) || 1;
+                                    if (onUpdatePlan) {
+                                      onUpdatePlan({ ...plan, durationDays: val });
+                                    }
+                                  }}
+                                  className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-white"
+                                />
+                              </div>
+                            </div>
+
+                            <div>
+                              <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                Descrição Curta
+                              </label>
+                              <textarea
+                                rows={2}
+                                value={plan.description}
+                                onChange={(e) => {
+                                  if (onUpdatePlan) {
+                                    onUpdatePlan({ ...plan, description: e.target.value });
+                                  }
+                                }}
+                                className="w-full px-3 py-1.5 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-white resize-none"
+                              />
+                            </div>
+                          </div>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              if (onUpdatePlan) {
+                                onUpdatePlan(plan);
+                                onShowToast('success', `Plano ${plan.name} salvo com sucesso!`, 'Plano Salvo');
+                              }
+                            }}
+                            className="w-full py-2 px-3 bg-slate-800 hover:bg-slate-700 text-white dark:bg-slate-700 dark:hover:bg-slate-600 rounded-xl text-xs font-semibold flex items-center justify-center gap-1.5 transition-colors"
+                          >
+                            <Save className="w-3.5 h-3.5" />
+                            <span>Salvar {plan.name}</span>
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* Subscribers Management & Manual Access Control */}
+                  <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
+                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                      <div>
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
+                          <Users className="w-4 h-4 text-emerald-600" />
+                          <span>Controle de Acesso e Assinantes ({users.length})</span>
+                        </h4>
+                        <p className="text-xs text-slate-500">
+                          Visualize a vigência das assinaturas e conceda ou revogue acesso manual com um clique.
+                        </p>
+                      </div>
+                      <div className="relative w-full sm:w-64">
+                        <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
+                        <input
+                          type="text"
+                          value={planSubscriberSearch}
+                          onChange={(e) => setPlanSubscriberSearch(e.target.value)}
+                          placeholder="Buscar usuário ou email..."
+                          className="w-full pl-9 pr-3 py-2 text-xs rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-emerald-500"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Users Subscription Table */}
+                    <div className="overflow-x-auto rounded-xl border border-slate-200 dark:border-slate-800">
+                      <table className="w-full text-left text-xs">
+                        <thead className="bg-slate-100 dark:bg-slate-800/80 text-slate-600 dark:text-slate-300 font-bold uppercase tracking-wider text-[10px]">
+                          <tr>
+                            <th className="px-4 py-3">Profissional</th>
+                            <th className="px-3 py-3">Status</th>
+                            <th className="px-3 py-3">1º Free Usado?</th>
+                            <th className="px-4 py-3">Vigência (Horário BR)</th>
+                            <th className="px-4 py-3 text-right">Ações de Acesso</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-slate-200 dark:divide-slate-800 bg-white dark:bg-slate-900">
+                          {users
+                            .filter((u) => {
+                              const term = planSubscriberSearch.toLowerCase();
+                              return (
+                                u.name.toLowerCase().includes(term) ||
+                                u.email.toLowerCase().includes(term)
+                              );
+                            })
+                            .map((u) => {
+                              const isPaid = u.subscription_status === 'pago';
+                              const isExpired =
+                                isPaid && u.subscription_expires_at
+                                  ? u.subscription_expires_at < Date.now()
+                                  : false;
+                              const formattedDate = u.subscription_expires_at
+                                ? new Date(u.subscription_expires_at).toLocaleDateString('pt-BR', {
+                                    timeZone: 'America/Sao_Paulo',
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })
+                                : '--';
+
+                              return (
+                                <tr key={u.id} className="hover:bg-slate-50/50 dark:hover:bg-slate-800/40">
+                                  <td className="px-4 py-3">
+                                    <div className="font-bold text-slate-900 dark:text-white">{u.name}</div>
+                                    <div className="text-[11px] text-slate-500">{u.email}</div>
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    {isPaid && !isExpired ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950/70 text-emerald-800 dark:text-emerald-300 text-[10px] font-bold flex items-center gap-1 w-max">
+                                        <CheckCircle2 className="w-3 h-3" />
+                                        <span>Ativo ({u.plan_name || 'Assinante'})</span>
+                                      </span>
+                                    ) : isExpired ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-rose-100 dark:bg-rose-950/70 text-rose-800 dark:text-rose-300 text-[10px] font-bold flex items-center gap-1 w-max">
+                                        <Clock className="w-3 h-3" />
+                                        <span>Expirado</span>
+                                      </span>
+                                    ) : u.subscription_status === 'pendente' ? (
+                                      <span className="px-2 py-0.5 rounded-full bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 text-[10px] font-bold flex items-center gap-1 w-max">
+                                        <Clock className="w-3 h-3" />
+                                        <span>Aguardando Pix</span>
+                                      </span>
+                                    ) : (
+                                      <span className="px-2 py-0.5 rounded-full bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-400 text-[10px] font-semibold w-max">
+                                        Conta Free
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="px-3 py-3">
+                                    <span
+                                      className={`px-2 py-0.5 rounded-md text-[10px] font-bold ${
+                                        u.free_used
+                                          ? 'bg-amber-100 dark:bg-amber-900/50 text-amber-800 dark:text-amber-300'
+                                          : 'bg-emerald-100 dark:bg-emerald-900/50 text-emerald-800 dark:text-emerald-300'
+                                      }`}
+                                    >
+                                      {u.free_used ? 'Já usou (Bloqueado)' : 'Disponível'}
+                                    </span>
+                                  </td>
+                                  <td className="px-4 py-3 font-mono text-[11px] text-slate-600 dark:text-slate-300">
+                                    {formattedDate}
+                                  </td>
+                                  <td className="px-4 py-3 text-right">
+                                    <div className="flex items-center justify-end gap-1.5">
+                                      <button
+                                        type="button"
+                                        title="Liberar 15 dias"
+                                        onClick={() => {
+                                          if (onUpdateUserSubscription) {
+                                            onUpdateUserSubscription(u.id, 'pago', 15, 'Quinzenal Manual');
+                                            onShowToast('success', `Acesso de 15 dias concedido para ${u.name}!`);
+                                          }
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-300 dark:border-emerald-800"
+                                      >
+                                        +15d
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Liberar 30 dias"
+                                        onClick={() => {
+                                          if (onUpdateUserSubscription) {
+                                            onUpdateUserSubscription(u.id, 'pago', 30, 'Mensal Manual');
+                                            onShowToast('success', `Acesso de 30 dias concedido para ${u.name}!`);
+                                          }
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-300 dark:border-emerald-800"
+                                      >
+                                        +30d
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Liberar 365 dias (Anual)"
+                                        onClick={() => {
+                                          if (onUpdateUserSubscription) {
+                                            onUpdateUserSubscription(u.id, 'pago', 365, 'Anual Manual');
+                                            onShowToast('success', `Acesso de 1 ano concedido para ${u.name}!`);
+                                          }
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-emerald-50 dark:bg-emerald-950 hover:bg-emerald-100 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold border border-emerald-300 dark:border-emerald-800"
+                                      >
+                                        +1 Ano
+                                      </button>
+                                      <button
+                                        type="button"
+                                        title="Bloquear ou Revogar Acesso"
+                                        onClick={() => {
+                                          if (onUpdateUserSubscription) {
+                                            onUpdateUserSubscription(u.id, 'free', 0, '');
+                                            onShowToast('info', `Acesso de ${u.name} revogado.`);
+                                          }
+                                        }}
+                                        className="px-2 py-1 rounded-lg bg-rose-50 dark:bg-rose-950 hover:bg-rose-100 text-rose-700 dark:text-rose-300 text-[10px] font-bold border border-rose-300 dark:border-rose-800 flex items-center gap-1"
+                                      >
+                                        <Ban className="w-3 h-3" />
+                                        <span>Bloquear</span>
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
                 </div>
               )}
             </div>

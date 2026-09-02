@@ -20,6 +20,7 @@ import {
   formatCNS,
   validateCNS,
 } from '../utils/dateCalculator';
+import { formatName } from '../utils/textFormatters';
 
 interface PatientFormModalProps {
   isOpen: boolean;
@@ -210,6 +211,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                     id="patient-fullname-input"
                     value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
+                    onBlur={(e) => setFullName(formatName(e.target.value))}
                     placeholder="Ex: Lucas Henrique de Oliveira"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
                   />
@@ -376,6 +378,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                       id="legal-guardian-name-input"
                       value={legalGuardianName}
                       onChange={(e) => setLegalGuardianName(e.target.value)}
+                      onBlur={(e) => setLegalGuardianName(formatName(e.target.value))}
                       placeholder="Ex: Juliana de Oliveira Santos"
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
                     />
@@ -411,6 +414,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                       id="guardian-kinship-custom-input"
                       value={guardianKinshipCustom}
                       onChange={(e) => setGuardianKinshipCustom(e.target.value)}
+                      onBlur={(e) => setGuardianKinshipCustom(formatName(e.target.value))}
                       placeholder="Ex: Vizinho cuidador, Irmão de criação, etc."
                       className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
                     />
@@ -441,6 +445,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                     type="text"
                     value={address}
                     onChange={(e) => setAddress(e.target.value)}
+                    onBlur={(e) => setAddress(formatName(e.target.value))}
                     placeholder="Rua, Número - Bairro / Microárea"
                     className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
                   />

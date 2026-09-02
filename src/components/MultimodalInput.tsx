@@ -404,21 +404,6 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
                 <Paperclip className="w-4 h-4" />
                 <span>Anexar Receita / Foto / PDF</span>
               </button>
-
-              <button
-                type="button"
-                id="camera-photo-btn"
-                onClick={() => fileInputRef.current?.click()}
-                className="hidden sm:flex items-center gap-1.5 text-slate-600 dark:text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 font-medium cursor-pointer transition-colors p-1.5 rounded-lg hover:bg-slate-100 dark:hover:bg-slate-800"
-                title="Capturar foto de exame ou receita"
-              >
-                <Camera className="w-4 h-4" />
-                <span>Foto de Monitor/Exame</span>
-              </button>
-            </div>
-
-            <div className="text-[11px] text-slate-400 hidden sm:block">
-              Atalho: <kbd className="px-1.5 py-0.5 bg-slate-100 dark:bg-slate-800 rounded font-mono text-[10px]">Ctrl+Enter</kbd> para gerar
             </div>
           </div>
         </div>
@@ -521,10 +506,6 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
             </>
           )}
         </button>
-
-        <p className="text-center text-[11px] text-slate-500 dark:text-slate-400 mt-2">
-          Gera blocos individuais com conformidade aos padrões do e-SUS APS, RAPS e eMulti.
-        </p>
       </div>
 
       {/* Modal for image preview */}

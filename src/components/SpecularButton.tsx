@@ -84,14 +84,14 @@ export const SpecularButton: React.FC<SpecularButtonProps> = ({
             width: '150px',
             height: '150px',
             background: `radial-gradient(circle, ${lineColor} 0%, transparent 70%)`,
-            opacity: intensity,
-            mixBlendMode: 'overlay',
+            opacity: intensity * 0.15,
+            mixBlendMode: 'normal',
           }}
         />
       )}
 
       {/* Auto-animate or shimmer rim light */}
-      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r from-transparent via-teal-500/15 to-transparent pointer-events-none z-0" />
+      <div className="absolute inset-0 opacity-0 group-hover:opacity-100 transition-opacity duration-500 bg-gradient-to-r from-transparent via-teal-500/10 to-transparent pointer-events-none z-0" />
 
       {/* Content */}
       <span className="relative z-10 flex items-center justify-center gap-2 w-full h-full">
