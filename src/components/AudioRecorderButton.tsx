@@ -1,6 +1,7 @@
 import React from 'react';
 import { Mic, Square, Loader2, X, Zap, AlertCircle, Activity } from 'lucide-react';
 import { useWhisperTranscription } from '../hooks/useWhisperTranscription';
+import { SpecularButton } from './SpecularButton';
 
 interface AudioRecorderButtonProps {
   onTranscriptionComplete: (text: string) => void;
@@ -104,25 +105,29 @@ export const AudioRecorderButton: React.FC<AudioRecorderButtonProps> = ({
               </div>
 
               {/* Cancel Button */}
-              <button
+              <SpecularButton
                 type="button"
                 onClick={cancelRecording}
+                size="icon"
+                radius={12}
+                className="bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 border-transparent"
                 title="Descartar gravação"
-                className="p-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-500 transition-colors cursor-pointer"
               >
                 <X className="w-4 h-4" />
-              </button>
+              </SpecularButton>
 
               {/* Stop & Transcribe Button */}
-              <button
+              <SpecularButton
                 type="button"
                 id="stop-audio-recording-btn"
                 onClick={stopRecording}
-                className="flex-1 sm:flex-none flex items-center justify-center gap-2 px-4 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-all active:scale-95 cursor-pointer"
+                size="sm"
+                radius={12}
+                className="flex-1 sm:flex-none bg-rose-600 hover:bg-rose-700 text-white shadow-md shadow-rose-600/20 border-rose-500/40"
               >
                 <Square className="w-3.5 h-3.5 fill-white" />
                 <span>Finalizar e Transcrever</span>
-              </button>
+              </SpecularButton>
             </div>
           )}
 
@@ -136,19 +141,22 @@ export const AudioRecorderButton: React.FC<AudioRecorderButtonProps> = ({
 
           {/* IDLE / START BUTTON */}
           {!isRecording && !isProcessing && (
-            <button
+            <SpecularButton
               type="button"
               id="start-audio-recording-btn"
               onClick={startRecording}
               disabled={disabled}
-              className="w-full sm:w-auto flex items-center justify-center gap-2 px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all active:scale-95 cursor-pointer disabled:opacity-50"
+              size="sm"
+              radius={12}
+              className="w-full sm:w-auto bg-emerald-600 hover:bg-emerald-500 text-white shadow-md shadow-emerald-600/20 border-emerald-500/40"
             >
               <Mic className="w-4 h-4" />
               <span>Iniciar Gravação de Voz</span>
-            </button>
+            </SpecularButton>
           )}
         </div>
       </div>
     </div>
   );
 };
+

@@ -19,6 +19,8 @@ import {
 import { Patient, Consultation, User as UserModel } from '../types';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
 import { isUserAdmin } from '../data/professions';
+import { SpecularButton } from './SpecularButton';
+
 
 interface PatientsListViewProps {
   patients: Patient[];
@@ -76,15 +78,17 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
         </div>
 
         <div className="flex items-center gap-3">
-          <button
+          <SpecularButton
             type="button"
             id="open-new-patient-modal-btn"
             onClick={onOpenNewPatientModal}
-            className="px-4 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all flex items-center gap-2 cursor-pointer shrink-0"
+            size="sm"
+            radius={12}
+            className="px-4 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white shadow-md shadow-teal-600/20 shrink-0 border-teal-500/40"
           >
             <UserPlus className="w-4 h-4" />
             <span>+ Cadastrar Paciente</span>
-          </button>
+          </SpecularButton>
         </div>
       </div>
 
@@ -100,13 +104,15 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
           className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none shadow-xs"
         />
         {searchTerm && (
-          <button
+          <SpecularButton
             type="button"
             onClick={() => setSearchTerm('')}
-            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-4 top-1/2 -translate-y-1/2"
+            size="sm"
+            radius={8}
+            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 border-transparent"
           >
             Limpar
-          </button>
+          </SpecularButton>
         )}
       </div>
 
@@ -122,13 +128,15 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
               ? 'Tente ajustar os termos de busca pelo nome ou número de documento.'
               : 'Comece cadastrando o primeiro paciente para iniciar o registro clínico.'}
           </p>
-          <button
+          <SpecularButton
             type="button"
             onClick={onOpenNewPatientModal}
-            className="mt-2 px-4 py-2 rounded-xl bg-teal-600 text-white text-xs font-bold hover:bg-teal-500 transition-colors"
+            size="sm"
+            radius={12}
+            className="mt-2 px-4 py-2 bg-teal-600 text-white hover:bg-teal-500 border-teal-500/40"
           >
             + Cadastrar Novo Paciente
-          </button>
+          </SpecularButton>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5">
@@ -228,44 +236,52 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
 
                   {/* Actions */}
                   <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 lg:pt-0 border-t lg:border-t-0 border-slate-100 dark:border-slate-800">
-                    <button
+                    <SpecularButton
                       type="button"
                       onClick={() => onEditPatient(patient)}
-                      className="p-2 rounded-xl text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      size="icon"
+                      radius={12}
+                      className="p-2 text-slate-500 hover:text-slate-800 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent"
                       title="Editar Paciente"
                     >
                       <FileEdit className="w-4 h-4" />
-                    </button>
+                    </SpecularButton>
 
                     {isAdmin && onDeletePatient && (
-                      <button
+                      <SpecularButton
                         type="button"
                         onClick={() => setPatientToDelete(patient)}
-                        className="p-2 rounded-xl text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/50 transition-colors cursor-pointer"
+                        size="icon"
+                        radius={12}
+                        className="p-2 text-rose-500 hover:text-rose-700 dark:hover:text-rose-300 hover:bg-rose-50 dark:hover:bg-rose-950/50 border-transparent"
                         title="Excluir Paciente (Admin)"
                       >
                         <Trash2 className="w-4 h-4" />
-                      </button>
+                      </SpecularButton>
                     )}
 
-                    <button
+                    <SpecularButton
                       type="button"
                       onClick={() => onNewConsultationForPatient(patient)}
-                      className="px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-xs transition-colors flex items-center gap-1.5 cursor-pointer"
+                      size="sm"
+                      radius={12}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs border-emerald-500/40"
                       title="Novo Atendimento para este Paciente"
                     >
                       <PlusCircle className="w-3.5 h-3.5" />
                       <span>Atender</span>
-                    </button>
+                    </SpecularButton>
 
-                    <button
+                    <SpecularButton
                       type="button"
                       onClick={() => onSelectPatient(patient)}
-                      className="px-4 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer"
+                      size="sm"
+                      radius={12}
+                      className="px-4 py-2 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800"
                     >
                       <span>Ver Linha do Tempo</span>
                       <ChevronRight className="w-4 h-4" />
-                    </button>
+                    </SpecularButton>
                   </div>
                 </div>
               </motion.div>
@@ -313,14 +329,16 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
               </p>
 
               <div className="flex items-center justify-end gap-2.5 pt-2">
-                <button
+                <SpecularButton
                   type="button"
                   onClick={() => setPatientToDelete(null)}
-                  className="px-4 py-2.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold transition-colors cursor-pointer"
+                  size="sm"
+                  radius={12}
+                  className="px-4 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent"
                 >
                   Cancelar
-                </button>
-                <button
+                </SpecularButton>
+                <SpecularButton
                   type="button"
                   id="confirm-delete-patient-action-btn"
                   onClick={() => {
@@ -329,11 +347,13 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
                       setPatientToDelete(null);
                     }
                   }}
-                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-bold shadow-md shadow-rose-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                  size="sm"
+                  radius={12}
+                  className="px-5 py-2.5 bg-rose-600 hover:bg-rose-500 text-white shadow-md shadow-rose-600/20 border-rose-500/40"
                 >
                   <Trash2 className="w-4 h-4" />
                   <span>Confirmar Exclusão</span>
-                </button>
+                </SpecularButton>
               </div>
             </motion.div>
           </div>

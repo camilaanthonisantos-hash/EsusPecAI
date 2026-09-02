@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { Key, X, Shield, ExternalLink, Check, Eye, EyeOff, Info } from 'lucide-react';
+import { SpecularButton } from './SpecularButton';
 
 interface ApiKeyModalProps {
   isOpen: boolean;
@@ -66,13 +67,16 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
                 </div>
               </div>
 
-              <button
+              <SpecularButton
+                type="button"
                 id="close-api-key-modal-btn"
                 onClick={onClose}
-                className="p-1.5 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                size="icon"
+                radius={12}
+                className="p-1.5 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-transparent"
               >
                 <X className="w-5 h-5" />
-              </button>
+              </SpecularButton>
             </div>
 
             {/* Info notice */}
@@ -126,20 +130,24 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
               </div>
 
               <div className="flex items-center justify-end gap-2 pt-2">
-                <button
+                <SpecularButton
                   type="button"
                   onClick={onClose}
-                  className="px-4 py-2 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  size="sm"
+                  radius={12}
+                  className="px-4 py-2 text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors border-transparent"
                 >
                   Cancelar
-                </button>
-                <button
+                </SpecularButton>
+                <SpecularButton
                   type="submit"
                   id="save-api-key-btn"
-                  className="px-5 py-2.5 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all cursor-pointer"
+                  size="sm"
+                  radius={12}
+                  className="px-5 py-2.5 bg-teal-600 hover:bg-teal-700 text-white shadow-md shadow-teal-600/20 border-teal-500/40"
                 >
                   Salvar Configuração
-                </button>
+                </SpecularButton>
               </div>
             </form>
           </motion.div>
@@ -148,3 +156,4 @@ export const ApiKeyModal: React.FC<ApiKeyModalProps> = ({
     </AnimatePresence>
   );
 };
+

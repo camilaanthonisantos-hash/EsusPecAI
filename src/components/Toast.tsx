@@ -2,6 +2,7 @@ import React from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import { CheckCircle2, AlertCircle, Info, X } from 'lucide-react';
 import { ToastInfo } from '../types';
+import { SpecularButton } from './SpecularButton';
 
 interface ToastProps {
   toasts: ToastInfo[];
@@ -50,17 +51,18 @@ export const ToastContainer: React.FC<ToastProps> = ({ toasts, onDismiss }) => {
               )}
               <p className="leading-snug">{toast.message}</p>
             </div>
-            <button
+            <SpecularButton
               id={`dismiss-toast-${toast.id}`}
               onClick={() => onDismiss(toast.id)}
-              className="shrink-0 p-1 text-slate-400 hover:text-white rounded-lg transition-colors"
+              className="shrink-0 p-1 text-slate-400 hover:text-white rounded-lg transition-colors border-transparent"
               aria-label="Fechar notificação"
             >
               <X className="w-4 h-4" />
-            </button>
+            </SpecularButton>
           </motion.div>
         ))}
       </AnimatePresence>
     </div>
   );
 };
+

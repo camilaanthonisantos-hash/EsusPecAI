@@ -22,6 +22,7 @@ import {
 import { ProfessionId, AIModelId, User, Patient } from '../types';
 import { PROFESSIONS, isUserAdmin } from '../data/professions';
 import { AVAILABLE_MODELS } from '../types';
+import { SpecularButton } from './SpecularButton';
 
 interface HeaderProps {
   activeTab: 'generator' | 'patients';
@@ -103,29 +104,33 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
 
           {/* Center Navigation Tabs (Prontuário Rápido vs Pacientes & Timeline) */}
-          <div className="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80">
-            <button
+          <div className="flex items-center p-1 rounded-2xl bg-slate-100 dark:bg-slate-800/80 border border-slate-200 dark:border-slate-700/80 gap-1">
+            <SpecularButton
               type="button"
               id="nav-tab-generator"
               onClick={() => onSelectTab('generator')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              size="sm"
+              radius={12}
+              className={`${
                 activeTab === 'generator'
                   ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border-transparent'
               }`}
             >
               <Zap className="w-3.5 h-3.5 text-amber-500" />
               <span>Gerador PEC</span>
-            </button>
+            </SpecularButton>
 
-            <button
+            <SpecularButton
               type="button"
               id="nav-tab-patients"
               onClick={() => onSelectTab('patients')}
-              className={`flex items-center gap-2 px-3.5 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+              size="sm"
+              radius={12}
+              className={`${
                 activeTab === 'patients'
                   ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                  : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200 border-transparent'
               }`}
             >
               <Users className="w-3.5 h-3.5 text-teal-600" />
@@ -135,17 +140,19 @@ export const Header: React.FC<HeaderProps> = ({
                   {patientsCount}
                 </span>
               )}
-            </button>
+            </SpecularButton>
           </div>
 
           {/* Right Actions: User Profile Badge, AI Model, Knowledge, System Settings, Theme */}
           <div className="flex items-center gap-1.5 sm:gap-2">
             {/* User Profile Badge (Click to open Profile / Switch User) */}
-            <button
+            <SpecularButton
               type="button"
               id="user-profile-button"
               onClick={onOpenAuthModal}
-              className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 rounded-2xl bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-left transition-all cursor-pointer"
+              size="sm"
+              radius={16}
+              className="flex items-center gap-2 px-2.5 sm:px-3 py-1.5 bg-slate-100 dark:bg-slate-800/90 hover:bg-slate-200 dark:hover:bg-slate-700 border border-slate-200 dark:border-slate-700 text-left"
               title="Meu Perfil Profissional / Acesso ao Sistema"
             >
               <div className={`p-1.5 rounded-xl text-xs font-bold border ${currentProf.accentBg}`}>
@@ -170,20 +177,22 @@ export const Header: React.FC<HeaderProps> = ({
                   {currentProf.name} • {currentUser.workplace.split(' ')[0]}
                 </div>
               </div>
-            </button>
+            </SpecularButton>
 
             {/* Logout button */}
             {onLogout && (
-              <button
+              <SpecularButton
                 type="button"
                 id="header-logout-btn"
                 onClick={onLogout}
-                className="p-2 rounded-xl text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 transition-colors cursor-pointer"
+                size="icon"
+                radius={12}
+                className="text-slate-500 dark:text-slate-400 hover:text-rose-600 dark:hover:text-rose-400 hover:bg-rose-50 dark:hover:bg-rose-950/40 border-transparent"
                 title="Encerrar Sessão (Sair do Sistema)"
                 aria-label="Sair do Sistema"
               >
                 <LogOut className="w-4 h-4" />
-              </button>
+              </SpecularButton>
             )}
 
             {/* Cloud Firestore Live Status */}
@@ -216,11 +225,13 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
 
             {/* Knowledge Base Button */}
-            <button
+            <SpecularButton
               type="button"
               id="header-knowledge-btn"
               onClick={onOpenKnowledgeDrawer}
-              className="relative p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              size="icon"
+              radius={12}
+              className="text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent"
               title="Base de Conhecimento & REMUME Municipal"
             >
               <BookOpen className="w-4 h-4" />
@@ -229,14 +240,16 @@ export const Header: React.FC<HeaderProps> = ({
                   {activeKnowledgeCount}
                 </span>
               )}
-            </button>
+            </SpecularButton>
 
             {/* History Drawer Button */}
-            <button
+            <SpecularButton
               type="button"
               id="header-history-btn"
               onClick={onOpenHistoryDrawer}
-              className="relative p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              size="icon"
+              radius={12}
+              className="text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent"
               title="Histórico de Atendimentos Salvos"
             >
               <History className="w-4 h-4" />
@@ -245,17 +258,19 @@ export const Header: React.FC<HeaderProps> = ({
                   {historyCount}
                 </span>
               )}
-            </button>
+            </SpecularButton>
 
             {/* System Configuration & RBAC Modal Button */}
-            <button
+            <SpecularButton
               type="button"
               id="header-system-settings-btn"
               onClick={onOpenSystemSettings}
-              className={`p-2 rounded-xl transition-all cursor-pointer relative ${
+              size="icon"
+              radius={12}
+              className={`${
                 isAdmin
                   ? 'text-indigo-600 dark:text-indigo-400 bg-indigo-50 dark:bg-indigo-950/60 border border-indigo-500/30 hover:bg-indigo-100 dark:hover:bg-indigo-900/60'
-                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                  : 'text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent'
               }`}
               title="Configurações do Sistema & Gestão de Usuários"
             >
@@ -265,18 +280,20 @@ export const Header: React.FC<HeaderProps> = ({
                   ✓
                 </span>
               )}
-            </button>
+            </SpecularButton>
 
             {/* Dark Mode Toggle */}
-            <button
+            <SpecularButton
               type="button"
               id="header-dark-mode-toggle"
               onClick={onToggleDarkMode}
-              className="p-2 rounded-xl text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+              size="icon"
+              radius={12}
+              className="text-slate-600 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800 border-transparent"
               aria-label="Alternar tema claro/escuro"
             >
               {isDarkMode ? <Sun className="w-4 h-4 text-amber-400" /> : <Moon className="w-4 h-4" />}
-            </button>
+            </SpecularButton>
           </div>
         </div>
       </div>

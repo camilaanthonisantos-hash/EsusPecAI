@@ -79,6 +79,7 @@ import { PatientsListView } from './components/PatientsListView';
 import { SystemSettingsModal } from './components/SystemSettingsModal';
 import { EditConsultationModal } from './components/EditConsultationModal';
 import { PatientDropdownSelector } from './components/PatientDropdownSelector';
+import { SpecularButton } from './components/SpecularButton';
 
 export default function App() {
   // Navigation tab: 'generator' | 'patients'
@@ -969,78 +970,50 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               </div>
 
               <div className="flex flex-wrap items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
+                {currentRecord && (
+                  <SpecularButton
+                    type="button"
+                    id="reset-form-btn"
+                    onClick={handleResetForm}
+                    size="sm"
+                    radius={12}
+                    className="px-3.5 py-2 bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-750 text-slate-700 dark:text-slate-300 shadow-xs"
+                  >
+                    <RotateCcw className="w-3.5 h-3.5" />
+                    <span>Novo Atendimento</span>
+                  </SpecularButton>
+                )}
+
                 {selectedPatient && (
-                  <button
+                  <SpecularButton
                     type="button"
                     id="banner-view-timeline-btn"
                     onClick={() => setActiveTab('patients')}
-                    className="px-3.5 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/70 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer shadow-xs"
+                    size="sm"
+                    radius={12}
+                    className="px-3.5 py-2 bg-teal-50 dark:bg-teal-950/70 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 shadow-xs"
                     title="Abrir linha do tempo e prontuário completo"
                   >
                     <Clock className="w-3.5 h-3.5 text-teal-600" />
                     <span>Ver Prontuário / Linha do Tempo</span>
-                  </button>
+                  </SpecularButton>
                 )}
 
-                <button
+                <SpecularButton
                   type="button"
                   id="banner-new-patient-btn"
                   onClick={() => {
                     setPatientToEdit(null);
                     setIsPatientFormModalOpen(true);
                   }}
-                  className="px-3.5 py-2 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 text-xs font-bold transition-colors flex items-center gap-1.5 cursor-pointer border border-slate-200 dark:border-slate-700 shadow-xs"
+                  size="sm"
+                  radius={12}
+                  className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-800 dark:text-slate-200 border border-slate-200 dark:border-slate-700 shadow-xs"
                   title="Cadastrar novo paciente no sistema"
                 >
                   <UserPlus className="w-3.5 h-3.5 text-teal-600" />
                   <span>+ Novo Cadastro</span>
-                </button>
-              </div>
-            </div>
-
-            {/* Quick Context & Guide Banner */}
-            <div className="rounded-2xl bg-gradient-to-r from-teal-700/10 via-emerald-600/10 to-transparent p-4 sm:p-5 border border-teal-500/20 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-              <div className="space-y-1">
-                <div className="flex items-center gap-2">
-                  <span className="flex h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                  <h2 className="text-sm font-bold text-slate-900 dark:text-slate-100">
-                    Automação Inteligente de Prontuários e-SUS / PEC
-                  </h2>
-                </div>
-                <p className="text-xs text-slate-600 dark:text-slate-400 max-w-2xl leading-relaxed">
-                  Gere registros clínicos padronizados com{' '}
-                  <strong>sinais vitais qualitativos</strong>, diagnósticos apropriados (NANDA-I,
-                  CIAP-2, CID-10) e códigos fixos obrigatórios{' '}
-                  <code className="bg-slate-200/80 dark:bg-slate-800 px-1 py-0.5 rounded text-[11px] font-mono text-teal-700 dark:text-teal-300">
-                    CIAP-2: -69 / SIGTAP: 0301080445
-                  </code>
-                  .
-                </p>
-              </div>
-
-              <div className="flex items-center gap-2 shrink-0">
-                {currentRecord && (
-                  <button
-                    type="button"
-                    id="reset-form-btn"
-                    onClick={handleResetForm}
-                    className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white dark:bg-slate-850 border border-slate-200 dark:border-slate-750 text-slate-700 dark:text-slate-300 text-xs font-semibold hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors shadow-xs cursor-pointer"
-                  >
-                    <RotateCcw className="w-3.5 h-3.5" />
-                    Novo Atendimento
-                  </button>
-                )}
-                <button
-                  type="button"
-                  id="open-knowledge-shortcut-btn"
-                  onClick={() => setIsKnowledgeDrawerOpen(true)}
-                  className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-teal-600 hover:bg-teal-700 text-white text-xs font-bold shadow-sm shadow-teal-600/20 transition-all cursor-pointer"
-                >
-                  <span>REMUME / Protocolos</span>
-                  <span className="w-4 h-4 rounded-full bg-white/20 flex items-center justify-center text-[10px]">
-                    {activeKnowledgeCount}
-                  </span>
-                </button>
+                </SpecularButton>
               </div>
             </div>
 
@@ -1275,6 +1248,8 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         onEditConsultation={handleEditConsultation}
         onDeleteConsultation={handleDeleteConsultation}
         onShowToast={showToast}
+        onOpenKnowledgeBase={() => setIsKnowledgeDrawerOpen(true)}
+        activeKnowledgeCount={activeKnowledgeCount}
       />
 
       {/* Edit Consultation Modal */}

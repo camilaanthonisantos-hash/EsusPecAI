@@ -22,6 +22,7 @@ import { AudioRecorderButton } from './AudioRecorderButton';
 import { AttachmentItem, ProfessionConfig } from '../types';
 import { QUICK_CLINICAL_TEMPLATES } from '../data/professions';
 import { fileToBase64 } from '../services/gemini';
+import { SpecularButton } from './SpecularButton';
 
 interface MultimodalInputProps {
   profession: ProfessionConfig;

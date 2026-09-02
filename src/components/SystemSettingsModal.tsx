@@ -50,6 +50,7 @@ import {
 } from '../data/professions';
 import { ProfessionalRegisterInputs } from './ProfessionalRegisterInputs';
 import { WorkplaceSelectInput } from './WorkplaceSelectInput';
+import { SpecularButton } from './SpecularButton';
 
 interface SystemSettingsModalProps {
   isOpen: boolean;
@@ -68,6 +69,8 @@ interface SystemSettingsModalProps {
   onEditConsultation: (consultation: Consultation) => void;
   onDeleteConsultation: (consultationId: string) => void;
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
+  onOpenKnowledgeBase?: () => void;
+  activeKnowledgeCount?: number;
 }
 
 type TabType = 'overview' | 'users' | 'api_keys' | 'data_management' | 'pec_params';
@@ -89,6 +92,8 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   onEditConsultation,
   onDeleteConsultation,
   onShowToast,
+  onOpenKnowledgeBase,
+  activeKnowledgeCount,
 }) => {
   const isAdmin = isUserAdmin(currentUser);
 
@@ -745,6 +750,40 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                       </div>
                     </div>
                   </div>
+
+                  {/* Admin REMUME / Protocolos Access */}
+                  {isAdmin && onOpenKnowledgeBase && (
+                    <div className="p-5 rounded-3xl bg-teal-50/70 dark:bg-teal-950/30 border border-teal-300 dark:border-teal-800 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                      <div className="space-y-1">
+                        <h4 className="text-sm font-extrabold text-teal-900 dark:text-teal-100 flex items-center gap-2">
+                          <FileText className="w-4 h-4 text-teal-600" />
+                          <span>Gerenciamento de REMUME & Protocolos Municipais</span>
+                        </h4>
+                        <p className="text-xs text-teal-700 dark:text-teal-300 leading-relaxed max-w-xl">
+                          Gerencie e injete diretrizes clínicas e medicamentos da REMUME municipal no assistente de IA. (Acessível exclusivamente a administradores do sistema).
+                        </p>
+                      </div>
+                      <SpecularButton
+                        type="button"
+                        id="admin-open-knowledge-btn"
+                        onClick={() => {
+                          onClose();
+                          onOpenKnowledgeBase();
+                        }}
+                        size="sm"
+                        radius={12}
+                        className="px-4 py-2.5 bg-teal-600 hover:bg-teal-700 text-white font-bold shadow-md shadow-teal-600/20 shrink-0 border-teal-500/40 flex items-center gap-2"
+                      >
+                        <FileText className="w-4 h-4" />
+                        <span>Abrir REMUME / Protocolos</span>
+                        {activeKnowledgeCount !== undefined && activeKnowledgeCount > 0 && (
+                          <span className="w-5 h-5 rounded-full bg-white/20 flex items-center justify-center text-[10px] font-bold">
+                            {activeKnowledgeCount}
+                          </span>
+                        )}
+                      </SpecularButton>
+                    </div>
+                  )}
 
                   {/* Active User Card Details */}
                   <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
