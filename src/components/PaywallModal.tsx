@@ -271,7 +271,9 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         initial={{ opacity: 0, scale: 0.95, y: 10 }}
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
-        className="relative w-full max-w-2xl overflow-hidden bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 flex flex-col max-h-[92vh]"
+        className={`relative w-full ${
+          step === 'select_plan' ? 'max-w-5xl' : 'max-w-lg'
+        } overflow-hidden bg-white dark:bg-slate-900 rounded-2xl shadow-2xl border border-slate-200 dark:border-slate-800 text-slate-800 dark:text-slate-100 flex flex-col max-h-[92vh] transition-all`}
       >
         {/* Modal Header */}
         <div className="relative px-6 py-5 bg-gradient-to-r from-teal-600 via-emerald-600 to-teal-700 text-white flex items-center justify-between">
@@ -313,7 +315,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               </div>
 
               {/* Plans Grid */}
-              <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-3.5">
                 {activePlans.map((plan) => {
                   const isSelected = selectedPlan?.id === plan.id;
                   const isPopular = plan.id === 'mensal';
@@ -322,7 +324,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                     <div
                       key={plan.id}
                       onClick={() => setSelectedPlan(plan)}
-                      className={`relative flex flex-col justify-between p-5 rounded-xl border-2 transition-all cursor-pointer ${
+                      className={`relative flex flex-col justify-between p-4 rounded-xl border-2 transition-all cursor-pointer ${
                         isSelected
                           ? 'border-emerald-500 bg-emerald-50/50 dark:bg-emerald-950/30 shadow-md ring-2 ring-emerald-500/20'
                           : 'border-slate-200 dark:border-slate-800 hover:border-slate-300 dark:hover:border-slate-700 bg-slate-50/50 dark:bg-slate-800/40'
@@ -330,9 +332,9 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                     >
                       {plan.badge && (
                         <span
-                          className={`absolute -top-3 left-1/2 -translate-x-1/2 text-[10px] font-bold uppercase tracking-wider px-2.5 py-0.5 rounded-full ${
+                          className={`absolute -top-2.5 left-1/2 -translate-x-1/2 text-[9px] font-extrabold uppercase tracking-wider px-2 py-0.5 rounded-full whitespace-nowrap shadow-xs ${
                             isPopular
-                              ? 'bg-emerald-600 text-white shadow-sm'
+                              ? 'bg-emerald-600 text-white'
                               : 'bg-slate-200 text-slate-700 dark:bg-slate-700 dark:text-slate-200'
                           }`}
                         >
@@ -341,28 +343,28 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                       )}
 
                       <div>
-                        <h4 className="text-base font-bold text-slate-900 dark:text-white mt-1">{plan.name}</h4>
-                        <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
+                        <h4 className="text-sm font-bold text-slate-900 dark:text-white mt-1">{plan.name}</h4>
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400 mt-0.5 line-clamp-2">
                           {plan.description}
                         </p>
 
-                        <div className="my-4">
+                        <div className="my-3">
                           <div className="flex items-baseline">
                             <span className="text-xs text-slate-500 font-semibold mr-1">R$</span>
-                            <span className="text-3xl font-extrabold text-slate-900 dark:text-white tracking-tight">
+                            <span className="text-2xl font-extrabold text-slate-900 dark:text-white tracking-tight">
                               {plan.price.toFixed(2).replace('.', ',')}
                             </span>
-                            <span className="text-xs text-slate-500 ml-1">
-                              /{plan.durationDays === 15 ? '15 dias' : plan.durationDays === 30 ? 'mês' : 'ano'}
+                            <span className="text-[11px] text-slate-500 ml-1">
+                              /{plan.durationDays < 1 ? 'hora' : plan.durationDays === 7 ? 'semana' : plan.durationDays === 15 ? '15 dias' : plan.durationDays === 30 ? 'mês' : 'ano'}
                             </span>
                           </div>
                         </div>
 
-                        <ul className="space-y-2 mb-4 text-xs text-slate-600 dark:text-slate-300">
+                        <ul className="space-y-1.5 mb-4 text-[11px] text-slate-600 dark:text-slate-300">
                           {plan.features.map((feature, idx) => (
-                            <li key={idx} className="flex items-start space-x-2">
+                            <li key={idx} className="flex items-start space-x-1.5">
                               <CheckCircle2 className="w-3.5 h-3.5 text-emerald-500 shrink-0 mt-0.5" />
-                              <span>{feature}</span>
+                              <span className="leading-tight">{feature}</span>
                             </li>
                           ))}
                         </ul>
@@ -374,13 +376,13 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                           e.stopPropagation();
                           handleSelectPlanAndProceed(plan);
                         }}
-                        className={`w-full py-2.5 px-4 rounded-xl text-xs font-semibold flex items-center justify-center space-x-2 transition-all shadow-sm ${
+                        className={`w-full py-2 px-3 rounded-xl text-xs font-semibold flex items-center justify-center space-x-1.5 transition-all shadow-sm ${
                           isSelected
                             ? 'bg-emerald-600 hover:bg-emerald-700 text-white'
                             : 'bg-slate-200 hover:bg-slate-300 text-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 dark:text-white'
                         }`}
                       >
-                        <span>Contratar {plan.name}</span>
+                        <span>Contratar</span>
                         <ArrowRight className="w-3.5 h-3.5" />
                       </button>
                     </div>

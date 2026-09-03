@@ -50,7 +50,6 @@ No fluxo do arquivo `confirmar_pagamento_pix.md`, localize o nó que anteriormen
 - **Credential Type:** `Google Cloud Service Account`
 - **Credential:** `Firebase Service Account`
 - **Send Headers:** Não precisa de headers manuais adicionais (a credencial gera o Bearer Token automaticamente).
-- **Send Body:** `true`
 - **Body Content Type:** `JSON`
 - **Specify Body:** `Using JSON`
 - **JSON:**
@@ -61,10 +60,10 @@ No fluxo do arquivo `confirmar_pagamento_pix.md`, localize o nó que anteriormen
         "stringValue": "pago"
       },
       "plan_name": {
-        "stringValue": "={{ $json.body.plan_name || 'mensal' }}"
+        "stringValue": "={{ $json.body.items[0]?.name || 'Plano' }}"
       },
       "subscription_expires_at": {
-        "integerValue": "={{ $now.plus({ days: $json.body.duration_days || 30 }).toMillis() }}"
+        "integerValue": "={{ $now.plus( ($json.body.items[0]?.name && ($json.body.items[0]?.name.toLowerCase().includes('60m') || $json.body.items[0]?.name.toLowerCase().includes('hora'))) ? { hours: 1 } : (($json.body.items[0]?.name && ($json.body.items[0]?.name.toLowerCase().includes('diario') || $json.body.items[0]?.name.toLowerCase().includes('diário'))) ? { days: 1 } : (($json.body.items[0]?.name && $json.body.items[0]?.name.toLowerCase().includes('quinzenal')) ? { days: 15 } : (($json.body.items[0]?.name && $json.body.items[0]?.name.toLowerCase().includes('semanal')) ? { days: 7 } : (($json.body.items[0]?.name && $json.body.items[0]?.name.toLowerCase().includes('anual')) ? { days: 365 } : { days: 30 })))) ).toMillis() }}"
       }
     }
   }

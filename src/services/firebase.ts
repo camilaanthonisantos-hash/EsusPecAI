@@ -442,6 +442,34 @@ export async function seedFirestoreIfEmpty(
 
 export const DEFAULT_SUBSCRIPTION_PLANS: SubscriptionPlan[] = [
   {
+    id: 'por_hora',
+    name: 'Plano por Hora (60m)',
+    price: 3.00,
+    durationDays: 1 / 24,
+    description: 'Acesso completo por 1 hora de uso.',
+    badge: 'Uso Rápido',
+    features: [
+      'Geração ilimitada de prontuários por 1 hora',
+      'Ideal para testar ou uso pontual',
+      'Gravação de voz e anexos',
+    ],
+    active: true,
+  },
+  {
+    id: 'semanal',
+    name: 'Plano Semanal',
+    price: 5.00,
+    durationDays: 7,
+    description: 'Acesso completo durante 7 dias corridos.',
+    badge: 'Curto Prazo',
+    features: [
+      'Geração ilimitada de prontuários',
+      'Validade de 7 dias corridos',
+      'Histórico e Linha do Tempo',
+    ],
+    active: true,
+  },
+  {
     id: 'quinzenal',
     name: 'Plano Quinzenal',
     price: 13.90,
@@ -498,15 +526,31 @@ export function subscribeToSubscriptionPlans(
   return onSnapshot(
     q,
     (snapshot) => {
-      if (snapshot.empty) {
-        onUpdate(DEFAULT_SUBSCRIPTION_PLANS);
-        return;
-      }
-      const items: SubscriptionPlan[] = [];
+      const firestoreMap = new Map<string, SubscriptionPlan>();
       snapshot.forEach((docSnap) => {
-        items.push({ ...(docSnap.data() as SubscriptionPlan), id: docSnap.id });
+        firestoreMap.set(docSnap.id, { ...(docSnap.data() as SubscriptionPlan), id: docSnap.id });
       });
-      // Sort by price ascending
+
+      // Mescla planos padrão com os salvos no Firestore
+      const items: SubscriptionPlan[] = [];
+      const seenIds = new Set<string>();
+
+      for (const defPlan of DEFAULT_SUBSCRIPTION_PLANS) {
+        if (firestoreMap.has(defPlan.id)) {
+          items.push(firestoreMap.get(defPlan.id)!);
+        } else {
+          items.push(defPlan);
+        }
+        seenIds.add(defPlan.id);
+      }
+
+      firestoreMap.forEach((plan, id) => {
+        if (!seenIds.has(id)) {
+          items.push(plan);
+        }
+      });
+
+      // Ordena por preço crescente
       items.sort((a, b) => a.price - b.price);
       onUpdate(items);
     },
@@ -532,13 +576,20 @@ export async function saveSubscriptionPlanToFirestore(plan: SubscriptionPlan): P
 export async function seedSubscriptionPlansIfEmpty(): Promise<void> {
   try {
     const plansSnap = await getDocs(collection(db, 'subscription_plans'));
-    if (plansSnap.empty) {
-      const batch = writeBatch(db);
-      for (const p of DEFAULT_SUBSCRIPTION_PLANS) {
+    const existingIds = new Set(plansSnap.docs.map((d) => d.id));
+    const batch = writeBatch(db);
+    let needCommit = false;
+
+    for (const p of DEFAULT_SUBSCRIPTION_PLANS) {
+      if (!existingIds.has(p.id)) {
         batch.set(doc(db, 'subscription_plans', p.id), sanitizeForFirestore(p));
+        needCommit = true;
       }
+    }
+
+    if (needCommit) {
       await batch.commit();
-      console.log('Planos de assinatura padrão inicializados no Firestore.');
+      console.log('Planos de assinatura complementares inicializados no Firestore.');
     }
   } catch (err) {
     console.warn('Erro ao inicializar planos padrão no Firestore:', err);

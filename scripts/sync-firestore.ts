@@ -18,6 +18,34 @@ const ADMIN_MASTER_EMAIL = 'jerime.rego@gmail.com';
 
 const DEFAULT_PLANS = [
   {
+    id: 'por_hora',
+    name: 'Plano por Hora (60m)',
+    price: 3.00,
+    durationDays: 1 / 24,
+    description: 'Acesso completo por 1 hora de uso.',
+    badge: 'Uso Rápido',
+    features: [
+      'Geração ilimitada de prontuários por 1 hora',
+      'Ideal para testar ou uso pontual',
+      'Gravação de voz e anexos',
+    ],
+    active: true,
+  },
+  {
+    id: 'semanal',
+    name: 'Plano Semanal',
+    price: 5.00,
+    durationDays: 7,
+    description: 'Acesso completo durante 7 dias corridos.',
+    badge: 'Curto Prazo',
+    features: [
+      'Geração ilimitada de prontuários',
+      'Validade de 7 dias corridos',
+      'Histórico e Linha do Tempo',
+    ],
+    active: true,
+  },
+  {
     id: 'quinzenal',
     name: 'Plano Quinzenal',
     price: 13.90,
