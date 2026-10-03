@@ -3632,7 +3632,9 @@ app.post("/api/db/:collection", async (req, res) => {
   const list = readStoreData(collection, []);
   const itemId = item.id || `doc-${Date.now()}`;
   const itemWithId = { ...item, id: itemId };
-  const existingIdx = list.findIndex((x) => x && x.id === itemId);
+  const existingIdx = list.findIndex(
+    (x) => x && (x.id === itemId || collection === "users" && x.email && itemWithId.email && typeof x.email === "string" && typeof itemWithId.email === "string" && x.email.toLowerCase().trim() === itemWithId.email.toLowerCase().trim())
+  );
   if (existingIdx >= 0) {
     list[existingIdx] = { ...list[existingIdx], ...itemWithId };
   } else {
