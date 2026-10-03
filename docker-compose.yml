@@ -5,7 +5,6 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
-    image: esus-pec-ai:latest
     container_name: esus-pec-ai
     restart: always
 
