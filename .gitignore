@@ -1,6 +1,6 @@
 node_modules/
 build/
-dist/
+# dist/ incluído para deploy pré-compilado ultra rápido e sem erro de OOM no Portainer
 coverage/
 .DS_Store
 *.log
