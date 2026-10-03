@@ -82,7 +82,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onLogout,
   onShowToast,
 }) => {
-  const [mode, setMode] = useState<'login' | 'register' | 'profile_view'>(
+  const [mode, setMode] = useState<'login' | 'register' | 'profile_view' | 'reset_password'>(
     isAuthenticated && currentUser ? 'profile_view' : 'login'
   );
 
@@ -92,6 +92,13 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   const [showPassword, setShowPassword] = useState(false);
   const [rememberMe, setRememberMe] = useState(true);
   const [loginError, setLoginError] = useState<string | null>(null);
+
+  // Reset Password form state
+  const [resetEmail, setResetEmail] = useState('');
+  const [resetNewPassword, setResetNewPassword] = useState('');
+  const [resetConfirmPassword, setResetConfirmPassword] = useState('');
+  const [showResetPassword, setShowResetPassword] = useState(false);
+  const [resetError, setResetError] = useState<string | null>(null);
 
   // Register form state
   const [regName, setRegName] = useState('');
@@ -327,10 +334,74 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     onClose();
   };
 
-  const handleFillAdminQuick = () => {
-    setLoginEmail(ADMIN_MASTER_EMAIL);
-    setLoginPassword('admin');
-    setLoginError(null);
+  const handleResetPasswordSubmit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setResetError(null);
+
+    const emailClean = resetEmail.trim().toLowerCase();
+    const newPass = resetNewPassword.trim();
+    const confirmPass = resetConfirmPassword.trim();
+
+    if (!emailClean) {
+      setResetError('Informe o e-mail cadastrado.');
+      return;
+    }
+
+    if (!newPass) {
+      setResetError('Digite a nova senha.');
+      return;
+    }
+
+    if (newPass.length < 3) {
+      setResetError('A senha deve ter pelo menos 3 caracteres.');
+      return;
+    }
+
+    if (newPass !== confirmPass) {
+      setResetError('A nova senha e a confirmação não coincidem.');
+      return;
+    }
+
+    const existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+
+    if (!existingUser) {
+      if (emailClean === ADMIN_MASTER_EMAIL.toLowerCase()) {
+        const masterAdmin: User = {
+          id: 'user-admin-master',
+          name: 'Dr. Jerime Rêgo (Administrador Geral)',
+          email: ADMIN_MASTER_EMAIL,
+          password: newPass,
+          role: 'admin',
+          professionalRegister: 'CRM/SP 998877',
+          councilBody: 'CRM',
+          councilNumber: '998877',
+          councilUf: 'SP',
+          profession: 'medico',
+          workplace: 'Secretaria Municipal de Saúde / Coordenação PEC',
+          createdAt: Date.now(),
+        };
+        await saveUserToFirestore(masterAdmin);
+        setLoginEmail(emailClean);
+        setLoginPassword(newPass);
+        setMode('login');
+        onShowToast('success', 'Nova senha do Administrador Master definida com sucesso!', 'Senha Atualizada');
+        return;
+      }
+
+      setResetError('E-mail não encontrado no sistema. Verifique o endereço digitado.');
+      return;
+    }
+
+    const updatedUser: User = {
+      ...existingUser,
+      password: newPass,
+    };
+
+    await saveUserToFirestore(updatedUser);
+    setLoginEmail(emailClean);
+    setLoginPassword(newPass);
+    setMode('login');
+    onShowToast('success', 'Nova senha criada com sucesso! Você já pode entrar.', 'Senha Atualizada');
   };
 
   return (
@@ -758,7 +829,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
               </div>
             ) : (
               <div>
-                {/* Mode Selector Tabs (Login vs Novo Cadastro) */}
+                {/* Mode Selector Tabs */}
                 <div className="flex rounded-2xl bg-slate-100 dark:bg-slate-800/80 p-1.5 mb-5">
                   <button
                     type="button"
@@ -774,7 +845,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     }`}
                   >
                     <LogIn className="w-4 h-4" />
-                    <span>Acessar com Login e Senha</span>
+                    <span>Acessar com Login</span>
                   </button>
 
                   <button
@@ -791,7 +862,27 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     }`}
                   >
                     <UserPlus className="w-4 h-4" />
-                    <span>Novo Cadastro de Profissional</span>
+                    <span>Novo Cadastro</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    id="tab-reset-password-btn"
+                    onClick={() => {
+                      setResetEmail(loginEmail);
+                      setResetNewPassword('');
+                      setResetConfirmPassword('');
+                      setResetError(null);
+                      setMode('reset_password');
+                    }}
+                    className={`flex-1 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer ${
+                      mode === 'reset_password'
+                        ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
+                        : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+                    }`}
+                  >
+                    <KeyRound className="w-4 h-4" />
+                    <span>Criar Nova Senha</span>
                   </button>
                 </div>
 
@@ -822,7 +913,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                           value={loginEmail}
                           onChange={(e) => setLoginEmail(e.target.value)}
                           onBlur={(e) => setLoginEmail(formatEmail(e.target.value))}
-                          placeholder="ex: seu.email@saude.gov.br ou jerime.rego@gmail.com"
+                          placeholder="ex: seu.email@saude.gov.br"
                           className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
                         />
                       </div>
@@ -856,7 +947,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                       </div>
                     </div>
 
-                    {/* Remember me & Quick Admin Access Box */}
+                    {/* Remember me & Criar nova senha */}
                     <div className="flex items-center justify-between pt-1">
                       <label className="flex items-center gap-2 text-xs text-slate-600 dark:text-slate-400 cursor-pointer">
                         <input
@@ -870,30 +961,19 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
                       <button
                         type="button"
-                        onClick={handleFillAdminQuick}
-                        className="text-[11px] font-bold text-indigo-600 dark:text-indigo-400 hover:underline cursor-pointer"
+                        id="forgot-create-password-btn"
+                        onClick={() => {
+                          setResetEmail(loginEmail);
+                          setResetNewPassword('');
+                          setResetConfirmPassword('');
+                          setResetError(null);
+                          setMode('reset_password');
+                        }}
+                        className="text-[11px] font-bold text-teal-600 dark:text-teal-400 hover:text-teal-700 dark:hover:text-teal-300 hover:underline cursor-pointer flex items-center gap-1.5 transition-colors"
                       >
-                        Preencher Admin Master
+                        <KeyRound className="w-3.5 h-3.5" />
+                        <span>Criar nova senha</span>
                       </button>
-                    </div>
-
-                    {/* Quick Access Info Banner */}
-                    <div className="p-3 rounded-2xl bg-teal-50/70 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/80 text-[11px] text-teal-900 dark:text-teal-200 space-y-1">
-                      <div className="flex items-center gap-1.5 font-bold">
-                        <ShieldCheck className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                        <span>Acesso ao Sistema SUS</span>
-                      </div>
-                      <p className="text-slate-600 dark:text-slate-300">
-                        • <strong>Administrador Master:</strong>{' '}
-                        <code className="font-mono text-teal-700 dark:text-teal-300">
-                          {ADMIN_MASTER_EMAIL}
-                        </code>{' '}
-                        (senha: <code className="font-mono">admin</code>)
-                      </p>
-                      <p className="text-slate-600 dark:text-slate-300">
-                        • <strong>Usuários da Equipe:</strong> Use seu e-mail cadastrado ou clique na aba{' '}
-                        <strong>"Novo Cadastro"</strong> para cadastrar seu perfil profissional.
-                      </p>
                     </div>
 
                     {/* Submit Button */}
@@ -921,6 +1001,119 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                         <span className="text-teal-600 dark:text-teal-400 font-bold underline">
                           Cadastre-se aqui
                         </span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+
+                {/* 2. RESET PASSWORD MODE */}
+                {mode === 'reset_password' && (
+                  <form onSubmit={handleResetPasswordSubmit} className="space-y-4">
+                    {resetError && (
+                      <div
+                        id="reset-password-error-alert"
+                        className="p-3.5 rounded-2xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800 text-rose-800 dark:text-rose-200 text-xs flex items-start gap-2.5"
+                      >
+                        <AlertCircle className="w-4 h-4 shrink-0 text-rose-600 mt-0.5" />
+                        <div>{resetError}</div>
+                      </div>
+                    )}
+
+                    <div className="p-3 rounded-2xl bg-teal-50/70 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/80 text-[11px] text-teal-900 dark:text-teal-200 flex items-start gap-2.5">
+                      <KeyRound className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0 mt-0.5" />
+                      <div>
+                        <strong className="block font-bold">Definir Nova Senha de Acesso</strong>
+                        <p className="text-slate-600 dark:text-slate-300">
+                          Informe o e-mail da sua conta profissional para criar ou redefinir sua senha com segurança.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Email Input */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        E-mail Cadastrado <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Mail className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type="email"
+                          id="reset-email-input"
+                          required
+                          value={resetEmail}
+                          onChange={(e) => setResetEmail(e.target.value)}
+                          onBlur={(e) => setResetEmail(formatEmail(e.target.value))}
+                          placeholder="Digite seu e-mail cadastrado"
+                          className="w-full pl-9 pr-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* New Password */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Nova Senha de Acesso <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type={showResetPassword ? 'text' : 'password'}
+                          id="reset-new-password-input"
+                          required
+                          value={resetNewPassword}
+                          onChange={(e) => setResetNewPassword(e.target.value)}
+                          placeholder="Digite a nova senha desejada"
+                          className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                        />
+                        <button
+                          type="button"
+                          onClick={() => setShowResetPassword(!showResetPassword)}
+                          className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 cursor-pointer"
+                        >
+                          {showResetPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                        </button>
+                      </div>
+                    </div>
+
+                    {/* Confirm New Password */}
+                    <div>
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                        Confirmar Nova Senha <span className="text-rose-500">*</span>
+                      </label>
+                      <div className="relative">
+                        <Lock className="w-4 h-4 text-slate-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                        <input
+                          type={showResetPassword ? 'text' : 'password'}
+                          id="reset-confirm-password-input"
+                          required
+                          value={resetConfirmPassword}
+                          onChange={(e) => setResetConfirmPassword(e.target.value)}
+                          placeholder="Repita a nova senha para confirmar"
+                          className="w-full pl-9 pr-10 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                        />
+                      </div>
+                    </div>
+
+                    {/* Actions */}
+                    <div className="pt-2 flex items-center justify-between gap-3">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setMode('login');
+                          setResetError(null);
+                        }}
+                        className="py-2.5 px-4 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                      >
+                        Voltar para o Login
+                      </button>
+
+                      <button
+                        type="submit"
+                        id="reset-password-submit-btn"
+                        className="py-2.5 px-5 rounded-xl bg-teal-600 hover:bg-teal-500 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all flex items-center gap-2 cursor-pointer"
+                      >
+                        <KeyRound className="w-4 h-4" />
+                        <span>Salvar Nova Senha</span>
                       </button>
                     </div>
                   </form>
