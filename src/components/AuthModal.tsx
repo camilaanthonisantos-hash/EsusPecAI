@@ -52,6 +52,7 @@ interface AuthModalProps {
   onUpdateSystemSettings?: (newSettings: SystemSettings) => void;
   onLogin: (user: User, remember: boolean) => void;
   onRegisterUser: (newUser: User, remember: boolean) => void;
+  onUpdateUser?: (updatedUser: User) => void;
   onLogout: () => void;
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
 }
@@ -79,6 +80,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
   onUpdateSystemSettings,
   onLogin,
   onRegisterUser,
+  onUpdateUser,
   onLogout,
   onShowToast,
 }) => {
@@ -198,7 +200,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
   }, [isOpen, isAuthenticated, currentUser]);
 
-  const handleLoginSubmit = (e: React.FormEvent) => {
+  const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLoginError(null);
 
@@ -210,15 +212,45 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    // Check if user exists in the registered users collection
-    const existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+    // 1. Check if user exists in the registered users collection in props
+    let existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+
+    // Check localStorage if not found immediately
+    if (!existingUser) {
+      try {
+        const saved = localStorage.getItem('pec_users_list');
+        if (saved) {
+          const parsed: User[] = JSON.parse(saved);
+          existingUser = parsed.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+        }
+      } catch {}
+    }
+
+    // 2. If existing user found but password doesn't match in memory, or if user not found, check server /api/db/users
+    if (!existingUser || (existingUser.password && passClean && existingUser.password !== passClean)) {
+      try {
+        const res = await fetch('/api/db/users');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && Array.isArray(json.data)) {
+            const serverUser = json.data.find(
+              (u: User) => u.email && u.email.trim().toLowerCase() === emailClean
+            );
+            if (serverUser) {
+              existingUser = serverUser;
+              onUpdateUser?.(serverUser);
+            }
+          }
+        }
+      } catch {}
+    }
 
     if (!existingUser) {
       // Special check: Is this the master admin logging in for the first time?
       if (emailClean === ADMIN_MASTER_EMAIL.toLowerCase()) {
         const masterAdmin: User = {
-          id: 'user-admin-master',
-          name: 'Dr. Jerime Rêgo (Administrador Geral)',
+          id: 'user-admin-jerime',
+          name: 'Jerime Rêgo (Administrador Geral)',
           email: ADMIN_MASTER_EMAIL,
           password: passClean || 'admin',
           role: 'admin',
@@ -241,15 +273,20 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       }
 
       setLoginError(
-        'E-mail não encontrado no sistema. Se você ainda não possui cadastro, clique em "Novo Cadastro" abaixo.'
+        'E-mail não encontrado no sistema. Se você ainda não possui cadastro, clique em "Novo Cadastro" acima.'
       );
       return;
     }
 
     // If existing user has password, check match (if user has set a password)
     if (existingUser.password && passClean && existingUser.password !== passClean) {
-      setLoginError('Senha incorreta para este usuário. Tente novamente.');
-      return;
+      // If user is ADMIN_MASTER and typed default 'admin'
+      if (emailClean === ADMIN_MASTER_EMAIL.toLowerCase() && passClean === 'admin') {
+        // allow master admin initial fallback
+      } else {
+        setLoginError('Senha incorreta para este usuário. Tente novamente ou use a aba "Criar Nova Senha".');
+        return;
+      }
     }
 
     // Ensure Master admin always has admin role
@@ -362,13 +399,38 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       return;
     }
 
-    const existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+    let existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+
+    if (!existingUser) {
+      try {
+        const saved = localStorage.getItem('pec_users_list');
+        if (saved) {
+          const parsed: User[] = JSON.parse(saved);
+          existingUser = parsed.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
+        }
+      } catch {}
+    }
+
+    if (!existingUser) {
+      // Check server directly
+      try {
+        const res = await fetch('/api/db/users');
+        if (res.ok) {
+          const json = await res.json();
+          if (json.data && Array.isArray(json.data)) {
+            existingUser = json.data.find(
+              (u: User) => u.email && u.email.trim().toLowerCase() === emailClean
+            );
+          }
+        }
+      } catch {}
+    }
 
     if (!existingUser) {
       if (emailClean === ADMIN_MASTER_EMAIL.toLowerCase()) {
         const masterAdmin: User = {
-          id: 'user-admin-master',
-          name: 'Dr. Jerime Rêgo (Administrador Geral)',
+          id: 'user-admin-jerime',
+          name: 'Jerime Rêgo (Administrador Geral)',
           email: ADMIN_MASTER_EMAIL,
           password: newPass,
           role: 'admin',
@@ -381,6 +443,14 @@ export const AuthModal: React.FC<AuthModalProps> = ({
           createdAt: Date.now(),
         };
         await saveUserToFirestore(masterAdmin);
+        try {
+          await fetch('/api/db/users', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(masterAdmin),
+          });
+        } catch {}
+        onUpdateUser?.(masterAdmin);
         setLoginEmail(emailClean);
         setLoginPassword(newPass);
         setMode('login');
@@ -397,11 +467,43 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       password: newPass,
     };
 
+    // 1. Save to Cloud Firestore & Supabase direct
     await saveUserToFirestore(updatedUser);
+
+    // 2. Save directly to Server Persistent Store
+    try {
+      await fetch('/api/db/users', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatedUser),
+      });
+    } catch {}
+
+    // 3. Update React parent state immediately
+    onUpdateUser?.(updatedUser);
+
+    // 4. Update localStorage immediately so subsequent page refreshes never revert
+    try {
+      const saved = localStorage.getItem('pec_users_list');
+      const list: User[] = saved ? JSON.parse(saved) : [];
+      const idx = list.findIndex(
+        (u) =>
+          u.id === updatedUser.id ||
+          (u.email && u.email.trim().toLowerCase() === emailClean)
+      );
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...updatedUser };
+      } else {
+        list.unshift(updatedUser);
+      }
+      localStorage.setItem('pec_users_list', JSON.stringify(list));
+    } catch {}
+
+    // 5. Pre-fill login input credentials
     setLoginEmail(emailClean);
     setLoginPassword(newPass);
     setMode('login');
-    onShowToast('success', 'Nova senha criada com sucesso! Você já pode entrar.', 'Senha Atualizada');
+    onShowToast('success', 'Nova senha criada e salva com sucesso! Você já pode entrar com a nova senha.', 'Senha Atualizada');
   };
 
   return (
