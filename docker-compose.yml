@@ -54,4 +54,4 @@ volumes:
 
 networks:
   peccaps-network:
-    name: peccaps-network
+    external: true
