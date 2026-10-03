@@ -16,10 +16,13 @@ services:
 
     labels:
       - "traefik.enable=true"
+      - "traefik.docker.network=n8n-default-network"
       - "traefik.http.routers.esus-pec.rule=Host(`peccapsai.mentoriajrs.com`)"
-      - "traefik.http.routers.esus-pec.tls=true"
       - "traefik.http.routers.esus-pec.entrypoints=web,websecure"
+      - "traefik.http.routers.esus-pec.tls=true"
       - "traefik.http.routers.esus-pec.tls.certresolver=leresolver"
+      - "traefik.http.routers.esus-pec.service=esus-pec"
+      - "traefik.http.services.esus-pec.loadbalancer.server.port=3000"
       - "traefik.http.middlewares.esus-pec.headers.SSLRedirect=true"
       - "traefik.http.middlewares.esus-pec.headers.STSSeconds=315360000"
       - "traefik.http.middlewares.esus-pec.headers.browserXSSFilter=true"
@@ -29,7 +32,6 @@ services:
       - "traefik.http.middlewares.esus-pec.headers.STSIncludeSubdomains=true"
       - "traefik.http.middlewares.esus-pec.headers.STSPreload=true"
       - "traefik.http.routers.esus-pec.middlewares=esus-pec@docker"
-      - "traefik.http.services.esus-pec.loadbalancer.server.port=3000"
 
     environment:
       - NODE_ENV=production
