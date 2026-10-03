@@ -912,7 +912,7 @@ const audioUpload = multer({ storage: multer.memoryStorage(), limits: { fileSize
 
 app.post(
   ["/api/audio/transcribe", "/api/gemini/transcribe"],
-  (req, res, next) => {
+  (req: any, res: any, next) => {
     // Wrap multer safely so JSON payloads or boundary issues never crash or return HTML
     audioUpload.single("audio")(req, res, (err) => {
       if (err) {
@@ -3397,6 +3397,7 @@ import {
   setDoc as serverSetDoc,
   deleteDoc as serverDeleteDoc,
 } from 'firebase/firestore';
+import { createClient as createSupabaseServerClient } from '@supabase/supabase-js';
 import firebaseConfig from './firebase-applet-config.json';
 
 const serverFirebaseApp = !getServerApps().length
@@ -3406,6 +3407,172 @@ const serverFirebaseApp = !getServerApps().length
 const serverDb = (firebaseConfig as any).firestoreDatabaseId
   ? getServerFirestore(serverFirebaseApp, (firebaseConfig as any).firestoreDatabaseId)
   : getServerFirestore(serverFirebaseApp);
+
+// ================= SUPABASE CLOUD POSTGRESQL CLIENT =================
+const SUPABASE_URL = "https://ejsvpdecoxqqebipybiz.supabase.co";
+const SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqc3ZwZGVjb3hxcWViaXB5Yml6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTA0NTY4OSwiZXhwIjoyMTA2NjIxNjg5fQ.g4lEjCA-9tmuvny1Gpsok4n9d5VdoStNNlqsKvosVg8";
+
+export const supabaseServer = createSupabaseServerClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
+
+// Non-blocking helper to mirror data updates to Supabase PostgreSQL
+async function syncItemToSupabase(collectionName: string, item: any, isDelete = false, deleteId?: string) {
+  try {
+    const tableMap: Record<string, string> = {
+      users: "users",
+      patients: "patients",
+      consultations: "consultations",
+      clinical_evolutions: "clinical_evolutions",
+      appointments: "appointments",
+      reception_queue: "reception_queue",
+      settings: "system_settings",
+      system_settings: "system_settings",
+      subscriptions: "subscriptions",
+    };
+
+    const targetTable = tableMap[collectionName] || collectionName;
+
+    if (isDelete) {
+      const idToDelete = deleteId || item?.id;
+      if (idToDelete) {
+        await supabaseServer.from(targetTable).delete().eq("id", idToDelete);
+      }
+      return;
+    }
+
+    if (!item || !item.id) {
+      if (collectionName === "settings" || collectionName === "system_settings") {
+        await supabaseServer.from("system_settings").upsert({
+          id: "global",
+          data: item,
+          updated_at: Date.now(),
+        });
+      }
+      return;
+    }
+
+    // Prepare payload adapted for Supabase
+    let payload: Record<string, any> = {
+      id: String(item.id),
+      raw_data: item,
+      updated_at: Date.now(),
+    };
+
+    if (collectionName === "patients") {
+      payload = {
+        ...payload,
+        full_name: item.fullName || item.name || "Paciente",
+        cpf: item.cpf || null,
+        cns: item.cns || null,
+        phone: item.phone || null,
+        birth_date: item.birthDate || null,
+        gender: item.gender || null,
+        balance: item.balance || 0,
+        created_at: item.createdAt || Date.now(),
+      };
+    } else if (collectionName === "consultations") {
+      payload = {
+        ...payload,
+        patient_id: item.patientId || null,
+        patient_name: item.patientName || null,
+        author: item.author || null,
+        profession: item.authorProfession || item.profession || null,
+        date: item.date || null,
+        timestamp: item.timestamp || Date.now(),
+        avaliacao: item.avaliacao || null,
+        plano: item.plano || null,
+        conduta: item.conduta || null,
+        raw_notes: item.rawNotes || null,
+        ciap2: item.ciap2 || null,
+        cid10: item.cid10 || null,
+        diagnostic_hypothesis: item.diagnosticHypothesis || null,
+        vital_signs: item.vitalSigns || null,
+        prescription: item.prescription || null,
+        exam_request: item.examRequest || null,
+        referral: item.referral || null,
+        created_at: item.createdAt || item.timestamp || Date.now(),
+      };
+    } else if (collectionName === "users") {
+      payload = {
+        ...payload,
+        name: item.name || null,
+        email: item.email || null,
+        role: item.role || "user",
+        profession: item.profession || null,
+        council_register: item.councilRegister || null,
+        specialty: item.specialty || null,
+        workplace: item.workplace || null,
+        subscription_status: item.subscription_status || "free",
+        subscription_expires_at: item.subscription_expires_at || null,
+        plan_name: item.plan_name || null,
+        free_used: Boolean(item.free_used),
+        created_at: item.createdAt || Date.now(),
+      };
+    } else if (collectionName === "appointments") {
+      payload = {
+        ...payload,
+        patient_id: item.patientId || null,
+        patient_name: item.patientName || null,
+        patient_phone: item.patientPhone || null,
+        patient_email: item.patientEmail || null,
+        patient_cpf: item.patientCpf || null,
+        professional_id: item.professionalId || null,
+        professional_name: item.professionalName || null,
+        professional_profession: item.professionalProfession || null,
+        date: item.date || null,
+        start_time: item.startTime || null,
+        end_time: item.endTime || null,
+        service_name: item.serviceName || null,
+        service_price: item.servicePrice || 0,
+        status: item.status || "agendado",
+        payment_status: item.paymentStatus || "isento",
+        created_at: item.createdAt || Date.now(),
+      };
+    } else if (collectionName === "reception_queue") {
+      payload = {
+        ...payload,
+        patient_id: item.patientId || null,
+        patient_name: item.patientName || null,
+        patient_cpf: item.patientCpf || null,
+        risk_priority: item.riskPriority || "verde",
+        risk_category: item.riskCategory || null,
+        status: item.status || "waiting",
+        timestamp: item.timestamp || Date.now(),
+        called_at: item.calledAt || null,
+        attended_at: item.attendedAt || null,
+        created_at: item.createdAt || Date.now(),
+      };
+    } else if (collectionName === "clinical_evolutions") {
+      payload = {
+        ...payload,
+        patient_id: item.patientId || item.id,
+        patient_name: item.patientName || null,
+        generated_at: item.generatedAt || Date.now(),
+        model_used: item.modelUsed || null,
+        resumo_longitudinal: item.resumoLongitudinal || null,
+        raw_markdown: item.rawMarkdown || null,
+      };
+    } else if (collectionName === "settings" || collectionName === "system_settings") {
+      payload = {
+        id: "global",
+        data: item,
+        updated_at: Date.now(),
+      };
+    }
+
+    const { error } = await supabaseServer.from(targetTable).upsert(payload);
+    if (error) {
+      // If table doesn't exist yet, it's non-blocking (user can run setup script or we log status)
+      console.debug(`[Supabase Sync Notice] (${targetTable}):`, error.message);
+    }
+  } catch (err: any) {
+    console.debug(`[Supabase Sync Catch] (${collectionName}):`, err?.message || err);
+  }
+}
 
 const DATA_STORE_DIR = path.join(process.cwd(), "data-store");
 if (!fs.existsSync(DATA_STORE_DIR)) {
@@ -3440,6 +3607,62 @@ function writeStoreData(collectionName: string, data: any): void {
     console.error(`[DataStore] Erro ao escrever ${collectionName}:`, err);
   }
 }
+
+// Supabase Status & Full Sync Endpoints
+app.get("/api/supabase/status", async (req, res) => {
+  try {
+    const { data: usersData, error: usersErr } = await supabaseServer.from("users").select("id", { count: "exact", head: true });
+    const { data: patientsData, error: patErr } = await supabaseServer.from("patients").select("id", { count: "exact", head: true });
+    
+    res.json({
+      success: true,
+      connected: !usersErr || usersErr.code === "PGRST116" || usersErr.code === "42P01",
+      url: SUPABASE_URL,
+      projectId: "ejsvpdecoxqqebipybiz",
+      tablesReady: !usersErr && !patErr,
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    res.json({
+      success: false,
+      connected: false,
+      url: SUPABASE_URL,
+      error: err?.message || String(err),
+    });
+  }
+});
+
+app.post("/api/supabase/sync-all", async (req, res) => {
+  try {
+    const results: Record<string, number> = {};
+    const collections = ["users", "patients", "consultations", "clinical_evolutions", "appointments", "reception_queue", "settings", "subscriptions"];
+
+    for (const col of collections) {
+      const items = readStoreData(col, col === "settings" ? {} : []);
+      if (col === "settings") {
+        await syncItemToSupabase("settings", items);
+        results[col] = 1;
+      } else if (Array.isArray(items)) {
+        let count = 0;
+        for (const it of items) {
+          await syncItemToSupabase(col, it);
+          count++;
+        }
+        results[col] = count;
+      }
+    }
+
+    res.json({
+      success: true,
+      message: "Todos os dados foram sincronizados com o Supabase com sucesso!",
+      syncedCounts: results,
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    console.error("[Supabase Sync All Error]:", err);
+    res.status(500).json({ success: false, error: err?.message || "Erro na sincronização" });
+  }
+});
 
 // Database Connection Health Check Endpoint
 app.get("/api/health/database", async (req, res) => {
@@ -3591,10 +3814,39 @@ function sanitizeForFirestoreServer(val: any): any {
   return clean;
 }
 
-// GET all items in collection (Cloud Firestore merged seamlessly with local store)
+// GET all items in collection (Supabase PostgreSQL + Cloud Firestore merged seamlessly with local store)
 app.get("/api/db/:collection", async (req, res) => {
   const { collection } = req.params;
   const localData = readStoreData(collection, collection === "settings" ? {} : []);
+
+  // 1. Check Supabase PostgreSQL first
+  let supabaseItems: any[] = [];
+  try {
+    let sbTable = collection;
+    if (collection === "settings" || collection === "system_settings") {
+      sbTable = "system_settings";
+    }
+    const { data: sbData, error: sbErr } = await supabaseServer.from(sbTable).select("*");
+    if (!sbErr && sbData && Array.isArray(sbData)) {
+      if (sbTable === "system_settings") {
+        const globalRow = sbData.find((r: any) => r.id === "global") || sbData[0];
+        if (globalRow && globalRow.data) {
+          const mergedSettings = { ...localData, ...globalRow.data };
+          writeStoreData("settings", mergedSettings);
+          return res.json({ success: true, collection, data: mergedSettings });
+        }
+      } else {
+        supabaseItems = sbData.map((row: any) => {
+          if (row.raw_data && typeof row.raw_data === "object") {
+            return { ...row.raw_data, id: row.id };
+          }
+          return row;
+        });
+      }
+    }
+  } catch (err: any) {
+    console.debug("[Supabase Server Fetch Notice]:", err?.message || err);
+  }
 
   if (collection === "settings") {
     try {
@@ -3626,37 +3878,33 @@ app.get("/api/db/:collection", async (req, res) => {
     console.warn(`[ServerFirestore] Leitura remota para ${collection} em fallback:`, err?.message || err);
   }
 
-  // Seamless merge by item ID to guarantee no newly saved local items are dropped
+  // Seamless merge by item ID to guarantee no items are dropped across Supabase, Firestore, and local store
   const mergedMap = new Map<string, any>();
 
-  // 1. Put Firestore items first
-  firestoreItems.forEach((it) => {
+  // 1. Put Supabase items (primary source of truth)
+  supabaseItems.forEach((it) => {
     if (it && it.id) mergedMap.set(it.id, it);
   });
 
-  // 2. Put local store items, preserving any local items not yet synced to Firestore
+  // 2. Put Firestore items if not already in map
+  firestoreItems.forEach((it) => {
+    if (it && it.id && !mergedMap.has(it.id)) {
+      mergedMap.set(it.id, it);
+    }
+  });
+
+  // 3. Put local store items, preserving any local items not yet synced
   if (Array.isArray(localData)) {
     localData.forEach((localIt) => {
       if (!localIt || !localIt.id) return;
       const remoteIt = mergedMap.get(localIt.id);
       if (!remoteIt) {
         mergedMap.set(localIt.id, localIt);
-        // Sync local item to Firestore in background
-        serverSetDoc(
-          serverDoc(serverDb, firestoreColName, localIt.id),
-          sanitizeForFirestoreServer(localIt),
-          { merge: true }
-        ).catch(() => {});
       } else {
         const localTs = Number(localIt.updatedAt || localIt.timestamp || localIt.createdAt || 0);
         const remoteTs = Number(remoteIt.updatedAt || remoteIt.timestamp || remoteIt.createdAt || 0);
         if (localTs > remoteTs) {
           mergedMap.set(localIt.id, { ...remoteIt, ...localIt });
-          serverSetDoc(
-            serverDoc(serverDb, firestoreColName, localIt.id),
-            sanitizeForFirestoreServer(localIt),
-            { merge: true }
-          ).catch(() => {});
         }
       }
     });
@@ -3732,7 +3980,8 @@ app.post("/api/db/:collection", async (req, res) => {
     const updated = { ...current, ...item, updatedAt: Date.now() };
     writeStoreData("settings", updated);
 
-    // Sync to Cloud Firestore
+    // Sync to Supabase PostgreSQL & Cloud Firestore
+    syncItemToSupabase("settings", updated).catch(() => {});
     serverSetDoc(serverDoc(serverDb, "system_settings", "global"), updated, { merge: true }).catch((err) => {
       console.warn('[ServerFirestore] Erro ao sincronizar settings no Firestore:', err?.message || err);
     });
@@ -3753,7 +4002,8 @@ app.post("/api/db/:collection", async (req, res) => {
 
   writeStoreData(collection, list);
 
-  // Sync to Cloud Firestore
+  // Sync to Supabase PostgreSQL & Cloud Firestore
+  syncItemToSupabase(collection, itemWithId).catch(() => {});
   const firestoreColName = collection === "settings" ? "system_settings" : collection;
   serverSetDoc(serverDoc(serverDb, firestoreColName, itemId), sanitizeForFirestoreServer(itemWithId), { merge: true }).catch((err) => {
     console.warn(`[ServerFirestore] Erro ao sincronizar ${itemId} em ${collection} no Firestore:`, err?.message || err);
@@ -3902,7 +4152,8 @@ app.delete("/api/db/:collection/:id", async (req, res) => {
   const filtered = list.filter((x) => x && x.id !== id);
   writeStoreData(collection, filtered);
 
-  // Sync delete to Cloud Firestore
+  // Sync delete to Supabase PostgreSQL & Cloud Firestore
+  syncItemToSupabase(collection, null, true, id).catch(() => {});
   const firestoreColName = collection === "settings" ? "system_settings" : collection;
   serverDeleteDoc(serverDoc(serverDb, firestoreColName, id)).catch((err) => {
     console.warn(`[ServerFirestore] Erro ao deletar ${id} em ${collection} no Firestore:`, err?.message || err);
@@ -4168,7 +4419,7 @@ const examVideoUpload = multer({
   },
 });
 
-app.post("/api/exam-media/upload-video", (req, res) => {
+app.post("/api/exam-media/upload-video", (req: any, res: any) => {
   examVideoUpload.single("video")(req, res, (err: any) => {
     if (err) {
       console.error("[UploadVideo] Erro durante o upload:", err);

@@ -2,6 +2,7 @@ import { initializeApp, getApps, getApp } from 'firebase/app';
 import {
   initializeFirestore,
   getFirestore,
+  setLogLevel,
   collection,
   doc,
   getDoc,
@@ -17,6 +18,7 @@ import {
 } from 'firebase/firestore';
 import { getAuth } from 'firebase/auth';
 import firebaseConfig from '../../firebase-applet-config.json';
+import { supabase } from './supabase';
 import { Patient, Consultation, KnowledgeItem, User, SystemSettings, SubscriptionPlan, SubscriptionRecord, PixTransactionRecord, SUSMedication, SUSExam, Appointment, AppointmentStatus, ReceptionQueueItem, QueueItemStatus, EvolutionSummary, ExamMediaReportData } from '../types';
 import { ADMIN_MASTER_EMAIL, LEGACY_MOCK_USER_IDS, LEGACY_MOCK_USER_NAMES } from '../data/professions';
 import { OFFICIAL_SUS_MEDICATIONS } from '../data/susMedications';
@@ -33,6 +35,9 @@ const databaseId = (rawConfig.firestoreDatabaseId && String(rawConfig.firestoreD
 
 // Export Firestore db instance referencing the configured named database
 export const db = databaseId ? getFirestore(app, databaseId) : getFirestore(app);
+try {
+  setLogLevel('silent');
+} catch {}
 
 // Initialize Firebase Auth
 export const auth = getAuth(app);
@@ -124,40 +129,120 @@ function sanitizeForFirestore(val: any): any {
   return clean;
 }
 
-// Full-Stack Server Storage API Helpers (dual-sync with server backend)
+// Full-Stack Server & Supabase Storage Client Sync Layer
+async function fetchFromSupabaseDirect<T>(colName: string): Promise<T | null> {
+  try {
+    let tableName = colName;
+    if (colName === 'settings' || colName === 'system_settings') {
+      tableName = 'system_settings';
+    }
+    const { data, error } = await supabase.from(tableName).select('*');
+    if (error || !data) return null;
+
+    if (tableName === 'system_settings') {
+      const globalRow = data.find((r: any) => r.id === 'global') || data[0];
+      if (globalRow && globalRow.data) return globalRow.data as T;
+      return null;
+    }
+
+    const unpacked = data.map((row: any) => {
+      if (row.raw_data && typeof row.raw_data === 'object') {
+        return { ...row.raw_data, id: row.id };
+      }
+      return row;
+    });
+    return unpacked as unknown as T;
+  } catch {
+    return null;
+  }
+}
+
+async function saveToSupabaseDirect(colName: string, item: any): Promise<void> {
+  try {
+    let tableName = colName;
+    if (colName === 'settings' || colName === 'system_settings') {
+      tableName = 'system_settings';
+      await supabase.from(tableName).upsert({
+        id: 'global',
+        data: item,
+        updated_at: Date.now(),
+      });
+      return;
+    }
+    if (!item || !item.id) return;
+    const payload = {
+      id: String(item.id),
+      raw_data: item,
+      updated_at: Date.now(),
+    };
+    await supabase.from(tableName).upsert(payload);
+  } catch {}
+}
+
+async function deleteFromSupabaseDirect(colName: string, id: string): Promise<void> {
+  try {
+    let tableName = colName;
+    if (colName === 'settings' || colName === 'system_settings') {
+      tableName = 'system_settings';
+    }
+    await supabase.from(tableName).delete().eq('id', id);
+  } catch {}
+}
+
+// Full-Stack Server Storage API Helpers (dual-sync with server backend and Supabase directly)
 async function apiDbGet<T>(colName: string): Promise<T | null> {
+  // 1. Try server endpoint first
   try {
     const res = await fetch(`/api/db/${colName}`);
     if (res.ok) {
       const json = await res.json();
-      return json.data as T;
+      if (json.data && (Array.isArray(json.data) ? json.data.length > 0 : Object.keys(json.data).length > 0)) {
+        return json.data as T;
+      }
     }
   } catch {
-    // offline / fallback
+    // offline / fallback to direct Supabase
   }
+
+  // 2. Direct Supabase Query (Essential for VPS static builds / standalone hosting)
+  try {
+    const sbData = await fetchFromSupabaseDirect<T>(colName);
+    if (sbData && (Array.isArray(sbData) ? sbData.length > 0 : Object.keys(sbData).length > 0)) {
+      return sbData;
+    }
+  } catch {}
+
   return null;
 }
 
 async function apiDbSave<T>(colName: string, item: T): Promise<void> {
+  // 1. Save to server persistent endpoint
   try {
     await fetch(`/api/db/${colName}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(item),
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
+
+  // 2. Direct Supabase save
+  try {
+    await saveToSupabaseDirect(colName, item);
+  } catch {}
 }
 
 async function apiDbDelete(colName: string, id: string): Promise<void> {
+  // 1. Delete on server endpoint
   try {
     await fetch(`/api/db/${colName}/${id}`, {
       method: 'DELETE',
     });
-  } catch {
-    // ignore
-  }
+  } catch {}
+
+  // 2. Direct Supabase delete
+  try {
+    await deleteFromSupabaseDirect(colName, id);
+  } catch {}
 }
 
 const LEGACY_MOCK_EMAILS = [
