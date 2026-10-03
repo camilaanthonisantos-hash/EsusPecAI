@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Users,
@@ -14,7 +14,7 @@ import {
   ShieldCheck,
   Baby,
 } from 'lucide-react';
-import { Patient, Consultation } from '../types';
+import { Patient, Consultation, ReceptionQueueItem } from '../types';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
 import { SpecularButton } from './SpecularButton';
 
@@ -22,16 +22,29 @@ interface PatientDropdownSelectorProps {
   patients: Patient[];
   consultations: Consultation[];
   selectedPatient: Patient | null;
+  queueItems?: ReceptionQueueItem[];
   onSelectPatient: (patient: Patient | null) => void;
+  onAddToQueue: (patient: Patient) => void;
   onOpenNewPatientModal: () => void;
   variant?: 'banner' | 'compact' | 'header';
+}
+
+function normalizeSearchText(str: string): string {
+  if (!str) return '';
+  return str
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase()
+    .trim();
 }
 
 export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = ({
   patients,
   consultations,
   selectedPatient,
+  queueItems = [],
   onSelectPatient,
+  onAddToQueue,
   onOpenNewPatientModal,
   variant = 'banner',
 }) => {
@@ -59,15 +72,49 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
     };
   }, [isOpen]);
 
-  const filteredPatients = patients.filter((patient) => {
-    const term = searchTerm.toLowerCase().trim();
-    if (!term) return true;
-    const nameMatch = patient.fullName?.toLowerCase().includes(term);
-    const cnsMatch = patient.cns?.includes(term);
-    const cpfMatch = patient.cpf?.includes(term);
-    const guardianMatch = patient.legalGuardianName?.toLowerCase().includes(term);
-    return nameMatch || cnsMatch || cpfMatch || guardianMatch;
-  });
+  const filteredPatients = useMemo(() => {
+    const raw = searchTerm.trim();
+    const q = normalizeSearchText(raw);
+    if (!q) return patients;
+
+    const queryTokens = q.split(/\s+/).filter(Boolean);
+    const digitsQuery = raw.replace(/\D/g, '');
+
+    const scored: Array<{ patient: Patient; score: number }> = [];
+
+    for (const p of patients) {
+      const normName = normalizeSearchText(p.fullName || '');
+      const normCpf = p.cpf ? p.cpf.replace(/\D/g, '') : '';
+      const normCns = p.cns ? p.cns.replace(/\D/g, '') : '';
+      const normGuardian = normalizeSearchText(p.legalGuardianName || '');
+
+      let score = 0;
+      if (normName.startsWith(q)) {
+        score = 1000 + (100 - Math.min(100, normName.length));
+      } else if (normName.includes(q)) {
+        score = 800 + (100 - Math.min(100, normName.length));
+      } else if (queryTokens.length > 1 && queryTokens.every((t) => normName.includes(t))) {
+        score = 700;
+      } else if (queryTokens.some((t) => normName.split(/\s+/).some((w) => w.startsWith(t)))) {
+        score = 500;
+      } else if (digitsQuery.length >= 3 && (normCpf.includes(digitsQuery) || normCns.includes(digitsQuery))) {
+        score = 400;
+      } else if (normGuardian.includes(q)) {
+        score = 100;
+      }
+
+      if (score > 0) {
+        scored.push({ patient: p, score });
+      }
+    }
+
+    scored.sort((a, b) => {
+      if (b.score !== a.score) return b.score - a.score;
+      return (a.patient.fullName || '').localeCompare(b.patient.fullName || '', 'pt-BR');
+    });
+
+    return scored.map((s) => s.patient);
+  }, [patients, searchTerm]);
 
   const getPatientConsultationCount = (patientId: string) => {
     return consultations.filter((c) => c.patientId === patientId).length;
@@ -76,24 +123,22 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
   return (
     <div className="relative inline-block w-full max-w-md text-left" ref={dropdownRef}>
       {/* Dropdown Trigger Button */}
-      <SpecularButton
+      <button
         type="button"
         id="patient-dropdown-trigger"
         onClick={() => setIsOpen(!isOpen)}
-        size="none"
-        radius={16}
-        className={`w-full flex items-center justify-between gap-2.5 px-3.5 py-2 border transition-all ${
+        className={`w-full flex items-center justify-between gap-2.5 px-3.5 py-2.5 rounded-2xl border transition-all duration-150 cursor-pointer text-left focus:outline-none focus:ring-2 focus:ring-teal-500/50 shadow-xs ${
           selectedPatient
-            ? 'bg-teal-50/90 dark:bg-teal-950/80 border-teal-300 dark:border-teal-700 text-teal-950 dark:text-teal-100 hover:bg-teal-100/90 dark:hover:bg-teal-900/90 shadow-sm'
-            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:bg-slate-50 dark:hover:bg-slate-850 shadow-xs'
+            ? 'bg-teal-50 dark:bg-teal-950/70 border-teal-300 dark:border-teal-700 text-teal-950 dark:text-teal-100 hover:bg-teal-100 dark:hover:bg-teal-900/60'
+            : 'bg-white dark:bg-slate-900 border-slate-300 dark:border-slate-700 text-slate-900 dark:text-slate-100 hover:bg-slate-100 dark:hover:bg-slate-800 hover:border-teal-500/60 dark:hover:border-teal-500/60'
         }`}
       >
         <div className="flex items-center gap-2.5 min-w-0">
           <div
             className={`p-1.5 rounded-xl shrink-0 ${
               selectedPatient
-                ? 'bg-teal-600 text-white'
-                : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200'
+                ? 'bg-teal-600 text-white shadow-xs'
+                : 'bg-slate-100 dark:bg-slate-800 text-teal-600 dark:text-teal-400 border border-slate-200 dark:border-slate-700'
             }`}
           >
             {selectedPatient ? <UserCheck className="w-4 h-4" /> : <Users className="w-4 h-4" />}
@@ -115,10 +160,10 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                 </span>
               </div>
             )}
-            <div className="text-[10px] font-medium text-slate-700 dark:text-slate-300 truncate">
+            <div className="text-[10.5px] font-medium text-slate-600 dark:text-slate-300 truncate">
               {selectedPatient
                 ? `CNS: ${selectedPatient.cns || 'S/N'} • ${getPatientConsultationCount(selectedPatient.id)} atendimentos`
-                : 'Clique para escolher um cidadão da lista ou cadastrar'}
+                : 'Clique para selecionar e direcionar à Fila de Atendimento'}
             </div>
           </div>
         </div>
@@ -130,7 +175,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
             }`}
           />
         </div>
-      </SpecularButton>
+      </button>
 
       {/* Dropdown Menu Panel */}
       <AnimatePresence>
@@ -172,7 +217,7 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                   {filteredPatients.length} cidadão(s) disponível(is)
                 </span>
                 <span className="font-semibold text-teal-600 dark:text-teal-400">
-                  Banco Central de Cidadãos
+                  Clique para direcionar à Fila
                 </span>
               </div>
             </div>
@@ -195,20 +240,18 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
               </SpecularButton>
 
               {selectedPatient && (
-                <SpecularButton
+                <button
                   type="button"
                   id="dropdown-clear-patient-btn"
                   onClick={() => {
                     onSelectPatient(null);
                     setIsOpen(false);
                   }}
-                  size="sm"
-                  radius={12}
-                  className="px-3 py-1.5 bg-slate-200/80 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 border-transparent"
+                  className="px-3 py-1.5 rounded-xl bg-slate-200/80 dark:bg-slate-800 hover:bg-slate-300 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-semibold cursor-pointer transition-colors"
                   title="Desvincular cidadão atual"
                 >
                   Desvincular
-                </SpecularButton>
+                </button>
               )}
             </div>
 
@@ -239,31 +282,35 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
               ) : (
                 filteredPatients.map((pat) => {
                   const isSelected = selectedPatient?.id === pat.id;
+                  const queueItem = queueItems?.find(
+                    (q) => q.patientId === pat.id && (q.status === 'waiting' || q.status === 'in_service')
+                  );
+                  const isQueued = Boolean(queueItem);
                   const age = calculateChronologicalAge(pat.birthDate);
                   const consCount = getPatientConsultationCount(pat.id);
 
                   return (
-                    <SpecularButton
+                    <button
                       key={pat.id}
                       type="button"
                       onClick={() => {
-                        onSelectPatient(pat);
+                        onAddToQueue(pat);
                         setIsOpen(false);
                       }}
-                      size="none"
-                      radius={12}
-                      className={`w-full p-2.5 text-left transition-all flex items-center justify-between gap-3 ${
+                      className={`w-full p-2.5 text-left transition-colors flex items-center justify-between gap-3 rounded-xl cursor-pointer ${
                         isSelected
-                          ? 'bg-teal-50 dark:bg-teal-950/70 border border-teal-200 dark:border-teal-800'
-                          : 'hover:bg-slate-100/80 dark:hover:bg-slate-800/60 border-transparent'
+                          ? 'bg-teal-50 dark:bg-teal-950/70 border border-teal-300 dark:border-teal-700'
+                          : 'hover:bg-slate-100 dark:hover:bg-slate-800/80 border border-transparent'
                       }`}
                     >
                       <div className="flex items-center gap-2.5 min-w-0">
                         <div
                           className={`w-8 h-8 rounded-full flex items-center justify-center shrink-0 text-xs font-bold ${
                             isSelected
-                              ? 'bg-teal-600 text-white'
-                              : 'bg-slate-100 dark:bg-slate-800 text-slate-600 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
+                              ? 'bg-teal-600 text-white shadow-xs'
+                              : isQueued
+                              ? 'bg-amber-500/15 text-amber-600 dark:text-amber-400 border border-amber-500/30'
+                              : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 border border-slate-200 dark:border-slate-700'
                           }`}
                         >
                           {pat.fullName?.charAt(0)?.toUpperCase() || 'P'}
@@ -295,12 +342,31 @@ export const PatientDropdownSelector: React.FC<PatientDropdownSelectorProps> = (
                         </div>
                       </div>
 
-                      {isSelected && (
-                        <div className="w-5 h-5 rounded-full bg-teal-600 text-white flex items-center justify-center shrink-0">
-                          <Check className="w-3.5 h-3.5" />
-                        </div>
-                      )}
-                    </SpecularButton>
+                      <div className="flex items-center gap-2 shrink-0">
+                        {isSelected ? (
+                          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-teal-600 text-white text-[10px] font-bold">
+                            <Check className="w-3 h-3" />
+                            <span>Ativo</span>
+                          </span>
+                        ) : queueItem ? (
+                          <span
+                            className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              queueItem.status === 'in_service'
+                                ? 'bg-teal-100 dark:bg-teal-950/70 text-teal-800 dark:text-teal-300 border-teal-300 dark:border-teal-800'
+                                : 'bg-amber-100 dark:bg-amber-950/70 text-amber-800 dark:text-amber-300 border-amber-300 dark:border-amber-800'
+                            }`}
+                          >
+                            <Clock className="w-3 h-3" />
+                            <span>{queueItem.status === 'in_service' ? 'Em Atendimento' : 'Na Fila'}</span>
+                          </span>
+                        ) : (
+                          <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-[10.5px] font-bold text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 border border-teal-200 dark:border-teal-800 transition-colors">
+                            <UserPlus className="w-3 h-3" />
+                            <span>+ Fila</span>
+                          </span>
+                        )}
+                      </div>
+                    </button>
                   );
                 })
               )}

@@ -7,12 +7,13 @@ import {
   Consultation,
   SystemSettings,
 } from '../types';
+import { DEFAULT_SECTIONS_CONFIG } from '../utils/aiOrchestrationConfig';
 
 export const ADMIN_MASTER_EMAIL = 'jerime.rego@gmail.com';
 
 export function isUserAdmin(user: User | null | undefined): boolean {
   if (!user) return false;
-  if (user.email && user.email.toLowerCase().trim() === ADMIN_MASTER_EMAIL.toLowerCase()) {
+  if (user.email && typeof user.email === 'string' && user.email.toLowerCase().trim() === ADMIN_MASTER_EMAIL.toLowerCase()) {
     return true;
   }
   return user.role === 'admin';
@@ -35,6 +36,7 @@ export const DEFAULT_WORKPLACE_PRESETS: string[] = [
 export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   geminiApiKey: '',
   defaultModel: 'gemini-3.7-flash',
+  sectionsConfig: DEFAULT_SECTIONS_CONFIG,
   defaultCiapCode: '-69',
   defaultSigtapCode: '0301080445',
   municipalityName: 'Secretaria Municipal de Saúde',
@@ -43,6 +45,17 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
     'Priorizar recomendações da Relação Municipal de Medicamentos (REMUME) e respeitar as diretrizes da Atenção Primária à Saúde e da RAPS (APS / RAPS / eMulti / CAPS).',
   allowUserSelfRegister: true,
   customWorkplaces: [],
+  n8nPixWebhookUrl: '',
+  n8nAppointmentWebhookUrl: '',
+  n8nSubscriptionWebhookUrl: '',
+  n8nClinicalConsultationWebhookUrl: '',
+  whatsappNotificationsEnabled: true,
+  evolutionApiUrl: 'https://evolutionapi24.mentoriajrs.com',
+  evolutionApiKey: '010F49F506A0-42AC-BE0F-B9AAAC4F5EAC',
+  evolutionInstanceName: 'Typebot_curso_tec',
+  dailyReminderHour: 9,
+  reminder30MinutesEnabled: true,
+  reminder10MinutesEnabled: true,
   updatedAt: Date.now(),
   updatedBy: ADMIN_MASTER_EMAIL,
 };
@@ -90,6 +103,7 @@ export const DEFAULT_CBO_MAP: Record<string, string> = {
   ace: '5151-40',
   tecnico_enfermagem: '3222-05',
   auxiliar_enfermagem: '3222-30',
+  administrativo: '4110-10',
 };
 
 export const DEFAULT_PROFESSION_COUNCIL_MAP: Record<string, string> = {
@@ -110,6 +124,7 @@ export const DEFAULT_PROFESSION_COUNCIL_MAP: Record<string, string> = {
   ace: 'CBO',
   tecnico_enfermagem: 'COREN',
   auxiliar_enfermagem: 'COREN',
+  administrativo: 'CBO',
 };
 
 export function parseProfessionalRegister(
@@ -180,6 +195,112 @@ export function formatProfessionalRegister(
   return `${body}/${uf} ${num}`;
 }
 
+/**
+ * Returns true if the profession is a Higher Education (Nível Superior) health profession.
+ * Middle-level (Técnico / Auxiliar), Administrative, and Community agents return false.
+ */
+export function isHigherEducationProfession(professionId?: string, cbo?: string): boolean {
+  if (!professionId) return false;
+  const lowerId = professionId.toLowerCase().trim();
+  const cleanCbo = (cbo || '').trim();
+
+  // Middle-level and administrative explicit exclusions
+  if (
+    lowerId === 'tecnico_enfermagem' ||
+    lowerId === 'auxiliar_enfermagem' ||
+    lowerId === 'administrativo' ||
+    lowerId === 'acs' ||
+    lowerId === 'ace' ||
+    cleanCbo.startsWith('3222') ||
+    cleanCbo.startsWith('4110') ||
+    cleanCbo.startsWith('5151')
+  ) {
+    return false;
+  }
+
+  // Higher education professions
+  const higherEducationIds = [
+    'medico',
+    'enfermeiro',
+    'psicologo',
+    'assistente_social',
+    'psicopedagogo',
+    'nutricionista',
+    'educador_fisico',
+    'fisioterapeuta',
+    'terapeuta_ocupacional',
+    'fonoaudiologo',
+    'farmaceutico',
+    'cirurgiao_dentista',
+    'dentista',
+  ];
+
+  return higherEducationIds.includes(lowerId) || cleanCbo.startsWith('2');
+}
+
+/**
+ * Atestado Médico is exclusive to Physicians (Médico).
+ */
+export function canIssueMedicalCertificate(professionId?: string): boolean {
+  return professionId === 'medico';
+}
+
+/**
+ * Atestado de Comparecimento is issued by Higher Education professions EXCEPT Physicians (who use Medical Certificate).
+ */
+export function canIssueAttendanceCertificate(professionId?: string, cbo?: string): boolean {
+  if (professionId === 'medico') return false;
+  return isHigherEducationProfession(professionId, cbo);
+}
+
+/**
+ * Helper to write days in full Portuguese text with digits (e.g. "03 (três) dias" or "01 (um) dia")
+ */
+export function numberToDaysExtenso(days: number): string {
+  const num = Math.max(1, Math.floor(days || 1));
+  const numPadded = String(num).padStart(2, '0');
+
+  const extensoMap: Record<number, string> = {
+    1: 'um',
+    2: 'dois',
+    3: 'três',
+    4: 'quatro',
+    5: 'cinco',
+    6: 'seis',
+    7: 'sete',
+    8: 'oito',
+    9: 'nove',
+    10: 'dez',
+    11: 'onze',
+    12: 'doze',
+    13: 'treze',
+    14: 'quatorze',
+    15: 'quinze',
+    16: 'dezesseis',
+    17: 'dezessete',
+    18: 'dezoito',
+    19: 'dezenove',
+    20: 'vinte',
+    21: 'vinte e um',
+    22: 'vinte e dois',
+    23: 'vinte e três',
+    24: 'vinte e quatro',
+    25: 'vinte e cinco',
+    26: 'vinte e seis',
+    27: 'vinte e sete',
+    28: 'vinte e oito',
+    29: 'vinte e nove',
+    30: 'trinta',
+    45: 'quarenta e cinco',
+    60: 'sessenta',
+    90: 'noventa',
+  };
+
+  const word = extensoMap[num] || String(num);
+  const suffix = num === 1 ? 'dia' : 'dias';
+  return `${numPadded} (${word}) ${suffix}`;
+}
+
 export const PROFESSIONS: Record<ProfessionId, ProfessionConfig> = {
   enfermeiro: {
     id: 'enfermeiro',
@@ -195,6 +316,51 @@ export const PROFESSIONS: Record<ProfessionId, ProfessionConfig> = {
     pecFocus:
       'Bloco 1 (Avaliação + NANDA), Bloco 2 (Plano NOC/NIC + Códigos Fixos), Bloco 3 (Finalização/Conduta 06)',
     hasBlock3: true,
+  },
+  tecnico_enfermagem: {
+    id: 'tecnico_enfermagem',
+    name: 'Téc. de Enfermagem',
+    category: 'APS',
+    council: 'COFEN / COREN',
+    councilAbbr: 'COREN',
+    cbo: '3222-05',
+    color: 'teal',
+    accentBg: 'bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30',
+    iconName: 'Activity',
+    shortDesc: 'Triagem do Cidadão, Sinais Vitais (PA, SpO2, Glicemia, FC, FR, Temp) e Antropometria (Peso em Kg, Altura, IMC)',
+    pecFocus: 'Campo Único de Triagem com Sinais Vitais e Antropometria',
+    hasBlock3: false,
+    isTriageOnly: true,
+  },
+  auxiliar_enfermagem: {
+    id: 'auxiliar_enfermagem',
+    name: 'Aux. de Enfermagem',
+    category: 'APS',
+    council: 'COFEN / COREN',
+    councilAbbr: 'COREN',
+    cbo: '3222-30',
+    color: 'teal',
+    accentBg: 'bg-teal-500/10 text-teal-700 dark:text-teal-300 border-teal-500/30',
+    iconName: 'Activity',
+    shortDesc: 'Triagem do Cidadão, Aferição de Sinais Vitais e Registro Antropométrico em Kg',
+    pecFocus: 'Campo Único de Triagem com Sinais Vitais e Antropometria',
+    hasBlock3: false,
+    isTriageOnly: true,
+  },
+  administrativo: {
+    id: 'administrativo',
+    name: 'Administrativo',
+    category: 'Gestão',
+    council: 'CBO',
+    councilAbbr: 'CBO',
+    cbo: '4110-10',
+    color: 'indigo',
+    accentBg: 'bg-indigo-500/10 text-indigo-700 dark:text-indigo-300 border-indigo-500/30',
+    iconName: 'Calendar',
+    shortDesc: 'Recepção, agendamento de consultas e gestão da agenda de atendimentos do SUS',
+    pecFocus: 'Gestão Exclusiva de Agendamentos e Recepção',
+    hasBlock3: false,
+    isAdministrativeOnly: true,
   },
   assistente_social: {
     id: 'assistente_social',
@@ -390,22 +556,52 @@ export const LEGACY_MOCK_USER_IDS = [
   'user-nutricionista-1',
   'user-assistente-social-1',
   'user-educador-fisico-1',
+  'user-camila-medica',
+  'user-beatriz-enfermeira',
+  'user-lucas-dentista',
+  'user-rodrigo-psicologo',
+  'user-juliana-nutricionista',
+  'user-vanessa-assistente-social',
+  'user-marcelo-psicologo',
+  'user-camila-psicopedagoga',
+  'user-as-01',
+  'user-psi-01',
+  'user-psp-01',
+];
+
+export const LEGACY_MOCK_USER_NAMES = [
+  'Dra. Camila Santos',
+  'Enfª. Beatriz Lima',
+  'Dr. Lucas Andrade',
+  'Dr. Rodrigo Silveira',
+  'Dra. Juliana Martins',
+  'Dra. Vanessa Lima',
+  'Dr. Marcelo Ramos',
+  'Dra. Camila Soares',
 ];
 
 // -------------------------------------------------------------
-// PRE-SEEDED MULTI-PROFESSIONAL USERS / PROFILES (RBAC)
+// DEFAULT USERS (Only real initial Admin Master; all other users must be registered in the system/database)
 // -------------------------------------------------------------
 export const DEFAULT_USERS: User[] = [
   {
     id: 'user-admin-jerime',
-    name: 'Dr. Jerime Rêgo',
+    name: 'Jerime Rêgo',
     email: 'jerime.rego@gmail.com',
     password: 'admin',
     role: 'admin',
-    professionalRegister: 'CRM/SP 998877 (Admin Geral)',
-    profession: 'medico',
-    workplace: 'Secretaria Municipal de Saúde / Coordenação PEC',
-    createdAt: Date.now(),
+    professionalRegister: '',
+    councilBody: '',
+    councilNumber: '',
+    councilUf: '',
+    profession: 'enfermeiro',
+    workplace: 'Atenção Primária à Saúde',
+    googleCalendarId: undefined,
+    isGoogleCalendarVerified: false,
+    googleCalendarType: undefined,
+    isBookingEnabled: false,
+    createdAt: 1788200000000,
+    customServices: [],
   },
 ];
 

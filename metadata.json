@@ -1,5 +1,5 @@
 {
-  "name": "Prontuário PEC Multiprofissional AI",
+  "name": "PecAI",
   "description": "Automação de prontuários eletrônicos do SUS (PEC / e-SUS) para equipes multiprofissionais da Atenção Primária e RAPS com inteligência artificial multimodal.",
   "requestFramePermissions": ["microphone"],
   "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]

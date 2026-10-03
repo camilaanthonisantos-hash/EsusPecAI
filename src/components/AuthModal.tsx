@@ -21,6 +21,11 @@ import {
   UserCheck,
   AlertTriangle,
   Unlock,
+  UploadCloud,
+  Trash2,
+  Image as ImageIcon,
+  Stamp,
+  FileCheck2,
 } from 'lucide-react';
 import { User, ProfessionId, ProfessionConfig, WorkplaceType, UserRole, SystemSettings } from '../types';
 import {
@@ -34,6 +39,7 @@ import {
 import { ProfessionalRegisterInputs } from './ProfessionalRegisterInputs';
 import { WorkplaceSelectInput } from './WorkplaceSelectInput';
 import { formatName, formatEmail } from '../utils/textFormatters';
+import { saveUserToFirestore } from '../services/firebase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -198,7 +204,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     // Check if user exists in the registered users collection
-    const existingUser = users.find((u) => u.email.trim().toLowerCase() === emailClean);
+    const existingUser = users.find((u) => u.email && u.email.trim().toLowerCase() === emailClean);
 
     if (!existingUser) {
       // Special check: Is this the master admin logging in for the first time?
@@ -241,7 +247,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     // Ensure Master admin always has admin role
     const finalRole: UserRole =
-      existingUser.email.toLowerCase() === ADMIN_MASTER_EMAIL.toLowerCase()
+      (existingUser.email || '').toLowerCase() === ADMIN_MASTER_EMAIL.toLowerCase()
         ? 'admin'
         : existingUser.role || 'user';
 
@@ -281,7 +287,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
     }
 
     // Check if email already registered
-    const alreadyExists = users.some((u) => u.email.trim().toLowerCase() === emailClean);
+    const alreadyExists = users.some((u) => u.email && u.email.trim().toLowerCase() === emailClean);
     if (alreadyExists) {
       setRegError('Já existe um usuário cadastrado com este e-mail. Faça login.');
       return;
@@ -514,8 +520,189 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                   </div>
                 </div>
 
-                {/* 2 Middle Action Buttons */}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                {/* Carimbo & Assinatura Digitalizada do Profissional (Documentos de Impressão) */}
+                <div className="p-4 sm:p-5 rounded-2xl bg-slate-900/90 dark:bg-slate-950/90 border border-teal-500/30 shadow-md space-y-3.5">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 pb-2.5 border-b border-slate-800">
+                    <div className="flex items-center gap-2.5">
+                      <div className="p-2 rounded-xl bg-teal-500/10 text-teal-400 border border-teal-500/20">
+                        <Stamp className="w-4 h-4" />
+                      </div>
+                      <div>
+                        <h4 className="text-xs font-black uppercase tracking-wider text-slate-100 flex items-center gap-1.5">
+                          <span>Carimbo & Assinatura Digitalizada</span>
+                          <span className="px-1.5 py-0.2 rounded bg-teal-500/20 text-teal-300 text-[9px] font-extrabold uppercase">
+                            Impressão A4
+                          </span>
+                        </h4>
+                        <p className="text-[11px] text-slate-400">
+                          Configure a imagem do seu carimbo profissional para substituir a caixa de texto em todas as impressões.
+                        </p>
+                      </div>
+                    </div>
+
+                    {/* Toggle Switch */}
+                    <div className="flex items-center gap-2 self-start sm:self-auto shrink-0">
+                      <label className="relative inline-flex items-center cursor-pointer">
+                        <input
+                          type="checkbox"
+                          id="toggle-use-digital-stamp"
+                          checked={Boolean(currentUser.useDigitalStamp)}
+                          onChange={(e) => {
+                            const isChecked = e.target.checked;
+                            if (isChecked && !currentUser.digitalStampUrl) {
+                              onShowToast(
+                                'info',
+                                'Carregue uma imagem de carimbo abaixo para habilitar o uso nos documentos impressos.',
+                                'Carregar Imagem'
+                              );
+                            }
+                            const updated = { ...currentUser, useDigitalStamp: isChecked };
+                            saveUserToFirestore(updated).catch(() => {});
+                            fetch('/api/db/users', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(updated),
+                            }).catch(() => {});
+                            onLogin(updated, true);
+                            onShowToast(
+                              isChecked ? 'success' : 'info',
+                              isChecked
+                                ? 'Carimbo digital ativado! Será exibido em todas as impressões.'
+                                : 'Carimbo digital desativado. O sistema usará os dados de texto padrão (Nome, CBO e Órgão de Classe).',
+                              'Preferência de Impressão'
+                            );
+                          }}
+                          className="sr-only peer"
+                        />
+                        <div className="w-9 h-5 bg-slate-700 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-slate-300 after:border after:rounded-full after:h-4 after:w-4 after:transition-all peer-checked:bg-teal-500"></div>
+                      </label>
+                      <span className="text-[11px] font-bold text-slate-300">
+                        {currentUser.useDigitalStamp ? 'Ativado' : 'Desativado'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Stamp Upload / Preview Area */}
+                  <div>
+                    <input
+                      type="file"
+                      id="digital-stamp-upload-input"
+                      accept="image/png,image/jpeg,image/jpg"
+                      className="hidden"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (file) {
+                          if (file.size > 5 * 1024 * 1024) {
+                            onShowToast('error', 'A imagem do carimbo deve ter menos de 5MB.', 'Arquivo Grande');
+                            return;
+                          }
+                          const reader = new FileReader();
+                          reader.onload = () => {
+                            const base64 = reader.result as string;
+                            const updated = {
+                              ...currentUser,
+                              digitalStampUrl: base64,
+                              useDigitalStamp: true,
+                            };
+                            saveUserToFirestore(updated).catch(() => {});
+                            fetch('/api/db/users', {
+                              method: 'POST',
+                              headers: { 'Content-Type': 'application/json' },
+                              body: JSON.stringify(updated),
+                            }).catch(() => {});
+                            onLogin(updated, true);
+                            onShowToast(
+                              'success',
+                              'Carimbo e assinatura digitalizada carregados com sucesso! Já está ativo para impressões.',
+                              'Carimbo Atualizado'
+                            );
+                          };
+                          reader.readAsDataURL(file);
+                        }
+                      }}
+                    />
+
+                    {currentUser.digitalStampUrl ? (
+                      <div className="p-3.5 rounded-xl bg-slate-950 border border-slate-800 flex flex-col sm:flex-row items-center justify-between gap-3">
+                        <div className="flex items-center gap-3.5">
+                          <div className="w-32 h-16 rounded-lg bg-white p-1 border border-slate-700/60 flex items-center justify-center overflow-hidden shrink-0 shadow-inner">
+                            <img
+                              src={currentUser.digitalStampUrl}
+                              alt="Carimbo cadastrado"
+                              className="max-h-full max-w-full object-contain"
+                            />
+                          </div>
+                          <div className="space-y-0.5">
+                            <div className="flex items-center gap-1.5 text-xs font-bold text-emerald-400">
+                              <FileCheck2 className="w-3.5 h-3.5" />
+                              <span>Carimbo cadastrado</span>
+                            </div>
+                            <p className="text-[10.5px] text-slate-400">
+                              {currentUser.useDigitalStamp
+                                ? 'Pronto para renderização em todos os relatórios e receituários A4.'
+                                : 'Carimbo salvo, porém desativado. Ative a chave ao lado para utilizá-lo.'}
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-2 shrink-0 w-full sm:w-auto">
+                          <button
+                            type="button"
+                            onClick={() => document.getElementById('digital-stamp-upload-input')?.click()}
+                            className="flex-1 sm:flex-initial px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-semibold flex items-center justify-center gap-1.5 cursor-pointer transition-colors"
+                          >
+                            <UploadCloud className="w-3.5 h-3.5" />
+                            <span>Trocar</span>
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => {
+                              const updated = {
+                                ...currentUser,
+                                digitalStampUrl: undefined,
+                                useDigitalStamp: false,
+                              };
+                              saveUserToFirestore(updated).catch(() => {});
+                              fetch('/api/db/users', {
+                                method: 'POST',
+                                headers: { 'Content-Type': 'application/json' },
+                                body: JSON.stringify(updated),
+                              }).catch(() => {});
+                              onLogin(updated, true);
+                              onShowToast('info', 'Carimbo digital removido. O sistema voltará a utilizar o texto padrão.', 'Carimbo Removido');
+                            }}
+                            className="p-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs cursor-pointer transition-colors"
+                            title="Remover imagem do carimbo"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => document.getElementById('digital-stamp-upload-input')?.click()}
+                        className="w-full p-4 rounded-xl border-2 border-dashed border-slate-700 hover:border-teal-500/60 bg-slate-950/60 hover:bg-slate-950 transition-all flex flex-col sm:flex-row items-center justify-center gap-3 text-center sm:text-left cursor-pointer group"
+                      >
+                        <div className="w-10 h-10 rounded-full bg-teal-500/10 group-hover:bg-teal-500/20 text-teal-400 border border-teal-500/20 flex items-center justify-center shrink-0 transition-colors">
+                          <UploadCloud className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <div className="text-xs font-bold text-slate-200 group-hover:text-teal-300 transition-colors">
+                            Carregar Imagem do Carimbo / Assinatura Digitalizada
+                          </div>
+                          <p className="text-[10.5px] text-slate-400 mt-0.5">
+                            Formatos aceitos: PNG (com fundo transparente) ou JPG nítido (máx. 5MB)
+                          </p>
+                        </div>
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {/* Middle Action Buttons */}
+                <div className={`grid grid-cols-1 ${isUserAdmin(currentUser) ? 'sm:grid-cols-2' : ''} gap-3 pt-1`}>
                   <button
                     type="button"
                     id="switch-to-login-btn"
@@ -530,15 +717,17 @@ export const AuthModal: React.FC<AuthModalProps> = ({
                     <span>Entrar com Outro E-mail</span>
                   </button>
 
-                  <button
-                    type="button"
-                    id="switch-to-register-btn"
-                    onClick={() => setMode('register')}
-                    className="w-full py-3.5 px-4 rounded-2xl bg-[#0f1738] hover:bg-[#172454] text-indigo-200 border border-indigo-500/40 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
-                  >
-                    <UserPlus className="w-4 h-4 text-indigo-400" />
-                    <span>Novo Cadastro de Profissional</span>
-                  </button>
+                  {isUserAdmin(currentUser) && (
+                    <button
+                      type="button"
+                      id="switch-to-register-btn"
+                      onClick={() => setMode('register')}
+                      className="w-full py-3.5 px-4 rounded-2xl bg-[#0f1738] hover:bg-[#172454] text-indigo-200 border border-indigo-500/40 text-xs font-bold transition-all flex items-center justify-center gap-2 cursor-pointer shadow-sm"
+                    >
+                      <UserPlus className="w-4 h-4 text-indigo-400" />
+                      <span>Novo Cadastro de Profissional</span>
+                    </button>
+                  )}
                 </div>
 
                 {/* Bottom Footer Actions */}

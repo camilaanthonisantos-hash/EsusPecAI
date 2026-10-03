@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   X,
@@ -20,9 +20,28 @@ import {
   FileText,
   Loader2,
   ExternalLink,
+  AlertTriangle,
+  RotateCw,
+  RotateCcw,
+  Timer,
 } from 'lucide-react';
 import { User as UserModel, SubscriptionPlan, SubscriptionRecord, SystemSettings } from '../types';
-import { saveSubscriptionRecord, saveUserToFirestore } from '../services/firebase';
+import {
+  saveSubscriptionRecord,
+  deleteSubscriptionRecord,
+  subscribeToSubscriptionRecord,
+  saveUserToFirestore,
+  getUserActivePendingSubscription,
+  clearPendingSubscriptionsForUser,
+  resetUserSubscriptionAndPixForTesting,
+} from '../services/firebase';
+import {
+  parsePixExpiration,
+  calculatePixRemainingTime,
+  normalizeSubscriptionExpiresAt,
+  isUserSubscriptionActive,
+  RemainingPixTime,
+} from '../utils/pixExpiration';
 
 interface PaywallModalProps {
   isOpen: boolean;
@@ -57,6 +76,13 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 
   // PIX state
   const [isLoadingPix, setIsLoadingPix] = useState(false);
+  const [currentOrderId, setCurrentOrderId] = useState<string | null>(null);
+  const [createdAtTimestamp, setCreatedAtTimestamp] = useState<number | null>(null);
+  const [expiresAtTimestamp, setExpiresAtTimestamp] = useState<number | null>(null);
+  const [expirationDateFormatted, setExpirationDateFormatted] = useState<string>('');
+  const [isExpired, setIsExpired] = useState(false);
+  const [countdown, setCountdown] = useState<RemainingPixTime | null>(null);
+
   const [pixData, setPixData] = useState<{
     qrCodeUrl: string;
     copiaECola: string;
@@ -66,6 +92,46 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 
   // Filter only active plans
   const activePlans = plans.filter((p) => p.active);
+
+  const hasNotifiedPaidRef = useRef(false);
+  const hasNotifiedExpiredRef = useRef(false);
+
+  // Reset notification tracking when modal opens/closes
+  useEffect(() => {
+    if (!isOpen) {
+      hasNotifiedPaidRef.current = false;
+      hasNotifiedExpiredRef.current = false;
+      setIsExpired(false);
+    }
+  }, [isOpen]);
+
+  // Auto-close Paywall if user already has an active paid plan
+  useEffect(() => {
+    if (!isOpen) return;
+
+    if (isUserSubscriptionActive(currentUser)) {
+      if (!hasNotifiedPaidRef.current) {
+        hasNotifiedPaidRef.current = true;
+        setIsExpired(false);
+        setStep('select_plan');
+        setPixData(null);
+        const orderToDelete = currentOrderId;
+        setCurrentOrderId('');
+        if (orderToDelete) {
+          deleteSubscriptionRecord(orderToDelete).catch(() => {});
+        }
+        const exp = normalizeSubscriptionExpiresAt(currentUser?.subscription_expires_at);
+        const expFormatted = exp ? new Date(exp).toLocaleDateString('pt-BR') : 'Tempo Ilimitado';
+        onShowToast(
+          'success',
+          `Seu plano (${currentUser?.plan_name || 'Assinatura'}) está ativo até ${expFormatted}.`,
+          'Plano Ativo'
+        );
+        onPaymentSuccess?.();
+        onClose();
+      }
+    }
+  }, [isOpen, currentUser?.subscription_status, currentUser?.subscription_expires_at, currentUser?.plan_name, currentOrderId]);
 
   // Default to monthly plan or first active
   useEffect(() => {
@@ -84,6 +150,161 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
       setPhone(currentUser.phone || '');
     }
   }, [currentUser]);
+
+  // Check and resume active pending PIX on modal open
+  useEffect(() => {
+    if (!isOpen || !currentUser?.id) return;
+
+    // Se o usuário já possui plano ativo pago, não retoma checkout de PIX
+    if (isUserSubscriptionActive(currentUser)) {
+      return;
+    }
+
+    let isMounted = true;
+    getUserActivePendingSubscription(currentUser.id)
+      .then((pendingSub) => {
+        if (!isMounted) return;
+        if (pendingSub && pendingSub.status === 'pendente') {
+          const now = Date.now();
+          let effectiveExpiresAt = pendingSub.expiresAt || 0;
+
+          // Se a data expirar mas o registro foi criado há menos de 30 minutos, concede a janela restante
+          if (effectiveExpiresAt <= now && pendingSub.createdAt && (now - pendingSub.createdAt < 30 * 60 * 1000)) {
+            effectiveExpiresAt = pendingSub.createdAt + 30 * 60 * 1000;
+          }
+
+          if (effectiveExpiresAt && effectiveExpiresAt <= now) {
+            // Already expired - delete it from database and stay in plan selection
+            deleteSubscriptionRecord(pendingSub.id).catch(() => {});
+            setStep('select_plan');
+            return;
+          }
+
+          // Match or construct selected plan
+          const matchedPlan: SubscriptionPlan =
+            activePlans.find((p) => p.id === pendingSub.planId) ||
+            plans.find((p) => p.id === pendingSub.planId) || {
+              id: pendingSub.planId,
+              name: pendingSub.planName || 'Plano Selecionado',
+              description: '',
+              price: pendingSub.amount || 0,
+              durationDays: pendingSub.durationDays || 30,
+              active: true,
+              features: [],
+            };
+
+          setSelectedPlan(matchedPlan);
+          setCurrentOrderId(pendingSub.id);
+          setCreatedAtTimestamp(pendingSub.createdAt || now);
+          setExpiresAtTimestamp(effectiveExpiresAt || (now + 30 * 60 * 1000));
+          setExpirationDateFormatted(pendingSub.expirationDate || '');
+          setPixData({
+            qrCodeUrl: pendingSub.pixQrCode || '',
+            copiaECola: pendingSub.pixCopiaECola || '',
+            idPix: pendingSub.pixId || '',
+          });
+          setIsExpired(false);
+          setStep('pix_checkout');
+        }
+      })
+      .catch((err) => {
+        console.debug('Verificação de assinatura pendente do usuário:', err);
+      });
+
+    return () => {
+      isMounted = false;
+    };
+  }, [isOpen, currentUser?.id, currentUser?.subscription_status, currentUser?.subscription_expires_at]);
+
+  // Real-time countdown timer & auto-cleanup upon expiration
+  useEffect(() => {
+    if (!isOpen || step !== 'pix_checkout' || !expiresAtTimestamp) {
+      return;
+    }
+
+    // Se o usuário já está com status pago, não processa expiração de PIX
+    if (isUserSubscriptionActive(currentUser)) {
+      return;
+    }
+
+    const updateTimer = () => {
+      // Dupla checagem para evitar falso disparo de expiração se o usuário foi pago
+      if (isUserSubscriptionActive(currentUser)) {
+        return;
+      }
+
+      const remaining = calculatePixRemainingTime(
+        expiresAtTimestamp,
+        createdAtTimestamp || undefined
+      );
+      setCountdown(remaining);
+
+      if (remaining.isExpired && !hasNotifiedExpiredRef.current) {
+        hasNotifiedExpiredRef.current = true;
+        setIsExpired(true);
+        if (currentOrderId) {
+          // Exclui automaticamente do banco de dados ao expirar
+          deleteSubscriptionRecord(currentOrderId).catch((err) => {
+            console.debug('Remoção de PIX expirado:', err);
+          });
+          onShowToast(
+            'error',
+            `O código PIX expirou em ${expirationDateFormatted || 'sua data limite'} e foi cancelado/removido do banco de dados por segurança.`,
+            'PIX Expirado'
+          );
+        }
+      }
+    };
+
+    updateTimer();
+    const interval = setInterval(updateTimer, 1000);
+
+    return () => clearInterval(interval);
+  }, [isOpen, step, expiresAtTimestamp, createdAtTimestamp, currentOrderId, expirationDateFormatted, currentUser?.subscription_status, currentUser?.subscription_expires_at]);
+
+  // Real-time subscription status listener
+  useEffect(() => {
+    if (!isOpen || !currentOrderId || step !== 'pix_checkout') return;
+
+    const unsubscribe = subscribeToSubscriptionRecord(
+      currentOrderId,
+      (sub) => {
+        if (sub?.status === 'pago' && !hasNotifiedPaidRef.current) {
+          hasNotifiedPaidRef.current = true;
+          setIsExpired(false);
+          setStep('select_plan');
+          setPixData(null);
+          const orderToDelete = currentOrderId;
+          setCurrentOrderId('');
+          if (orderToDelete) {
+            deleteSubscriptionRecord(orderToDelete).catch(() => {});
+          }
+          onShowToast('success', 'Pagamento PIX confirmado! Seu plano foi ativado com sucesso.', 'Plano Ativado');
+          if (currentUser) {
+            onUpdateCurrentUser?.({
+              ...currentUser,
+              subscription_status: 'pago',
+              plan_name: sub.planName || currentUser.plan_name,
+              subscription_expires_at:
+                normalizeSubscriptionExpiresAt(sub.expirationDate) ||
+                Date.now() + (sub.durationDays || 30) * 86400000,
+            });
+          }
+          if (onPaymentSuccess) {
+            onPaymentSuccess();
+          }
+          onClose();
+        }
+      },
+      (err) => {
+        console.debug('Subscription listener status:', err);
+      }
+    );
+
+    return () => {
+      unsubscribe();
+    };
+  }, [isOpen, currentOrderId, step]);
 
   // Determine which fields are missing from user profile
   const hasExistingName = Boolean(currentUser?.name?.trim());
@@ -154,13 +375,12 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
 
   const generatePix = async (plan: SubscriptionPlan) => {
     setIsLoadingPix(true);
+    setIsExpired(false);
     setStep('pix_checkout');
 
-    const webhookUrl =
-      systemSettings?.n8nPixWebhookUrl?.trim() ||
-      'https://n8n.mentoriajrs.com/webhook/gerar_pix_bronze_camila';
-
-    const orderId = `sub_${currentUser.id}_${Date.now()}`;
+    const webhookUrl = systemSettings?.n8nPixWebhookUrl?.trim() || '';
+    const nowMs = Date.now();
+    const orderId = `sub_${currentUser.id}_${nowMs}`;
     const cleanCpf = cpf.replace(/\D/g, '');
     const cleanPhone = phone.replace(/\D/g, '');
 
@@ -179,28 +399,84 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
     };
 
     try {
-      const response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Accept: 'application/json',
-        },
-        body: JSON.stringify(payload),
-      });
+      let qrCodeUrl = '';
+      let copiaECola = '';
+      let idPix = '';
+      let rawExpiration = '';
+      let expiresAt = 0;
+      let formattedExpStr = '';
 
-      if (!response.ok) {
-        throw new Error(`Erro na comunicação com o servidor PagBank (HTTP ${response.status})`);
+      // 1. Try server-side dynamic router /api/webhook/generate-pix
+      try {
+        const serverRes = await fetch('/api/webhook/generate-pix', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', Accept: 'application/json' },
+          body: JSON.stringify({
+            webhookUrl: webhookUrl || undefined,
+            plan,
+            userName: fullName || currentUser.name,
+            email: email || currentUser.email,
+            userCpf: cleanCpf,
+            userPhone: cleanPhone,
+            userId: currentUser.id,
+            orderId,
+            payload,
+          }),
+        });
+
+        if (serverRes.ok) {
+          const data = await serverRes.json();
+          qrCodeUrl = data.pixQrCode || data.qrCode || data['qr-code'] || '';
+          copiaECola = data.pixCopiaECola || data.copiaECola || data['chave-pix-copia-cola'] || '';
+          idPix = data.pixId || data.idPix || data['id-pix'] || '';
+          rawExpiration = data.expirationDate || data['expiration_date'] || data.expiration_date || data.expiresAt || '';
+          expiresAt = Number(data.expiresAt || 0);
+          formattedExpStr = data.expirationDateFormatted || '';
+        }
+      } catch (srvErr) {
+        console.warn('Falha no proxy backend de PIX, tentando chamada direta ao webhook configurado:', srvErr);
       }
 
-      const data = await response.json();
+      // 2. Direct fetch if not obtained from proxy and webhookUrl is configured
+      if (!copiaECola && !qrCodeUrl) {
+        if (!webhookUrl) {
+          throw new Error('Nenhuma URL de webhook n8n para geração de PIX está configurada no sistema. Cadastre a URL nas Configurações.');
+        }
 
-      const qrCodeUrl = data['qr-code'] || data.qrCode || '';
-      const copiaECola = data['chave-pix-copia-cola'] || data.copiaECola || '';
-      const idPix = data['id-pix'] || data.id || '';
+        const response = await fetch(webhookUrl, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Accept: 'application/json',
+          },
+          body: JSON.stringify(payload),
+        });
+
+        if (!response.ok) {
+          throw new Error(`Erro na comunicação com o servidor PagBank (HTTP ${response.status})`);
+        }
+
+        const data = await response.json();
+        qrCodeUrl = data['qr-code'] || data.qrCode || '';
+        copiaECola = data['chave-pix-copia-cola'] || data.copiaECola || '';
+        idPix = data['id-pix'] || data.id || '';
+        rawExpiration = data['expiration_date'] || data.expiration_date || data.expirationDate || data.expiresAt || '';
+      }
 
       if (!copiaECola && !qrCodeUrl) {
         throw new Error('O webhook não retornou a chave Pix esperada.');
       }
+
+      // Parse expiration timestamp and human-readable string
+      const parsedExpiration = parsePixExpiration(rawExpiration || expiresAt || undefined, 30);
+      const finalExpiresAt = expiresAt > 0 ? expiresAt : parsedExpiration.timestamp;
+      const finalFormattedExp = formattedExpStr || parsedExpiration.formatted;
+
+      setCurrentOrderId(orderId);
+      setCreatedAtTimestamp(nowMs);
+      setExpiresAtTimestamp(finalExpiresAt);
+      setExpirationDateFormatted(finalFormattedExp);
+      setIsExpired(false);
 
       setPixData({
         qrCodeUrl,
@@ -208,7 +484,10 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         idPix,
       });
 
-      // Save pending subscription record in Firestore
+      // Clear any prior pending subscription for this user from database
+      await clearPendingSubscriptionsForUser(currentUser.id);
+
+      // Save pending subscription record in Firestore with precise expiration metadata
       const newRecord: SubscriptionRecord = {
         id: orderId,
         userId: currentUser.id,
@@ -221,7 +500,9 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         amount: plan.price,
         durationDays: plan.durationDays,
         status: 'pendente',
-        createdAt: Date.now(),
+        createdAt: nowMs,
+        expiresAt: finalExpiresAt,
+        expirationDate: finalFormattedExp,
         pixQrCode: qrCodeUrl,
         pixCopiaECola: copiaECola,
         pixId: idPix,
@@ -241,7 +522,7 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
         onUpdateCurrentUser(updatedUser);
       }
 
-      onShowToast('success', 'Chave PIX gerada com sucesso! Efetue o pagamento para liberar seu acesso.', 'PIX Gerado');
+      onShowToast('success', 'Chave PIX gerada com sucesso! Efetue o pagamento antes do vencimento para liberar seu acesso.', 'PIX Gerado');
     } catch (err: any) {
       console.error('Erro ao gerar PIX:', err);
       onShowToast(
@@ -252,6 +533,42 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
       setStep(needsToFillData ? 'fill_data' : 'select_plan');
     } finally {
       setIsLoadingPix(false);
+    }
+  };
+
+  const [isResetting, setIsResetting] = useState(false);
+
+  const handleResetForTesting = async (resetTrial: boolean = true) => {
+    if (!currentUser?.id) return;
+    setIsResetting(true);
+    try {
+      const updated = await resetUserSubscriptionAndPixForTesting(currentUser.id, { resetFreeTrial: resetTrial });
+      setStep('select_plan');
+      setPixData(null);
+      setCurrentOrderId('');
+      setIsExpired(false);
+      if (updated && onUpdateCurrentUser) {
+        onUpdateCurrentUser(updated);
+      } else if (onUpdateCurrentUser) {
+        onUpdateCurrentUser({
+          ...currentUser,
+          subscription_status: 'free',
+          subscription_expires_at: undefined,
+          plan_name: undefined,
+          free_used: resetTrial ? false : true,
+        });
+      }
+      onShowToast(
+        'success',
+        resetTrial
+          ? 'Dados de cobrança e teste grátis resetados com sucesso! Você pode iniciar um novo teste do zero.'
+          : 'Dados de cobrança PIX cancelados e resetados com sucesso! Escolha um plano para gerar um novo PIX.',
+        'Reset de Teste'
+      );
+    } catch (err: any) {
+      onShowToast('error', `Falha ao resetar dados: ${err?.message || 'Erro'}`, 'Erro');
+    } finally {
+      setIsResetting(false);
     }
   };
 
@@ -290,13 +607,25 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
               </p>
             </div>
           </div>
-          <button
-            onClick={onClose}
-            className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
-            title="Fechar"
-          >
-            <X className="w-5 h-5" />
-          </button>
+          <div className="flex items-center space-x-2">
+            <button
+              type="button"
+              onClick={() => handleResetForTesting(true)}
+              disabled={isResetting}
+              className="px-2.5 py-1.5 bg-white/10 hover:bg-white/20 text-white text-[11px] font-semibold rounded-lg flex items-center space-x-1.5 transition-colors border border-white/20"
+              title="Limpar todos os dados de assinatura e PIX para testar do zero"
+            >
+              <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+              <span className="hidden sm:inline">Resetar Teste</span>
+            </button>
+            <button
+              onClick={onClose}
+              className="p-2 text-white/80 hover:text-white rounded-lg hover:bg-white/10 transition-colors"
+              title="Fechar"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          </div>
         </div>
 
         {/* Modal Body */}
@@ -415,6 +744,18 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                   </button>
                 </div>
               )}
+
+              <div className="pt-1 flex justify-center">
+                <button
+                  type="button"
+                  onClick={() => handleResetForTesting(true)}
+                  disabled={isResetting}
+                  className="text-xs text-slate-500 dark:text-slate-400 hover:text-amber-600 dark:hover:text-amber-400 flex items-center gap-1.5 transition-colors cursor-pointer py-1"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isResetting ? 'animate-spin' : ''}`} />
+                  <span>Limpar assinaturas / PIX e reiniciar teste do zero</span>
+                </button>
+              </div>
             </div>
           )}
 
@@ -549,16 +890,92 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                   </h4>
                   <p className="text-xs text-slate-500">Por favor, aguarde alguns segundos.</p>
                 </div>
-              ) : pixData ? (
-                <div className="space-y-5">
-                  <div className="p-4 bg-emerald-50 dark:bg-emerald-950/40 rounded-xl border border-emerald-200 dark:border-emerald-800">
-                    <div className="flex items-center justify-center space-x-2 text-emerald-700 dark:text-emerald-400 font-bold text-sm">
-                      <Clock className="w-4 h-4 animate-pulse" />
-                      <span>Aguardando Pagamento</span>
-                    </div>
-                    <p className="text-xs text-slate-600 dark:text-slate-300 mt-1">
-                      Plano: <strong>{selectedPlan?.name}</strong> • Valor: <strong>R$ {selectedPlan?.price.toFixed(2).replace('.', ',')}</strong>
+              ) : isExpired ? (
+                /* EXPIRED PIX STATE */
+                <div className="p-6 rounded-2xl bg-rose-50 dark:bg-rose-950/40 border border-rose-300 dark:border-rose-800 text-center space-y-4">
+                  <div className="w-14 h-14 bg-rose-100 dark:bg-rose-900/60 text-rose-600 dark:text-rose-300 rounded-full flex items-center justify-center mx-auto shadow-inner">
+                    <AlertTriangle className="w-7 h-7" />
+                  </div>
+                  <div className="space-y-1">
+                    <span className="px-2.5 py-0.5 rounded-full bg-rose-200 dark:bg-rose-900 text-rose-800 dark:text-rose-200 text-[10px] font-bold uppercase tracking-wider">
+                      PIX Expirado
+                    </span>
+                    <h4 className="text-base font-bold text-rose-900 dark:text-rose-100">
+                      O prazo deste código PIX encerrou
+                    </h4>
+                    <p className="text-xs text-rose-700 dark:text-rose-300">
+                      Este código expirou em <strong>{expirationDateFormatted}</strong>. Por segurança e integridade das contas, o registro pendente foi excluído do banco de dados.
                     </p>
+                  </div>
+
+                  <div className="pt-2 space-y-2">
+                    <button
+                      type="button"
+                      onClick={() => selectedPlan && generatePix(selectedPlan)}
+                      className="w-full py-3 px-4 bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold rounded-xl flex items-center justify-center space-x-2 shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+                    >
+                      <RotateCw className="w-4 h-4" />
+                      <span>Gerar Novo Código PIX</span>
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setStep('select_plan')}
+                      className="w-full py-2 px-3 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                    >
+                      Escolher outro plano
+                    </button>
+                  </div>
+                </div>
+              ) : pixData ? (
+                /* ACTIVE PIX WAITING PAYMENT STATE */
+                <div className="space-y-5">
+                  {/* Status & Countdown Card */}
+                  <div className="p-4 bg-emerald-50/90 dark:bg-emerald-950/40 rounded-2xl border border-emerald-200 dark:border-emerald-800 space-y-2.5">
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center space-x-2 text-emerald-700 dark:text-emerald-400 font-bold text-xs">
+                        <Clock className="w-4 h-4 animate-pulse" />
+                        <span>Aguardando Pagamento</span>
+                      </div>
+
+                      {/* Live countdown pill */}
+                      {countdown && (
+                        <div className="flex items-center space-x-1.5 px-2.5 py-1 rounded-full bg-white dark:bg-slate-900 border border-emerald-300 dark:border-emerald-700 shadow-xs">
+                          <Timer className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 animate-spin" style={{ animationDuration: '6s' }} />
+                          <span className="text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                            Expira em: <span className="font-mono text-emerald-600 dark:text-emerald-400">{countdown.formattedCountdown}</span>
+                          </span>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Expiration date timestamp */}
+                    {expirationDateFormatted && (
+                      <div className="text-[11px] text-slate-600 dark:text-slate-300 text-left flex items-center justify-between">
+                        <span>Válido até: <strong>{expirationDateFormatted}</strong></span>
+                        <span className="text-[10px] text-slate-500 font-medium">Auto-expiração ativa</span>
+                      </div>
+                    )}
+
+                    {/* Progress Bar */}
+                    {countdown && (
+                      <div className="w-full h-1.5 bg-slate-200 dark:bg-slate-800 rounded-full overflow-hidden">
+                        <div
+                          className={`h-full transition-all duration-1000 rounded-full ${
+                            countdown.percentageRemaining > 30
+                              ? 'bg-gradient-to-r from-teal-500 to-emerald-500'
+                              : countdown.percentageRemaining > 10
+                              ? 'bg-gradient-to-r from-amber-500 to-orange-500'
+                              : 'bg-rose-500 animate-pulse'
+                          }`}
+                          style={{ width: `${Math.max(2, countdown.percentageRemaining)}%` }}
+                        />
+                      </div>
+                    )}
+
+                    <div className="pt-1 border-t border-emerald-200/60 dark:border-emerald-900/60 flex items-center justify-between text-xs text-slate-700 dark:text-slate-300">
+                      <span>Plano: <strong>{selectedPlan?.name}</strong></span>
+                      <span>Valor: <strong className="text-emerald-600 dark:text-emerald-400">R$ {selectedPlan?.price.toFixed(2).replace('.', ',')}</strong></span>
+                    </div>
                   </div>
 
                   {/* QR Code Display */}
@@ -617,18 +1034,19 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
                     </span>
                   </div>
 
-                  <div className="flex items-center justify-between pt-2">
+                  {/* Ações e Controles */}
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-3 border-t border-slate-200 dark:border-slate-800">
                     <button
                       type="button"
                       onClick={() => setStep('select_plan')}
-                      className="px-4 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white"
+                      className="px-3.5 py-2 text-xs font-semibold text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-white rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
                     >
-                      Escolher outro plano
+                      ← Escolher outro plano
                     </button>
                     <button
                       type="button"
                       onClick={onClose}
-                      className="px-6 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold rounded-xl hover:opacity-90 transition-opacity"
+                      className="w-full sm:w-auto px-6 py-2.5 bg-slate-900 dark:bg-white text-white dark:text-slate-900 text-xs font-bold rounded-xl hover:opacity-90 transition-opacity"
                     >
                       Fechar e aguardar
                     </button>
@@ -642,3 +1060,4 @@ export const PaywallModal: React.FC<PaywallModalProps> = ({
     </div>
   );
 };
+

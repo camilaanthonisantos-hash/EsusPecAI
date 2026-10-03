@@ -1,0 +1,84 @@
+{
+  "evolutionApiKey": "",
+  "reminder10MinutesEnabled": true,
+  "n8nSubscriptionWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-subscription-events",
+  "groqApiKey": "",
+  "municipalityName": "Secretaria Municipal de Saúde",
+  "whatsappNotificationsEnabled": true,
+  "openrouterApiKey": "",
+  "defaultSigtapCode": "0301080445",
+  "defaultUnitName": "UBS Central / Atenção Primária",
+  "updatedBy": "jerime.rego@gmail.com",
+  "openaiApiKey": "",
+  "systemCustomInstructions": "Priorizar recomendações da Relação Municipal de Medicamentos (REMUME) e respeitar as diretrizes da Atenção Primária à Saúde (APS / RAPS / eMulti).",
+  "n8nClinicalConsultationWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-clinical-records",
+  "evolutionApiUrl": "https://evolutionapi24.mentoriajrs.com",
+  "allowUserSelfRegister": true,
+  "updatedAt": 1790647349750,
+  "geminiApiKey": "",
+  "n8nAppointmentWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-appointment-events",
+  "n8nPixWebhookUrl": "https://n8n.mentoriajrs.com/webhook/gerar_pix_pec_jrs",
+  "defaultCiapCode": "-69",
+  "dailyReminderHour": 9,
+  "defaultModel": "gemini-3.7-flash",
+  "evolutionInstanceName": "Typebot_curso_tec",
+  "reminder30MinutesEnabled": true,
+  "customModels": [],
+  "sectionsConfig": {
+    "audioTranscription": {
+      "fallbackChain": [
+        "groq:whisper-large-v3",
+        "gemini-3.7-flash",
+        "gemini-2.5-flash"
+      ],
+      "primaryModelId": "groq:whisper-large-v3-turbo",
+      "temperature": 0
+    },
+    "timelineLongitudinal": {
+      "primaryModelId": "openai:gpt-4o",
+      "temperature": 0.2,
+      "fallbackChain": [
+        "gemini-3.7-flash",
+        "openrouter:meta-llama/llama-3.3-70b-instruct",
+        "openrouter:inclusionai/ling-3.0-flash-sante:free",
+        "gemini-3.6-flash"
+      ]
+    },
+    "soapPec": {
+      "fallbackChain": [
+        "openrouter:inclusionai/ling-3.0-flash:free",
+        "gemini-3.7-flash",
+        "gemini-3.6-flash",
+        "gemini-3.1-flash-lite",
+        "openai:gpt-4o-mini"
+      ],
+      "temperature": 0.2,
+      "primaryModelId": "openrouter:inclusionai/ling-3.0-flash-sante:free"
+    },
+    "officialReports": {
+      "primaryModelId": "gemini-3.7-flash",
+      "fallbackChain": [
+        "openrouter:inclusionai/ling-3.0-flash-sante:free",
+        "openai:gpt-4o-mini",
+        "gemini-3.6-flash"
+      ],
+      "temperature": 0.2
+    },
+    "medicalCertificates": {
+      "fallbackChain": [
+        "openrouter:inclusionai/ling-3.0-flash-sante:free",
+        "gemini-3.1-flash-lite"
+      ],
+      "primaryModelId": "gemini-3.7-flash",
+      "temperature": 0.3
+    },
+    "examResults": {
+      "fallbackChain": [
+        "openrouter:inclusionai/ling-3.0-flash-sante:free",
+        "gemini-3.1-pro-preview"
+      ],
+      "temperature": 0.2,
+      "primaryModelId": "gemini-3.7-flash"
+    }
+  }
+}

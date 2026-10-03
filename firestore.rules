@@ -8,6 +8,11 @@ service cloud.firestore {
       return request.auth != null;
     }
 
+    // Health / Connection check
+    match /test/{docId} {
+      allow read, write: if true;
+    }
+
     function isMasterAdmin() {
       return isSignedIn() && request.auth.token.email == 'jerime.rego@gmail.com';
     }
@@ -52,6 +57,18 @@ service cloud.firestore {
       allow write: if true;
     }
 
+    // SUS & REMUME Medications Database
+    match /medications/{medicationId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
+    // SUS Official Exams & Laboratory Database
+    match /exams/{examId} {
+      allow read: if true;
+      allow write: if true;
+    }
+
     // Subscription Plans (Planos e Preços SaaS)
     match /subscription_plans/{planId} {
       allow read: if true;
@@ -62,6 +79,39 @@ service cloud.firestore {
     match /subscriptions/{subscriptionId} {
       allow read: if true;
       allow write: if true;
+    }
+
+    // Appointments Collection (Módulo de Agendamentos Híbrido, Unificado e Inteligente)
+    match /appointments/{appointmentId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
+    // Reception Queue (Fila de Atendimento Multiprofissional)
+    match /reception_queue/{itemId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
+    // Clinical Evolutions (Evolução Longitudinal com Auditoria IA)
+    match /clinical_evolutions/{evolutionId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
+    // Exam Media & Video QR Code Reports (Anexo Iconográfico)
+    match /exam_media/{mediaId} {
+      allow read: if true;
+      allow create, update: if true;
+      allow delete: if true;
+    }
+
+    // Video streaming chunks for public citizen mobile access across instances
+    match /exam_video_chunks/{chunkId} {
+      allow read, write: if true;
     }
   }
 }

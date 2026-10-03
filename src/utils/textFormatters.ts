@@ -1,5 +1,5 @@
-export const formatName = (text: string): string => {
-  if (!text) return text;
+export const formatName = (text?: string): string => {
+  if (!text || typeof text !== 'string') return '';
   
   const exceptions = ['de', 'da', 'do', 'das', 'dos', 'e', 'em', 'na', 'no', 'nas', 'nos'];
   
@@ -25,7 +25,7 @@ export const formatName = (text: string): string => {
     .join(' ');
 };
 
-export const formatEmail = (email: string): string => {
-  if (!email) return email;
+export const formatEmail = (email?: string): string => {
+  if (!email || typeof email !== 'string') return '';
   return email.toLowerCase().trim();
 };

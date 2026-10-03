@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   UserPlus,
@@ -11,6 +11,7 @@ import {
   AlertCircle,
   Sparkles,
   Baby,
+  ShieldAlert,
 } from 'lucide-react';
 import { Patient, KinshipType } from '../types';
 import {
@@ -27,6 +28,7 @@ interface PatientFormModalProps {
   onClose: () => void;
   onSavePatient: (patient: Patient) => void;
   patientToEdit?: Patient | null;
+  patients?: Patient[];
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
 }
 
@@ -46,6 +48,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
   onClose,
   onSavePatient,
   patientToEdit,
+  patients = [],
   onShowToast,
 }) => {
   const [fullName, setFullName] = useState('');
@@ -107,6 +110,27 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
   const isCnsValid = validateCNS(cns);
   const isCpfValid = validateCPF(cpf);
 
+  // Uniqueness validation (CNS and CPF cannot be duplicated across patients)
+  const duplicateCnsPatient = useMemo(() => {
+    const rawDigits = cns.replace(/\D/g, '');
+    if (!rawDigits) return null;
+    return (patients || []).find((p) => {
+      if (patientToEdit?.id && p.id === patientToEdit.id) return false;
+      const pCns = (p.cns || '').replace(/\D/g, '');
+      return pCns && pCns === rawDigits;
+    });
+  }, [cns, patients, patientToEdit]);
+
+  const duplicateCpfPatient = useMemo(() => {
+    const rawDigits = cpf.replace(/\D/g, '');
+    if (!rawDigits) return null;
+    return (patients || []).find((p) => {
+      if (patientToEdit?.id && p.id === patientToEdit.id) return false;
+      const pCpf = (p.cpf || '').replace(/\D/g, '');
+      return pCpf && pCpf === rawDigits;
+    });
+  }, [cpf, patients, patientToEdit]);
+
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -122,6 +146,25 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
 
     if (cns.trim() && !isCnsValid && cns.replace(/\D/g, '').length !== 15) {
       onShowToast('error', 'O Cartão Nacional de Saúde (CNS) deve ter 15 dígitos.', 'CNS Incompleto');
+      return;
+    }
+
+    // Uniqueness blocking checks
+    if (duplicateCnsPatient) {
+      onShowToast(
+        'error',
+        `O Cartão SUS (CNS) ${cns} já está cadastrado para o paciente "${duplicateCnsPatient.fullName}". O Cartão SUS deve ser único para cada paciente.`,
+        'Cartão SUS Duplicado'
+      );
+      return;
+    }
+
+    if (duplicateCpfPatient) {
+      onShowToast(
+        'error',
+        `O CPF ${cpf} já está cadastrado para o paciente "${duplicateCpfPatient.fullName}". O CPF deve ser único para cada paciente.`,
+        'CPF Duplicado'
+      );
       return;
     }
 
@@ -198,7 +241,104 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
 
             {/* Form */}
             <form onSubmit={handleSubmit} className="space-y-4">
-              {/* Nome Completo */}
+              {/* Documentos Identificadores Únicos no Topo: CPF e Cartão SUS (CNS) */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {/* CPF */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      CPF
+                    </label>
+                    {duplicateCpfPatient ? (
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Já cadastrado
+                      </span>
+                    ) : cpf ? (
+                      <span
+                        className={`text-[10px] font-semibold ${
+                          isCpfValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
+                        }`}
+                      >
+                        {isCpfValid ? '✓ CPF Válido' : '000.000.000-00'}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <CreditCard className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 ${duplicateCpfPatient ? 'text-rose-500' : 'text-slate-400'}`} />
+                    <input
+                      type="text"
+                      id="patient-cpf-input"
+                      value={cpf}
+                      onChange={handleCpfChange}
+                      onBlur={() => setCpfTouched(true)}
+                      placeholder="000.000.000-00"
+                      className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-xs sm:text-sm font-mono text-slate-900 dark:text-slate-100 outline-none transition-colors ${
+                        duplicateCpfPatient
+                          ? 'bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500 text-rose-900 dark:text-rose-100 focus:ring-2 focus:ring-rose-500'
+                          : 'bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-teal-500'
+                      }`}
+                    />
+                  </div>
+                  {duplicateCpfPatient && (
+                    <div className="mt-1.5 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60 text-[11px] text-rose-700 dark:text-rose-300 flex items-start gap-1.5 animate-in fade-in duration-150">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                      <span>
+                        <strong>CPF duplicado:</strong> Este CPF já pertence a <strong>{duplicateCpfPatient.fullName}</strong>. O CPF deve ser único para cada paciente.
+                      </span>
+                    </div>
+                  )}
+                </div>
+
+                {/* Cartão SUS (CNS) */}
+                <div>
+                  <div className="flex items-center justify-between mb-1">
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
+                      Cartão SUS (CNS)
+                    </label>
+                    {duplicateCnsPatient ? (
+                      <span className="text-[10px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1">
+                        <AlertCircle className="w-3 h-3" /> Já cadastrado
+                      </span>
+                    ) : cns ? (
+                      <span
+                        className={`text-[10px] font-semibold ${
+                          isCnsValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'
+                        }`}
+                      >
+                        {isCnsValid ? '✓ Válido' : `${cns.replace(/\D/g, '').length}/15 dígitos`}
+                      </span>
+                    ) : null}
+                  </div>
+                  <div className="relative">
+                    <CreditCard className={`w-4 h-4 absolute left-3.5 top-1/2 -translate-y-1/2 ${duplicateCnsPatient ? 'text-rose-500' : 'text-slate-400'}`} />
+                    <input
+                      type="text"
+                      id="patient-cns-input"
+                      value={cns}
+                      onChange={handleCnsChange}
+                      onBlur={() => setCnsTouched(true)}
+                      placeholder="000 0000 0000 0000"
+                      className={`w-full pl-10 pr-4 py-2.5 rounded-xl text-xs sm:text-sm font-mono text-slate-900 dark:text-slate-100 outline-none transition-colors ${
+                        duplicateCnsPatient
+                          ? 'bg-rose-50 dark:bg-rose-950/40 border-2 border-rose-500 text-rose-900 dark:text-rose-100 focus:ring-2 focus:ring-rose-500'
+                          : cnsTouched && cns && !isCnsValid
+                          ? 'bg-slate-50 dark:bg-slate-950 border border-amber-400 dark:border-amber-600 focus:ring-2 focus:ring-teal-500'
+                          : 'bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 focus:ring-2 focus:ring-teal-500'
+                      }`}
+                    />
+                  </div>
+                  {duplicateCnsPatient && (
+                    <div className="mt-1.5 p-2 rounded-xl bg-rose-50 dark:bg-rose-950/60 border border-rose-200 dark:border-rose-800/60 text-[11px] text-rose-700 dark:text-rose-300 flex items-start gap-1.5 animate-in fade-in duration-150">
+                      <AlertCircle className="w-3.5 h-3.5 text-rose-600 shrink-0 mt-0.5" />
+                      <span>
+                        <strong>Cartão SUS duplicado:</strong> Este CNS já pertence a <strong>{duplicateCnsPatient.fullName}</strong>. O Cartão SUS deve ser único para cada paciente.
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Logo abaixo: Nome Completo do Paciente * */}
               <div>
                 <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
                   Nome Completo do Paciente <span className="text-rose-500">*</span>
@@ -214,70 +354,6 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                     onBlur={(e) => setFullName(formatName(e.target.value))}
                     placeholder="Ex: Lucas Henrique de Oliveira"
                     className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
-                  />
-                </div>
-              </div>
-
-              {/* CNS e CPF */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                {/* CNS */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      Cartão SUS (CNS - 15 dígitos)
-                    </label>
-                    {cns && (
-                      <span
-                        className={`text-[10px] font-semibold ${
-                          isCnsValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-amber-500'
-                        }`}
-                      >
-                        {isCnsValid ? '✓ Válido' : `${cns.replace(/\D/g, '').length}/15 dígitos`}
-                      </span>
-                    )}
-                  </div>
-                  <div className="relative">
-                    <CreditCard className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2" />
-                    <input
-                      type="text"
-                      id="patient-cns-input"
-                      value={cns}
-                      onChange={handleCnsChange}
-                      onBlur={() => setCnsTouched(true)}
-                      placeholder="000 0000 0000 0000"
-                      className={`w-full pl-10 pr-4 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border text-xs sm:text-sm font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none ${
-                        cnsTouched && cns && !isCnsValid
-                          ? 'border-amber-400 dark:border-amber-600'
-                          : 'border-slate-300 dark:border-slate-700'
-                      }`}
-                    />
-                  </div>
-                </div>
-
-                {/* CPF */}
-                <div>
-                  <div className="flex items-center justify-between mb-1">
-                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300">
-                      CPF
-                    </label>
-                    {cpf && (
-                      <span
-                        className={`text-[10px] font-semibold ${
-                          isCpfValid ? 'text-emerald-600 dark:text-emerald-400' : 'text-slate-400'
-                        }`}
-                      >
-                        {isCpfValid ? '✓ CPF Válido' : 'Formato 000.000.000-00'}
-                      </span>
-                    )}
-                  </div>
-                  <input
-                    type="text"
-                    id="patient-cpf-input"
-                    value={cpf}
-                    onChange={handleCpfChange}
-                    onBlur={() => setCpfTouched(true)}
-                    placeholder="000.000.000-00"
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
                   />
                 </div>
               </div>
@@ -453,22 +529,45 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
               </div>
 
               {/* Actions */}
-              <div className="flex items-center justify-end gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  id="save-patient-submit-btn"
-                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white text-xs font-bold shadow-md shadow-teal-600/20 transition-all cursor-pointer flex items-center gap-2"
-                >
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>{patientToEdit ? 'Atualizar Cadastro' : 'Salvar Paciente'}</span>
-                </button>
+              <div className="flex flex-col sm:flex-row items-center justify-between gap-3 pt-4 border-t border-slate-200 dark:border-slate-800">
+                {(duplicateCnsPatient || duplicateCpfPatient) ? (
+                  <div className="text-[11px] font-bold text-rose-600 dark:text-rose-400 flex items-center gap-1.5">
+                    <ShieldAlert className="w-4 h-4 shrink-0" />
+                    <span>Corrija o {duplicateCnsPatient ? 'Cartão SUS' : 'CPF'} duplicado antes de salvar.</span>
+                  </div>
+                ) : (
+                  <div className="text-[11px] text-slate-400 hidden sm:block">
+                    * CNS e CPF são documentos únicos e protegidos contra duplicidades.
+                  </div>
+                )}
+
+                <div className="flex items-center gap-3 w-full sm:w-auto justify-end">
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    className="px-4 py-2.5 rounded-xl text-xs font-semibold text-slate-600 dark:text-slate-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                  >
+                    Cancelar
+                  </button>
+                  <button
+                    type="submit"
+                    id="save-patient-submit-btn"
+                    disabled={Boolean(duplicateCnsPatient || duplicateCpfPatient)}
+                    className={`px-6 py-2.5 rounded-xl text-white text-xs font-bold shadow-md transition-all flex items-center gap-2 ${
+                      duplicateCnsPatient || duplicateCpfPatient
+                        ? 'bg-slate-400 dark:bg-slate-700 cursor-not-allowed opacity-60'
+                        : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-teal-600/20 cursor-pointer'
+                    }`}
+                    title={
+                      duplicateCnsPatient || duplicateCpfPatient
+                        ? 'Não é permitido cadastrar CNS ou CPF já existentes'
+                        : 'Salvar dados do cidadão no banco de dados e abrir acolhimento na Fila de Atendimento'
+                    }
+                  >
+                    <CheckCircle2 className="w-4 h-4" />
+                    <span>Salvar/Add Fila</span>
+                  </button>
+                </div>
               </div>
             </form>
           </motion.div>

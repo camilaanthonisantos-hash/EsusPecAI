@@ -21,7 +21,8 @@ import {
 import { AudioRecorderButton } from './AudioRecorderButton';
 import { AttachmentItem, ProfessionConfig } from '../types';
 import { QUICK_CLINICAL_TEMPLATES } from '../data/professions';
-import { fileToBase64 } from '../services/gemini';
+import { fileToBase64, GenerationStatusUpdate } from '../services/gemini';
+import { getFriendlyModelName } from '../utils/aiModelHelper';
 import { SpecularButton } from './SpecularButton';
 
 interface MultimodalInputProps {
@@ -36,6 +37,8 @@ interface MultimodalInputProps {
   attachments: AttachmentItem[];
   setAttachments: React.Dispatch<React.SetStateAction<AttachmentItem[]>>;
   isGenerating: boolean;
+  generationStatus?: GenerationStatusUpdate | null;
+  selectedModel?: string;
   onGenerate: () => void;
   onShowToast: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
   activeKnowledgeCount: number;
@@ -57,6 +60,8 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
   attachments,
   setAttachments,
   isGenerating,
+  generationStatus,
+  selectedModel = 'gemini-3.7-flash',
   onGenerate,
   onShowToast,
   activeKnowledgeCount,
@@ -477,7 +482,7 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
       {/* Groq Whisper Large v3 Audio Recorder */}
       <AudioRecorderButton
         onTranscriptionComplete={(text) => {
-          setRawNotes((prev) => (prev ? `${prev.trim()}\n\n${text}` : text));
+          setRawNotes(rawNotes ? `${rawNotes.trim()}\n\n${text}` : text);
           onShowToast('success', 'Áudio transcrito com sucesso via Groq Whisper!', 'Transcrição Concluída');
         }}
         groqApiKey={groqApiKey}
@@ -492,17 +497,57 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
           id="generate-pec-record-btn"
           disabled={!hasAnyInput || isGenerating}
           onClick={onGenerate}
-          className="w-full py-4 px-6 rounded-2xl bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-bold text-base shadow-lg shadow-teal-600/25 flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none cursor-pointer"
+          className={`w-full py-3.5 sm:py-4 px-6 rounded-2xl text-white font-bold text-base shadow-lg flex items-center justify-center gap-3 transition-all transform active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed disabled:transform-none cursor-pointer ${
+            isGenerating && generationStatus?.isTransitioning
+              ? 'bg-gradient-to-r from-amber-600 via-orange-600 to-teal-600 shadow-amber-600/30 ring-2 ring-amber-400/40 animate-pulse'
+              : 'bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 shadow-teal-600/25'
+          }`}
         >
           {isGenerating ? (
-            <>
-              <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Gerando Prontuário PEC para {profession.name}...</span>
-            </>
+            <AnimatePresence mode="wait">
+              {generationStatus?.isTransitioning ? (
+                <motion.div
+                  key={`transition-${generationStatus.previousModel}-${generationStatus.model}`}
+                  initial={{ opacity: 0, scale: 0.92, y: 4 }}
+                  animate={{ opacity: 1, scale: 1, y: 0 }}
+                  exit={{ opacity: 0, scale: 0.92, y: -4 }}
+                  transition={{ duration: 0.25 }}
+                  className="flex flex-wrap items-center justify-center gap-2 text-center"
+                >
+                  <Loader2 className="w-5 h-5 animate-spin text-amber-200 shrink-0" />
+                  <span className="text-sm font-semibold text-amber-100">Alternando Modelo:</span>
+                  <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/30 backdrop-blur-xs border border-amber-300/40 text-xs font-bold text-white shadow-xs">
+                    <span className="line-through text-amber-200/70">
+                      {generationStatus.previousModelName || getFriendlyModelName(generationStatus.previousModel)}
+                    </span>
+                    <span className="text-amber-300 animate-pulse">➔</span>
+                    <span className="text-emerald-300">
+                      {generationStatus.modelName || getFriendlyModelName(generationStatus.model)}
+                    </span>
+                  </div>
+                </motion.div>
+              ) : (
+                <motion.div
+                  key={`generating-${generationStatus?.model || selectedModel}`}
+                  initial={{ opacity: 0, scale: 0.94 }}
+                  animate={{ opacity: 1, scale: 1 }}
+                  exit={{ opacity: 0, scale: 0.94 }}
+                  transition={{ duration: 0.2 }}
+                  className="flex flex-wrap items-center justify-center gap-2.5 text-center"
+                >
+                  <Loader2 className="w-5 h-5 animate-spin text-teal-200 shrink-0" />
+                  <span className="text-sm sm:text-base font-bold text-white">Gerando Prontuário com</span>
+                  <span className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-black/25 backdrop-blur-xs border border-white/20 text-xs font-semibold text-emerald-100 shadow-xs">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse shrink-0" />
+                    <span>{generationStatus?.modelName || getFriendlyModelName(selectedModel)}</span>
+                  </span>
+                </motion.div>
+              )}
+            </AnimatePresence>
           ) : (
             <>
-              <Sparkles className="w-5 h-5 fill-white/20" />
-              <span>Gerar Prontuário PEC ✨</span>
+              <Sparkles className="w-5 h-5 fill-white/20 shrink-0" />
+              <span>Gerar Prontuário</span>
             </>
           )}
         </button>

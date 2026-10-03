@@ -39,19 +39,20 @@ export const HistoryDrawer: React.FC<HistoryDrawerProps> = ({
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
   const filteredHistory = history.filter((item) => {
-    const profName = PROFESSIONS[item.professionId]?.name.toLowerCase() || '';
-    const term = searchTerm.toLowerCase();
+    const profName = PROFESSIONS[item.professionId]?.name?.toLowerCase() || '';
+    const term = (searchTerm || '').toLowerCase();
     return (
       profName.includes(term) ||
-      item.avaliacao.toLowerCase().includes(term) ||
-      item.plano.toLowerCase().includes(term) ||
-      item.rawInputSummary.toLowerCase().includes(term)
+      (item.avaliacao || '').toLowerCase().includes(term) ||
+      (item.plano || '').toLowerCase().includes(term) ||
+      (item.rawInputSummary || '').toLowerCase().includes(term)
     );
   });
 
   const handleCopyFromHistory = async (record: GeneratedPECRecord, e: React.MouseEvent) => {
     e.stopPropagation();
-    let text = `[REGISTRO PEC - ${PROFESSIONS[record.professionId]?.name.toUpperCase()}]\n\n--- AVALIAÇÃO ---\n${record.avaliacao}\n\n--- PLANO ---\n${record.plano}`;
+    const profName = PROFESSIONS[record.professionId]?.name || record.professionId || 'Profissional';
+    let text = `[REGISTRO PEC - ${profName.toUpperCase()}]\n\n--- AVALIAÇÃO ---\n${record.avaliacao}\n\n--- PLANO ---\n${record.plano}`;
     if (record.conduta) {
       text += `\n\n--- CONDUTA ---\n${record.conduta}`;
     }

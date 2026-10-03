@@ -1,12 +1,13 @@
 {
   "projectId": "vocal-shuttle-g8chg",
-  "appId": "1:381233103462:web:e6d5667cc96275077aa3a7",
-  "apiKey": "AIzaSyCPquJ6Zg0Ykp3YU4QQYkygbHPRT-qOaoQ",
-  "authDomain": "vocal-shuttle-g8chg.firebaseapp.com",
+  "appId": "1:789963213213:web:15e19baa5c5a948033c774",
+  "apiKey": "AIzaSyAAK95RDJQ2uKBiyez307l9PkcLHxN9yA4",
+  "authDomain": "gen-lang-client-0161337139.firebaseapp.com",
+  "firestoreProjectId": "vocal-shuttle-g8chg",
   "firestoreDatabaseId": "ai-studio-pronturiopecmult-d6f44424-1f51-4bde-8c47-37efc3bc8944",
   "storageBucket": "vocal-shuttle-g8chg.firebasestorage.app",
-  "messagingSenderId": "381233103462",
+  "messagingSenderId": "789963213213",
   "measurementId": "",
-  "oAuthClientId": "381233103462-m3qvt89f6g51h60cioa05o0ag1icgl0f.apps.googleusercontent.com",
+  "oAuthClientId": "789963213213-n98mjsg4j26a5omub57g2r1c5o6fq961.apps.googleusercontent.com",
   "recaptchaSiteKey": ""
 }

@@ -15,6 +15,7 @@ import {
   Baby,
   User,
   Trash2,
+  UserCheck,
 } from 'lucide-react';
 import { Patient, Consultation, User as UserModel } from '../types';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
@@ -31,6 +32,7 @@ interface PatientsListViewProps {
   onEditPatient: (patient: Patient) => void;
   onDeletePatient?: (patient: Patient) => void;
   onNewConsultationForPatient: (patient: Patient) => void;
+  onAddToQueue?: (patient: Patient) => void;
 }
 
 export const PatientsListView: React.FC<PatientsListViewProps> = ({
@@ -42,18 +44,19 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
   onEditPatient,
   onDeletePatient,
   onNewConsultationForPatient,
+  onAddToQueue,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
   const isAdmin = isUserAdmin(currentUser);
 
   const filteredPatients = patients.filter((p) => {
-    const term = searchTerm.toLowerCase();
+    const term = (searchTerm || '').toLowerCase();
     return (
-      p.fullName.toLowerCase().includes(term) ||
+      (p.fullName || '').toLowerCase().includes(term) ||
       (p.cns && p.cns.includes(term)) ||
       (p.cpf && p.cpf.includes(term)) ||
-      (p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term))
+      Boolean(p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term))
     );
   });
 
@@ -262,14 +265,21 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
 
                     <SpecularButton
                       type="button"
-                      onClick={() => onNewConsultationForPatient(patient)}
+                      id={`patient-btn-add-fila-${patient.id}`}
+                      onClick={() => {
+                        if (onAddToQueue) {
+                          onAddToQueue(patient);
+                        } else {
+                          onNewConsultationForPatient(patient);
+                        }
+                      }}
                       size="sm"
                       radius={12}
-                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs border-emerald-500/40"
-                      title="Novo Atendimento para este Paciente"
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs border-emerald-500/40 font-bold"
+                      title="Adicionar Paciente à Fila de Atendimento"
                     >
-                      <PlusCircle className="w-3.5 h-3.5" />
-                      <span>Atender</span>
+                      <UserCheck className="w-3.5 h-3.5" />
+                      <span>Add Fila</span>
                     </SpecularButton>
 
                     <SpecularButton

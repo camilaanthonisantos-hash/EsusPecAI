@@ -173,34 +173,88 @@ export function useWhisperTranscription({
       const key = resolveGroqKey();
       console.log(`[useWhisperTranscription] Groq key present: ${!!key}, length: ${key.length}`);
 
-      // Build multipart/form-data with the raw audio blob
-      const formData = new FormData();
-      const ext = mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm';
-      formData.append('audio', blob, `recording.${ext}`);
-      if (key) formData.append('groqApiKey', key);
-
       try {
         setIsProcessing(true);
 
-        const response = await fetch('/api/audio/transcribe', {
-          method: 'POST',
-          body: formData, // NO Content-Type header — browser sets multipart boundary
+        // Build multipart/form-data with the raw audio blob
+        const formData = new FormData();
+        const ext = mime.includes('mp4') ? 'mp4' : mime.includes('ogg') ? 'ogg' : 'webm';
+        formData.append('audio', blob, `recording.${ext}`);
+        if (key) formData.append('groqApiKey', key);
+
+        let data: any = null;
+        let responseOk = false;
+
+        try {
+          const response = await fetch('/api/audio/transcribe', {
+            method: 'POST',
+            body: formData, // NO Content-Type header — browser sets multipart boundary
+            headers: key ? { 'x-groq-api-key': key } : undefined,
+          });
+
+          responseOk = response.ok;
+          const rawText = await response.text();
+          try {
+            data = JSON.parse(rawText);
+          } catch {
+            console.warn('[useWhisperTranscription] Non-JSON response from server on multipart:', rawText.slice(0, 100));
+          }
+        } catch (fetchErr) {
+          console.warn('[useWhisperTranscription] Multipart fetch error:', fetchErr);
+        }
+
+        // If multipart upload succeeded with valid text, use it
+        if (data && data.success && data.text) {
+          const text = String(data.text || '').trim();
+          if (text && text !== '.') {
+            onTranscriptionComplete?.(text);
+            return;
+          }
+        }
+
+        // ── Fallback: Base64 JSON Payload if multipart was unparseable or rejected ──
+        console.log('[useWhisperTranscription] Executando envio resiliente via Base64 JSON...');
+        const base64Audio = await new Promise<string>((resolve, reject) => {
+          const reader = new FileReader();
+          reader.onloadend = () => {
+            const res = reader.result as string;
+            const b64 = res.includes(',') ? res.split(',')[1] : res;
+            resolve(b64);
+          };
+          reader.onerror = reject;
+          reader.readAsDataURL(blob);
         });
 
-        let data: any;
+        const jsonResponse = await fetch('/api/audio/transcribe', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...(key ? { 'x-groq-api-key': key } : {}),
+          },
+          body: JSON.stringify({
+            audioData: {
+              data: base64Audio,
+              mimeType: mime,
+            },
+            groqApiKey: key || undefined,
+          }),
+        });
+
+        const jsonRaw = await jsonResponse.text();
+        let jsonData: any = null;
         try {
-          data = await response.json();
+          jsonData = JSON.parse(jsonRaw);
         } catch {
-          throw new Error(`Servidor retornou resposta inválida (${response.status}).`);
+          throw new Error(`Falha na resposta do servidor (${jsonResponse.status}).`);
         }
 
-        if (!response.ok || !data?.success) {
-          throw new Error(data?.error || 'Erro ao processar transcrição.');
+        if (!jsonResponse.ok || !jsonData?.success) {
+          throw new Error(jsonData?.error || 'Erro ao processar transcrição de voz.');
         }
 
-        const text = (data.text || '').trim();
-        if (text && text !== '.') {
-          onTranscriptionComplete?.(text);
+        const finalText = String(jsonData.text || '').trim();
+        if (finalText && finalText !== '.') {
+          onTranscriptionComplete?.(finalText);
         } else {
           setErrorMessage('Nenhuma fala audível foi detectada no áudio.');
           onError?.('Nenhuma fala audível foi detectada no áudio.');

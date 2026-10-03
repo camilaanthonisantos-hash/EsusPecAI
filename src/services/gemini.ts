@@ -1,4 +1,15 @@
-import { ProfessionId, AIModelId, GeneratedPECRecord, AttachmentItem, PatientHistorySummary } from '../types';
+import { ProfessionId, AIModelId, GeneratedPECRecord, AttachmentItem, PatientHistorySummary, SectionAIOrchestrationConfig } from '../types';
+import { getFriendlyModelName } from '../utils/aiModelHelper';
+
+export interface GenerationStatusUpdate {
+  model: string;
+  modelName: string;
+  previousModel?: string;
+  previousModelName?: string;
+  isTransitioning?: boolean;
+  reason?: string;
+  message?: string;
+}
 
 export interface GenerateParams {
   professionId: ProfessionId;
@@ -13,6 +24,8 @@ export interface GenerateParams {
   userApiKey?: string;
   openaiApiKey?: string;
   openrouterApiKey?: string;
+  sectionConfig?: SectionAIOrchestrationConfig;
+  onStatusUpdate?: (status: GenerationStatusUpdate) => void;
 }
 
 export interface GenerationResponse {
@@ -30,6 +43,17 @@ export interface GenerationResponse {
 }
 
 export async function generatePECRecord(params: GenerateParams): Promise<GeneratedPECRecord> {
+  const initialModel = params.sectionConfig?.primaryModelId || params.modelName;
+  const initialFriendlyName = getFriendlyModelName(initialModel);
+  if (params.onStatusUpdate) {
+    params.onStatusUpdate({
+      model: initialModel,
+      modelName: initialFriendlyName,
+      message: `Processando com ${initialFriendlyName}...`,
+      isTransitioning: false,
+    });
+  }
+
   const payload = {
     profession: params.professionName,
     modelName: params.modelName,
@@ -51,12 +75,15 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
     userApiKey: params.userApiKey || undefined,
     openaiApiKey: params.openaiApiKey || undefined,
     openrouterApiKey: params.openrouterApiKey || undefined,
+    sectionConfig: params.sectionConfig || undefined,
+    stream: true,
   };
 
   const response = await fetch('/api/gemini/generate', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
+      'Accept': 'text/event-stream, application/json',
     },
     body: JSON.stringify(payload),
   });
@@ -85,15 +112,81 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
     throw new Error(errorMsg);
   }
 
-  if (!contentType.includes('application/json')) {
-    const rawText = await response.text();
-    if (rawText.includes('<!doctype') || rawText.includes('<html')) {
-      throw new Error('O servidor retornou uma página inesperada. Por favor, reinicie a solicitação.');
+  let data: GenerationResponse | null = null;
+
+  // Handle SSE streaming response
+  if (contentType.includes('text/event-stream') && response.body) {
+    const reader = response.body.getReader();
+    const decoder = new TextDecoder('utf-8');
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+
+      buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (trimmed.startsWith('data: ')) {
+          try {
+            const event = JSON.parse(trimmed.slice(6));
+            if (event.type === 'status' && params.onStatusUpdate) {
+              params.onStatusUpdate({
+                model: event.model,
+                modelName: event.modelName || getFriendlyModelName(event.model),
+                message: event.message,
+                isTransitioning: false,
+              });
+            } else if (event.type === 'transition' && params.onStatusUpdate) {
+              params.onStatusUpdate({
+                model: event.toModel,
+                modelName: event.toModelName || getFriendlyModelName(event.toModel),
+                previousModel: event.fromModel,
+                previousModelName: event.fromModelName || getFriendlyModelName(event.fromModel),
+                isTransitioning: true,
+                reason: event.reason,
+                message: event.message || `Alternando para ${event.toModelName || event.toModel}...`,
+              });
+            } else if (event.type === 'complete' && event.data) {
+              data = event.data as GenerationResponse;
+            } else if (event.type === 'error') {
+              throw new Error(event.error || 'Erro ao processar requisição com a IA.');
+            }
+          } catch (err: any) {
+            if (err.message && !err.message.includes('Unexpected token')) {
+              throw err;
+            }
+          }
+        }
+      }
     }
-    throw new Error(`Resposta do servidor em formato inválido: ${rawText.slice(0, 100)}`);
+
+    // Process leftover buffer
+    if (buffer.trim().startsWith('data: ')) {
+      try {
+        const event = JSON.parse(buffer.trim().slice(6));
+        if (event.type === 'complete' && event.data) {
+          data = event.data as GenerationResponse;
+        } else if (event.type === 'error') {
+          throw new Error(event.error || 'Erro ao processar requisição com a IA.');
+        }
+      } catch (err: any) {
+        if (err.message && !err.message.includes('Unexpected token')) {
+          throw err;
+        }
+      }
+    }
+  } else {
+    // Non-streaming fallback
+    data = (await response.json()) as GenerationResponse;
   }
 
-  const data: GenerationResponse = await response.json();
+  if (!data || !data.success) {
+    throw new Error('Não foi possível obter os dados do prontuário gerado.');
+  }
 
   // Perform qualitative and compliance checks
   const fullContent = `${data.avaliacao}\n${data.plano}\n${data.conduta || ''}`;
