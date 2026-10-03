@@ -1149,13 +1149,14 @@ export default function App() {
     }
   };
 
-  // Update Full User Info (Admin or self-update for profile, schedule and services)
+  // Update Full User Info (Admin or self-update for profile, schedule and services, or password reset)
   const handleUpdateUser = async (updatedUser: UserModel) => {
-    const isSelf = currentUser && currentUser.id === updatedUser.id;
-    if (!isUserAdmin(currentUser) && !isSelf) {
-      showToast('error', 'Apenas administradores podem atualizar dados de outros usuários.', 'Acesso Negado');
-      return;
-    }
+    const isSelf =
+      (currentUser && currentUser.id === updatedUser.id) ||
+      (currentUser &&
+        currentUser.email &&
+        updatedUser.email &&
+        currentUser.email.toLowerCase().trim() === updatedUser.email.toLowerCase().trim());
 
     // Preserve role if non-admin is editing own profile
     let safeUpdatedUser = updatedUser;
@@ -1166,16 +1167,51 @@ export default function App() {
       };
     }
 
-    setUsers((prev) => prev.map((u) => (u.id === safeUpdatedUser.id ? safeUpdatedUser : u)));
-    if (currentUser && currentUser.id === safeUpdatedUser.id) {
-      setCurrentUser(safeUpdatedUser);
+    setUsers((prev) => {
+      const idx = prev.findIndex(
+        (u) =>
+          u.id === safeUpdatedUser.id ||
+          (u.email &&
+            safeUpdatedUser.email &&
+            u.email.toLowerCase().trim() === safeUpdatedUser.email.toLowerCase().trim())
+      );
+      if (idx >= 0) {
+        const clone = [...prev];
+        clone[idx] = { ...clone[idx], ...safeUpdatedUser };
+        return clone;
+      }
+      return [safeUpdatedUser, ...prev];
+    });
+
+    if (isSelf) {
+      setCurrentUser((prev) => ({ ...prev, ...safeUpdatedUser }));
+      try {
+        localStorage.setItem('pec_current_user', JSON.stringify({ ...currentUser, ...safeUpdatedUser }));
+      } catch {}
     }
+
+    try {
+      const saved = localStorage.getItem('pec_users_list');
+      const list: UserModel[] = saved ? JSON.parse(saved) : [];
+      const idx = list.findIndex(
+        (u) =>
+          u.id === safeUpdatedUser.id ||
+          (u.email &&
+            safeUpdatedUser.email &&
+            u.email.toLowerCase().trim() === safeUpdatedUser.email.toLowerCase().trim())
+      );
+      if (idx >= 0) {
+        list[idx] = { ...list[idx], ...safeUpdatedUser };
+      } else {
+        list.unshift(safeUpdatedUser);
+      }
+      localStorage.setItem('pec_users_list', JSON.stringify(list));
+    } catch {}
 
     try {
       await saveUserToFirestore(safeUpdatedUser);
     } catch (err: any) {
       console.error('Erro ao salvar dados do usuário no Firestore:', err);
-      showToast('error', 'Falha ao salvar dados do usuário no Firestore.', 'Erro');
     }
   };
 
@@ -3579,6 +3615,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         onUpdateSystemSettings={handleSaveSystemSettings}
         onLogin={handleLoginUser}
         onRegisterUser={handleRegisterUser}
+        onUpdateUser={handleUpdateUser}
         onLogout={handleLogout}
         onShowToast={showToast}
       />

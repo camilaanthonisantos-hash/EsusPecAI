@@ -2033,6 +2033,21 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                 </select>
                               </div>
 
+                              <div>
+                                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                                  Senha de Acesso
+                                </label>
+                                <input
+                                  type="text"
+                                  value={editingUser.password || ''}
+                                  onChange={(e) =>
+                                    setEditingUser({ ...editingUser, password: e.target.value })
+                                  }
+                                  placeholder="Digite a nova senha"
+                                  className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100"
+                                />
+                              </div>
+
                               <div className="sm:col-span-2 md:col-span-3">
                                 <WorkplaceSelectInput
                                   value={editingUser.workplace || 'CAPS (Centro de Atenção Psicossocial)'}
