@@ -16,7 +16,7 @@ services:
 
     labels:
       - "traefik.enable=true"
-      - "traefik.docker.network=n8n-default-network"
+      - "traefik.docker.network=peccaps-network"
       - "traefik.http.routers.esus-pec.rule=Host(`peccapsai.mentoriajrs.com`)"
       - "traefik.http.routers.esus-pec.entrypoints=web,websecure"
       - "traefik.http.routers.esus-pec.tls=true"
@@ -47,12 +47,12 @@ services:
       - esus_pec_data:/app/data-store
 
     networks:
-      - n8n-default-network
+      - peccaps-network
 
 volumes:
   esus_pec_data:
     name: esus_pec_data
 
 networks:
-  n8n-default-network:
-    external: true
+  peccaps-network:
+    name: peccaps-network
