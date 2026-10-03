@@ -28,7 +28,6 @@ var import_dns = __toESM(require("dns"), 1);
 var import_dotenv = __toESM(require("dotenv"), 1);
 var import_genai = require("@google/genai");
 var import_openai = __toESM(require("openai"), 1);
-var import_vite = require("vite");
 var import_multer = __toESM(require("multer"), 1);
 var import_fs = __toESM(require("fs"), 1);
 var import_app = require("firebase/app");
@@ -4067,7 +4066,8 @@ app.get(
 async function startServer() {
   const isProduction = process.env.NODE_ENV === "production" || typeof __filename !== "undefined" && __filename.includes("dist") || typeof __dirname !== "undefined" && __dirname.includes("dist");
   if (!isProduction) {
-    const vite = await (0, import_vite.createServer)({
+    const { createServer: createViteServer } = await import("vite");
+    const vite = await createViteServer({
       server: {
         middlewareMode: true,
         watch: {

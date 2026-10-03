@@ -4,7 +4,6 @@ import dns from "dns";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
-import { createServer as createViteServer } from "vite";
 import multer from "multer";
 
 dotenv.config();
@@ -4544,6 +4543,7 @@ async function startServer() {
     (typeof __dirname !== "undefined" && __dirname.includes("dist"));
 
   if (!isProduction) {
+    const { createServer: createViteServer } = await import("vite");
     const vite = await createViteServer({
       server: {
         middlewareMode: true,
