@@ -8,3 +8,6 @@ coverage/
 !.env.example
 cookies*.txt
 .dev.*
+*.local.*
+data-store/*.local.*
+data-store/videos/

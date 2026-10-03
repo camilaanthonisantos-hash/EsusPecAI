@@ -3603,7 +3603,9 @@ app.get("/api/db/:collection", async (req, res) => {
       if (snap.exists()) {
         const firestoreData = snap.data();
         const mergedSettings = { ...localData, ...firestoreData };
-        writeStoreData("settings", mergedSettings);
+        if (JSON.stringify(localData) !== JSON.stringify(mergedSettings)) {
+          writeStoreData("settings", mergedSettings);
+        }
         return res.json({ success: true, collection, data: mergedSettings });
       }
     } catch (err: any) {
@@ -3681,7 +3683,10 @@ app.get("/api/db/:collection", async (req, res) => {
     data.sort((a: any, b: any) => (Number(b.timestamp || b.createdAt) || 0) - (Number(a.timestamp || a.createdAt) || 0));
   }
 
-  writeStoreData(collection, data);
+  const storeFilePath = getStoreFilePath(collection);
+  if (!fs.existsSync(storeFilePath) || JSON.stringify(localData) !== JSON.stringify(data)) {
+    writeStoreData(collection, data);
+  }
   res.json({ success: true, collection, data });
 });
 
@@ -4533,9 +4538,24 @@ app.get(
 
 
 async function startServer() {
-  if (process.env.NODE_ENV !== "production") {
+  const isProduction =
+    process.env.NODE_ENV === "production" ||
+    (typeof __filename !== "undefined" && __filename.includes("dist")) ||
+    (typeof __dirname !== "undefined" && __dirname.includes("dist"));
+
+  if (!isProduction) {
     const vite = await createViteServer({
-      server: { middlewareMode: true },
+      server: {
+        middlewareMode: true,
+        watch: {
+          ignored: [
+            "**/data-store/**",
+            "**/data-store/**/*",
+            "**/.system_generated/**",
+            "**/*.log",
+          ],
+        },
+      },
       appType: "spa",
     });
     app.use(vite.middlewares);

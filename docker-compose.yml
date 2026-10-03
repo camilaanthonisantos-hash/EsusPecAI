@@ -1,0 +1,56 @@
+version: "3.7"
+
+services:
+  esus-pec:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: esus-pec-ai:latest
+    container_name: esus-pec-ai
+    restart: always
+
+    # Resolução de DNS externa para Firebase, Google Gemini, OpenRouter e OpenAI
+    dns:
+      - 8.8.8.8
+      - 1.1.1.1
+
+    labels:
+      - "traefik.enable=true"
+      - "traefik.http.routers.esus-pec.rule=Host(`peccapsai.mentoriajrs.com`)"
+      - "traefik.http.routers.esus-pec.tls=true"
+      - "traefik.http.routers.esus-pec.entrypoints=web,websecure"
+      - "traefik.http.routers.esus-pec.tls.certresolver=leresolver"
+      - "traefik.http.middlewares.esus-pec.headers.SSLRedirect=true"
+      - "traefik.http.middlewares.esus-pec.headers.STSSeconds=315360000"
+      - "traefik.http.middlewares.esus-pec.headers.browserXSSFilter=true"
+      - "traefik.http.middlewares.esus-pec.headers.contentTypeNosniff=true"
+      - "traefik.http.middlewares.esus-pec.headers.forceSTSHeader=true"
+      - "traefik.http.middlewares.esus-pec.headers.SSLHost=peccapsai.mentoriajrs.com"
+      - "traefik.http.middlewares.esus-pec.headers.STSIncludeSubdomains=true"
+      - "traefik.http.middlewares.esus-pec.headers.STSPreload=true"
+      - "traefik.http.routers.esus-pec.middlewares=esus-pec@docker"
+      - "traefik.http.services.esus-pec.loadbalancer.server.port=3000"
+
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+      - APP_URL=https://peccapsai.mentoriajrs.com
+      - GEMINI_API_KEY=${GEMINI_API_KEY}
+      - OPENROUTER_API_KEY=${OPENROUTER_API_KEY:-}
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - GROQ_API_KEY=${GROQ_API_KEY:-}
+      - TZ=America/Sao_Paulo
+
+    volumes:
+      - esus_pec_data:/app/data-store
+
+    networks:
+      - n8n-default-network
+
+volumes:
+  esus_pec_data:
+    name: esus_pec_data
+
+networks:
+  n8n-default-network:
+    external: true
