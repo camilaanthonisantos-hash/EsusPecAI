@@ -1,20 +1,8 @@
 # ==============================================================
 # Dockerfile para e-SUS PEC AI
-# Multi-Stage Build: Garante compilação automática e imagem leve
+# Imagem de Produção Leve com Deploy Imediato (Zero-Build no Host)
 # ==============================================================
 
-# 1. Stage de Build
-FROM node:22-slim AS builder
-
-WORKDIR /app
-
-COPY package*.json ./
-RUN npm install
-
-COPY . ./
-RUN npm run build
-
-# 2. Stage de Execução em Produção
 FROM node:22-slim
 
 WORKDIR /app
@@ -22,14 +10,16 @@ WORKDIR /app
 ENV NODE_ENV=production
 ENV PORT=3000
 
-# Copia manifestos e instala apenas dependências de produção
+# Copia manifestos de dependências
 COPY package*.json ./
+
+# Instala apenas as dependências de produção (rápido e sem devDependencies pesadas)
 RUN npm install --omit=dev
 
-# Copia arquivos compilados do stage builder
-COPY --from=builder /app/dist ./dist
-COPY --from=builder /app/public ./public
-COPY --from=builder /app/firebase-applet-config.json ./firebase-applet-config.json
+# Copia os arquivos pré-compilados do frontend e backend
+COPY dist ./dist
+COPY firebase-applet-config.json ./firebase-applet-config.json
+COPY public ./public
 
 # Prepara diretório de dados persistentes
 RUN mkdir -p /app/data-store/videos
