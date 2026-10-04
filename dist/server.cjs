@@ -3466,24 +3466,6 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
     });
   }
 });
-function sanitizeForFirestoreServer(val) {
-  if (val === void 0) {
-    return null;
-  }
-  if (val === null || typeof val !== "object") {
-    return val;
-  }
-  if (Array.isArray(val)) {
-    return val.map((item) => sanitizeForFirestoreServer(item)).filter((item) => item !== void 0);
-  }
-  const clean = {};
-  for (const [key, value] of Object.entries(val)) {
-    if (value !== void 0) {
-      clean[key] = sanitizeForFirestoreServer(value);
-    }
-  }
-  return clean;
-}
 app.get("/api/db/:collection", async (req, res) => {
   const { collection } = req.params;
   const localData = readStoreData(collection, collection === "settings" ? {} : []);
@@ -3515,41 +3497,11 @@ app.get("/api/db/:collection", async (req, res) => {
     console.debug("[Supabase Server Fetch Notice]:", err?.message || err);
   }
   if (collection === "settings") {
-    try {
-      const snap = await (0, import_firestore.getDoc)((0, import_firestore.doc)(serverDb, "system_settings", "global"));
-      if (snap.exists()) {
-        const firestoreData = snap.data();
-        const mergedSettings = { ...localData, ...firestoreData };
-        if (JSON.stringify(localData) !== JSON.stringify(mergedSettings)) {
-          writeStoreData("settings", mergedSettings);
-        }
-        return res.json({ success: true, collection, data: mergedSettings });
-      }
-    } catch (err) {
-      console.warn(`[ServerFirestore] Leitura remota para settings em fallback:`, err?.message || err);
-    }
     return res.json({ success: true, collection, data: localData });
-  }
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  let firestoreItems = [];
-  try {
-    const snap = await (0, import_firestore.getDocs)((0, import_firestore.collection)(serverDb, firestoreColName));
-    if (!snap.empty) {
-      snap.forEach((docSnap) => {
-        firestoreItems.push({ ...docSnap.data(), id: docSnap.id });
-      });
-    }
-  } catch (err) {
-    console.warn(`[ServerFirestore] Leitura remota para ${collection} em fallback:`, err?.message || err);
   }
   const mergedMap = /* @__PURE__ */ new Map();
   supabaseItems.forEach((it) => {
     if (it && it.id) mergedMap.set(it.id, it);
-  });
-  firestoreItems.forEach((it) => {
-    if (it && it.id && !mergedMap.has(it.id)) {
-      mergedMap.set(it.id, it);
-    }
   });
   if (Array.isArray(localData)) {
     localData.forEach((localIt) => {
@@ -3643,10 +3595,6 @@ app.post("/api/db/:collection", async (req, res) => {
   writeStoreData(collection, list);
   syncItemToSupabase(collection, itemWithId).catch(() => {
   });
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  (0, import_firestore.setDoc)((0, import_firestore.doc)(serverDb, firestoreColName, itemId), sanitizeForFirestoreServer(itemWithId), { merge: true }).catch((err) => {
-    console.warn(`[ServerFirestore] Erro ao sincronizar ${itemId} em ${collection} no Firestore:`, err?.message || err);
-  });
   if (collection === "consultations" && itemWithId.patientId) {
     const authorProf = (itemWithId.authorProfession || "").toLowerCase();
     const isAdminOrReception = authorProf === "administrativo" || authorProf === "recepcao" || authorProf === "recepcionista";
@@ -3673,7 +3621,8 @@ app.post("/api/db/:collection", async (req, res) => {
                   evolutionsList.unshift(parsedEvolution);
                 }
                 writeStoreData("clinical_evolutions", evolutionsList);
-                await (0, import_firestore.setDoc)((0, import_firestore.doc)(serverDb, "clinical_evolutions", targetPatient.id), parsedEvolution, { merge: true });
+                syncItemToSupabase("clinical_evolutions", parsedEvolution).catch(() => {
+                });
                 console.log(`[Auto-Evolution Trigger] Sucesso: Evolu\xE7\xE3o longitudinal do paciente ${targetPatient.fullName} atualizada e persistida (incremental).`);
               } else {
                 console.log(`[Auto-Evolution Trigger] Paciente ${targetPatient.fullName} j\xE1 estava com prontu\xE1rio em dia. IA economizada.`);
@@ -3739,7 +3688,8 @@ function initNightlyEvolutionBatchJob() {
               evolutionsList.unshift(parsedEvolution);
             }
             writeStoreData("clinical_evolutions", evolutionsList);
-            await (0, import_firestore.setDoc)((0, import_firestore.doc)(serverDb, "clinical_evolutions", patient.id), parsedEvolution, { merge: true });
+            syncItemToSupabase("clinical_evolutions", parsedEvolution).catch(() => {
+            });
             console.log(`[Nightly Evolution Batch] Evolu\xE7\xE3o incremental atualizada para paciente: ${patient.fullName}`);
             await new Promise((resolve) => setTimeout(resolve, 1500));
           } catch (patErr) {
@@ -3759,10 +3709,6 @@ app.delete("/api/db/:collection/:id", async (req, res) => {
   const filtered = list.filter((x) => x && x.id !== id);
   writeStoreData(collection, filtered);
   syncItemToSupabase(collection, null, true, id).catch(() => {
-  });
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  (0, import_firestore.deleteDoc)((0, import_firestore.doc)(serverDb, firestoreColName, id)).catch((err) => {
-    console.warn(`[ServerFirestore] Erro ao deletar ${id} em ${collection} no Firestore:`, err?.message || err);
   });
   res.json({ success: true, id, remaining: filtered.length });
 });
