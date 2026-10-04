@@ -2605,7 +2605,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       });
       showToast('success', `${queueItem.patientName} inserido na fila de ${queueItem.professionalName}!`, 'Fila Atualizada');
     } catch (err) {
-      console.warn('Erro ao salvar item da fila no Firestore:', err);
+      console.warn('Erro ao salvar item da fila no Supabase:', err);
       showToast('error', 'Falha ao adicionar paciente na fila.');
     }
   };
@@ -2681,11 +2681,23 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   const handleDeleteQueueItem = async (queueItemId: string) => {
     try {
-      await deleteQueueItemFromFirestore(queueItemId);
-      setQueueItems((prev) => prev.filter((q) => q.id !== queueItemId));
-      showToast('info', 'Item removido da fila de atendimento.', 'Fila Atualizada');
-    } catch (err) {
-      console.warn('Erro ao excluir item da fila:', err);
+      // 1. Remove from local queueItems state
+      setQueueItems((prev) => prev.filter((q) => q.id !== queueItemId && q.appointmentId !== queueItemId));
+
+      // 2. Also check and remove from appointments state if it originated from appointments
+      const isApp = appointments.some((a) => a.id === queueItemId);
+      if (isApp) {
+        setAppointments((prev) => prev.filter((a) => a.id !== queueItemId));
+        await deleteAppointmentFromFirestore(queueItemId).catch(console.warn);
+      }
+
+      // 3. Delete from Firestore queue collection
+      await deleteQueueItemFromFirestore(queueItemId).catch(console.warn);
+
+      showToast('success', 'Item removido da fila de atendimento com sucesso.', 'Fila Atualizada');
+    } catch (err: any) {
+      console.error('Erro ao excluir item da fila:', err);
+      showToast('error', `Não foi possível remover o item da fila: ${err?.message || 'Erro de conexão'}`);
     }
   };
 

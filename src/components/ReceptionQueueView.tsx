@@ -50,6 +50,129 @@ import { SpecularButton } from './SpecularButton';
 import { CallPatientModal } from './CallPatientModal';
 import { PublicQueueQrCodeModal } from './PublicQueueQrCodeModal';
 
+// Helper: calcula o tempo restante amigável até a data e hora da consulta
+function formatRemainingTime(scheduledDateStr?: string, scheduledTimeStr?: string, timestamp?: number): string {
+  if (!scheduledDateStr && !timestamp) return 'pouco tempo';
+
+  let targetDate: Date;
+  if (scheduledDateStr) {
+    const timeParts = (scheduledTimeStr || '08:00').split(':');
+    const [year, month, day] = scheduledDateStr.split('-').map(Number);
+    targetDate = new Date(year, month - 1, day, Number(timeParts[0]) || 8, Number(timeParts[1]) || 0);
+  } else if (timestamp) {
+    targetDate = new Date(timestamp);
+  } else {
+    return 'pouco tempo';
+  }
+
+  const now = new Date();
+  const diffMs = targetDate.getTime() - now.getTime();
+
+  if (diffMs <= 0) {
+    return 'horário previsto para agora';
+  }
+
+  const diffMinutes = Math.floor(diffMs / (1000 * 60));
+  const diffHours = Math.floor(diffMinutes / 60);
+  const diffDays = Math.floor(diffHours / 24);
+
+  if (diffDays > 0) {
+    const remainingHours = diffHours % 24;
+    if (remainingHours > 0) {
+      return `${diffDays} dia${diffDays > 1 ? 's' : ''} e ${remainingHours} hora${remainingHours > 1 ? 's' : ''}`;
+    }
+    return `${diffDays} dia${diffDays > 1 ? 's' : ''}`;
+  }
+
+  if (diffHours > 0) {
+    const remainingMins = diffMinutes % 60;
+    if (remainingMins > 0) {
+      return `${diffHours} hora${diffHours > 1 ? 's' : ''} e ${remainingMins} minuto${remainingMins > 1 ? 's' : ''}`;
+    }
+    return `${diffHours} hora${diffHours > 1 ? 's' : ''}`;
+  }
+
+  return `${diffMinutes} minuto${diffMinutes > 1 ? 's' : ''}`;
+}
+
+// Helper: retorna o dia da semana por extenso (ex: Segunda-feira)
+function getDayOfWeekName(dateStr?: string, timestamp?: number): string {
+  let d: Date;
+  if (dateStr) {
+    const [year, month, day] = dateStr.split('-').map(Number);
+    d = new Date(year, month - 1, day, 12, 0, 0);
+  } else if (timestamp) {
+    d = new Date(timestamp);
+  } else {
+    d = new Date();
+  }
+  const days = ['Domingo', 'Segunda-feira', 'Terça-feira', 'Quarta-feira', 'Quinta-feira', 'Sexta-feira', 'Sábado'];
+  return days[d.getDay()] || 'Segunda-feira';
+}
+
+// Helper: formata data no formato brasileiro dd/mm/aaaa
+function formatBrazilianDate(dateStr?: string, timestamp?: number): string {
+  if (dateStr) {
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+  }
+  if (timestamp) {
+    const d = new Date(timestamp);
+    const day = String(d.getDate()).padStart(2, '0');
+    const month = String(d.getMonth() + 1).padStart(2, '0');
+    const year = d.getFullYear();
+    return `${day}/${month}/${year}`;
+  }
+  const today = new Date();
+  return `${String(today.getDate()).padStart(2, '0')}/${String(today.getMonth() + 1).padStart(2, '0')}/${today.getFullYear()}`;
+}
+
+// Helper: retorna a saudação compatível com o horário atual (Bom dia, Boa tarde, Boa noite)
+function getTimeBasedGreeting(): string {
+  const hour = new Date().getHours();
+  if (hour >= 5 && hour < 12) return 'Bom dia';
+  if (hour >= 12 && hour < 18) return 'Boa tarde';
+  return 'Boa noite';
+}
+
+// Helper: determina o artigo correto ('o' ou 'a') de acordo com o gênero ou nome do profissional
+function getProfessionalArticle(prof?: User | { name?: string; gender?: string } | null, profName?: string): string {
+  if (prof) {
+    const g = ((prof as any).gender || '').toLowerCase().trim();
+    if (g === 'f' || g.startsWith('fem') || g === 'mulher') return 'a';
+    if (g === 'm' || g.startsWith('masc') || g === 'homem') return 'o';
+  }
+
+  const nameToTest = (prof?.name || profName || '').trim();
+  const firstName = nameToTest.split(' ')[0].toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  const knownFemale = [
+    'alice', 'beatriz', 'carmen', 'cleo', 'daiane', 'denise', 'elienai', 'ellen', 'ester', 'evelyn', 
+    'gleice', 'helen', 'inês', 'iris', 'isabel', 'jaqueline', 'karen', 'katia', 'laiane', 'laís', 
+    'lorrane', 'lourdes', 'luciane', 'maite', 'mercedes', 'mirian', 'monique', 'morgana', 'nataly', 
+    'nicole', 'noemi', 'patricia', 'quel', 'raquel', 'regiane', 'rose', 'ruthe', 'solange', 'sueli', 
+    'thais', 'tamires', 'vivian'
+  ];
+  if (knownFemale.includes(firstName)) return 'a';
+
+  const knownMale = [
+    'alexandre', 'andré', 'arthur', 'davi', 'felipe', 'guilherme', 'henrique', 'jean', 'jorge', 
+    'lucas', 'luiz', 'matheus', 'miguel', 'rafael', 'samuel', 'victor', 'gabriel', 'ayrton', 
+    'bento', 'luca', 'elias', 'josias', 'messias', 'matias', 'tobias', 'isaías', 'jeremias', 
+    'natan', 'alan', 'renan', 'eder', 'valdir', 'vagner', 'cleber', 'nilton', 'milton', 'airton', 
+    'cleiton', 'wellingon', 'washington', 'claudio', 'marcio', 'paulo', 'pedro', 'joao', 'jose', 
+    'carlos', 'marcos', 'marcelo', 'antonio', 'francisco'
+  ];
+  if (knownMale.includes(firstName)) return 'o';
+
+  // Na língua portuguesa, nomes terminados em 'a' são tipicamente femininos
+  if (firstName.endsWith('a')) return 'a';
+
+  return 'o';
+}
+
 export interface ReceptionQueueViewProps {
   currentUser: User | null;
   queueItems: ReceptionQueueItem[];
@@ -249,8 +372,13 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   }, [openDropdownId, isFilterDropdownOpen]);
 
   // Filters state
-  // dateScope: 'today' (Dia Vigente - Padrão) | 'all' (Todos - Todas as datas)
-  const [dateScope, setDateScope] = useState<'today' | 'all'>('today');
+  // dateScope: 'today' (Dia Vigente - Padrão) | 'custom' (Data ou Intervalo Personalizado) | 'all' (Todas as datas)
+  const [dateScope, setDateScope] = useState<'today' | 'custom' | 'all'>('today');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => getTodayDateString());
+  const [customEndDate, setCustomEndDate] = useState<string>(() => getTodayDateString());
+  const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
+  const [calendarMode, setCalendarMode] = useState<'single' | 'range'>('single');
+
   // selectedStatuses: multiselection of status categories ('active' | 'completed' | 'cancelled')
   // Default: ['active'] (which combined with dateScope 'today' shows today's active queue)
   const [selectedStatuses, setSelectedStatuses] = useState<('active' | 'completed' | 'cancelled')[]>(['active']);
@@ -259,6 +387,37 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const [onlyMine, setOnlyMine] = useState<boolean>(false);
   const [selectedProfId, setSelectedProfId] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
+
+  // Controle de grupos de profissionais expandidos/recolhidos (ocultos por padrão)
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+
+  const toggleGroupExpand = (groupId: string) => {
+    setExpandedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) {
+        next.delete(groupId);
+      } else {
+        next.add(groupId);
+      }
+      return next;
+    });
+  };
+
+  // Controle de exibição de pacientes desistentes por profissional (ocultos por padrão)
+  const [showAbandonedGroupIds, setShowAbandonedGroupIds] = useState<Set<string>>(new Set());
+
+  const toggleShowAbandoned = (profId: string, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setShowAbandonedGroupIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(profId)) {
+        next.delete(profId);
+      } else {
+        next.add(profId);
+      }
+      return next;
+    });
+  };
 
   // Manchester risk badge helper
   const renderRiskBadge = (risk?: RiskClassification) => {
@@ -403,17 +562,40 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     return list;
   }, [queueItems, appointments]);
 
+  // Helper: verifica se um item da fila está dentro do escopo de data selecionado
+  const isItemInDateScope = (item: ReceptionQueueItem): boolean => {
+    const itemDate = item.scheduledDate || (item.timestamp && !isNaN(new Date(item.timestamp).getTime()) ? new Date(item.timestamp).toISOString().split('T')[0] : '');
+    if (dateScope === 'today') {
+      return itemDate === todayStr;
+    }
+    if (dateScope === 'custom') {
+      if (!customStartDate && !customEndDate) return true;
+      if (customStartDate && customEndDate) {
+        const start = customStartDate <= customEndDate ? customStartDate : customEndDate;
+        const end = customStartDate <= customEndDate ? customEndDate : customStartDate;
+        return itemDate >= start && itemDate <= end;
+      }
+      if (customStartDate) return itemDate >= customStartDate;
+      if (customEndDate) return itemDate <= customEndDate;
+      return true;
+    }
+    return true; // 'all'
+  };
+
+  const formatDatePtBr = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
+  };
+
   // Per-professional calling rank calculation
   // Each professional maintains their own chronological order of calling
   const profRankingMap = useMemo(() => {
-    // Filter by date scope so positions reflect the current scope (e.g. today's order)
-    const scopeList = mergedAllQueueItems.filter((i) => {
-      if (dateScope === 'today') {
-        const itemDate = i.scheduledDate || (i.timestamp ? new Date(i.timestamp).toISOString().split('T')[0] : '');
-        return itemDate === todayStr;
-      }
-      return true;
-    });
+    // Filter by date scope so positions reflect the current scope (e.g. today's order or custom date)
+    const scopeList = mergedAllQueueItems.filter(isItemInDateScope);
 
     // Group items by professional ID / name
     const grouped = new Map<string, ReceptionQueueItem[]>();
@@ -459,19 +641,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return rankMap;
-  }, [mergedAllQueueItems, dateScope, todayStr]);
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
 
   // Filter items based on active UI filters
   const filteredItems = useMemo(() => {
-    let list = [...mergedAllQueueItems];
-
-    // 1. Date scope filtering
-    if (dateScope === 'today') {
-      list = list.filter((i) => {
-        const itemDate = i.scheduledDate || (i.timestamp ? new Date(i.timestamp).toISOString().split('T')[0] : '');
-        return itemDate === todayStr;
-      });
-    }
+    let list = mergedAllQueueItems.filter(isItemInDateScope);
 
     // 2. Status multiselection filtering
     if (selectedStatuses.length > 0) {
@@ -523,12 +697,36 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return list;
-  }, [mergedAllQueueItems, dateScope, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
 
   // Group filtered items by professional for structured individual queues
   const groupedByProf = useMemo(() => {
+    let baseList = mergedAllQueueItems.filter(isItemInDateScope);
+
+    if (onlyMine && currentUser) {
+      baseList = baseList.filter((i) => i.professionalId === currentUser.id);
+    }
+
+    if (selectedProfId !== 'all') {
+      baseList = baseList.filter((i) => i.professionalId === selectedProfId);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      baseList = baseList.filter((i) => {
+        return (
+          i.patientName.toLowerCase().includes(q) ||
+          i.patientCpf?.includes(q) ||
+          i.patientCns?.includes(q) ||
+          i.patientPhone?.includes(q) ||
+          i.notes?.toLowerCase().includes(q) ||
+          i.professionalName.toLowerCase().includes(q)
+        );
+      });
+    }
+
     const map = new Map<string, ReceptionQueueItem[]>();
-    for (const item of filteredItems) {
+    for (const item of baseList) {
       // Find matching professional to group under the real professional UID
       const matchedProf = professionals.find(
         (p) =>
@@ -549,6 +747,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       items: ReceptionQueueItem[];
       waitingCount: number;
       completedCount: number;
+      abandonedCount: number;
       callingCount: number;
       firstWaitingItem: ReceptionQueueItem | null;
     }[] = [];
@@ -559,7 +758,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       const profUser = professionals.find(
         (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim())
       );
-      const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling');
+      const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service');
+      const completedItems = items.filter((i) => i.status === 'completed');
+      const abandonedItems = items.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
 
       groups.push({
         professionalId: profUser?.id || key,
@@ -567,7 +768,8 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         professionalProfession: profUser?.profession || firstItem?.professionalProfession || 'assistente_social',
         items,
         waitingCount: waitingItems.length,
-        completedCount: items.filter((i) => i.status === 'completed').length,
+        completedCount: completedItems.length,
+        abandonedCount: abandonedItems.length,
         callingCount: items.filter((i) => i.status === 'calling').length,
         firstWaitingItem: waitingItems[0] || null,
       });
@@ -582,7 +784,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return groups;
-  }, [filteredItems, professionals, currentUser]);
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
 
   // Today's total count
   const countTodayTotal = useMemo(() => {
@@ -592,19 +794,15 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }).length;
   }, [mergedAllQueueItems, todayStr]);
 
-  // All dates total count
-  const countAllTotal = mergedAllQueueItems.length;
-
   // Active scope items for dynamic counts
   const scopeItems = useMemo(() => {
-    if (dateScope === 'today') {
-      return mergedAllQueueItems.filter((i) => {
-        const itemDate = i.scheduledDate || (i.timestamp ? new Date(i.timestamp).toISOString().split('T')[0] : '');
-        return itemDate === todayStr;
-      });
-    }
-    return mergedAllQueueItems;
-  }, [mergedAllQueueItems, dateScope, todayStr]);
+    return mergedAllQueueItems.filter(isItemInDateScope);
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
+
+  const countScopeTotal = scopeItems.length;
+
+  // All dates total count
+  const countAllTotal = mergedAllQueueItems.length;
 
   const countActive = useMemo(() => {
     return scopeItems.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service').length;
@@ -667,6 +865,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     const isCompleted = item.status === 'completed';
     const isCancelled = item.status === 'cancelled';
     const isAbandoned = item.status === 'abandoned';
+    const isAbandonedOrCancelled = isAbandoned || isCancelled;
 
     const simpleAge = formatSimpleAge(item.patientBirthDate);
     const rankInfo = profRankingMap.get(item.id) || {
@@ -675,6 +874,30 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       profTotal: 1,
       profWaitingTotal: 1,
     };
+
+    // Verifica se a consulta já expirou (apenas para consultas ativas)
+    const isAppointmentExpired = (() => {
+      if (item.status === 'completed' || item.status === 'abandoned' || item.status === 'cancelled') {
+        return true;
+      }
+      if (!item.scheduledDate && !item.timestamp) return false;
+      let targetDate: Date;
+      if (item.scheduledDate) {
+        const timeParts = (item.scheduledTime || '23:59').split(':');
+        const [year, month, day] = item.scheduledDate.split('-').map(Number);
+        targetDate = new Date(year, month - 1, day, Number(timeParts[0]) || 23, Number(timeParts[1]) || 59, 59);
+      } else if (item.timestamp) {
+        targetDate = new Date(item.timestamp);
+      } else {
+        return false;
+      }
+      return targetDate.getTime() < Date.now();
+    })();
+
+    // O botão de WhatsApp deve ser exibido:
+    // 1. Para pacientes com status de Desistência ou Cancelado (para aviso de reagendamento)
+    // 2. Para pacientes em atendimento/aguardando caso a data/hora agendada ainda não tenha expirado
+    const showWhatsAppButton = isAbandonedOrCancelled || (!isCompleted && !isAppointmentExpired);
 
     return (
       <motion.div
@@ -762,32 +985,65 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   </span>
                 </span>
 
-                {/* Ícone de WhatsApp na Linha 2 */}
-                <button
-                  type="button"
-                  id={`queue-whatsapp-btn-${item.id}`}
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    const phone = item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone;
-                    if (phone) {
-                      const cleanPhone = phone.replace(/\D/g, '');
-                      window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}`, '_blank');
-                    } else if (onShowToast) {
-                      onShowToast('info', `O paciente "${item.patientName}" não possui número de WhatsApp/Telefone cadastrado.`, 'WhatsApp');
+                {/* Ícone de WhatsApp na Linha 2 (consultas ativas não expiradas OU desistências/cancelamentos) */}
+                {showWhatsAppButton && (
+                  <button
+                    type="button"
+                    id={`queue-whatsapp-btn-${item.id}`}
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      const phone = item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone;
+                      const patientName = item.patientName || 'Paciente';
+                      const profName = item.professionalName || 'Profissional';
+                      const dateFormatted = formatBrazilianDate(item.scheduledDate, item.timestamp);
+                      const dayOfWeek = getDayOfWeekName(item.scheduledDate, item.timestamp);
+                      const timeFormatted = item.scheduledTime || '08:00';
+                      const greeting = getTimeBasedGreeting();
+
+                      const matchedProf = professionals.find(
+                        (p) =>
+                          (item.professionalId && p.id === item.professionalId) ||
+                          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
+                      );
+                      const article = getProfessionalArticle(matchedProf, item.professionalName);
+
+                      let message = '';
+                      if (isAbandonedOrCancelled) {
+                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.`;
+                      } else {
+                        const remainingTime = formatRemainingTime(item.scheduledDate, item.scheduledTime, item.timestamp);
+                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}.`;
+                      }
+
+                      if (phone) {
+                        const cleanPhone = phone.replace(/\D/g, '');
+                        window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(message)}`, '_blank');
+                      } else {
+                        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
+                        if (onShowToast) {
+                          onShowToast('info', `Mensagem pronta gerada para o WhatsApp de "${patientName}".`, 'WhatsApp');
+                        }
+                      }
+                    }}
+                    className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-xl border transition-all cursor-pointer shadow-xs ${
+                      isAbandonedOrCancelled
+                        ? 'text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 border-amber-300 dark:border-amber-800'
+                        : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border-emerald-300 dark:border-emerald-800'
+                    }`}
+                    title={
+                      isAbandonedOrCancelled
+                        ? 'Enviar aviso de desistência e reagendamento no WhatsApp'
+                        : (item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone)
+                        ? `Enviar aviso da consulta no WhatsApp (${item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone})`
+                        : 'Enviar aviso da consulta no WhatsApp'
                     }
-                  }}
-                  className="inline-flex items-center gap-1.5 text-xs font-semibold text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 px-2.5 py-1 rounded-xl border border-emerald-300 dark:border-emerald-800 transition-all cursor-pointer shadow-xs"
-                  title={
-                    (item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone)
-                      ? `Conversar no WhatsApp (${item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone})`
-                      : 'WhatsApp do Paciente (Sem número cadastrado)'
-                  }
-                >
-                  <svg className="w-3.5 h-3.5 fill-current text-emerald-600 dark:text-emerald-400 shrink-0" viewBox="0 0 24 24">
-                    <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
-                  </svg>
-                  <span>WhatsApp</span>
-                </button>
+                  >
+                    <svg className={`w-3.5 h-3.5 fill-current shrink-0 ${isAbandonedOrCancelled ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`} viewBox="0 0 24 24">
+                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
+                    </svg>
+                    <span>{isAbandonedOrCancelled ? 'WhatsApp (Reagendamento)' : 'WhatsApp'}</span>
+                  </button>
+                )}
               </div>
             </div>
           </div>
@@ -1232,7 +1488,17 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
               title="Filtrar por Período e Status de Atendimento"
             >
               <Filter className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
-              <span>Filtros ({dateScope === 'today' ? 'Hoje' : 'Todas as Datas'})</span>
+              <span>
+                Filtros (
+                {dateScope === 'today'
+                  ? 'Hoje'
+                  : dateScope === 'custom'
+                  ? customStartDate === customEndDate
+                    ? formatDatePtBr(customStartDate)
+                    : `${formatDatePtBr(customStartDate).slice(0, 5)} a ${formatDatePtBr(customEndDate).slice(0, 5)}`
+                  : 'Todas as Datas'}
+                )
+              </span>
               <span className="px-1.5 py-0.5 rounded-full bg-teal-600 text-white text-[10px] font-extrabold">
                 {filteredItems.length}
               </span>
@@ -1246,7 +1512,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
             {/* Dropdown Popover Panel */}
             {isFilterDropdownOpen && (
               <div
-                className="absolute left-0 top-full mt-2 w-72 sm:w-80 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl shadow-slate-900/20 dark:shadow-black/70 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-3"
+                className="absolute left-0 top-full mt-2 w-80 sm:w-[380px] rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl shadow-slate-900/20 dark:shadow-black/70 p-3.5 z-50 animate-in fade-in zoom-in-95 duration-100 space-y-3"
                 onClick={(e) => e.stopPropagation()}
               >
                 {/* Header */}
@@ -1262,32 +1528,67 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   </span>
                 </div>
 
-                {/* Section A: Período / Escopo de Data */}
-                <div className="space-y-1.5">
-                  <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block px-0.5">
-                    Período da Fila
-                  </span>
+                {/* Section A: Período / Escopo de Data com Calendário */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[10.5px] font-extrabold uppercase tracking-wider text-slate-500 dark:text-slate-400 block px-0.5">
+                      Período da Fila
+                    </span>
+                    {dateScope !== 'today' && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setDateScope('today');
+                          setCustomStartDate(todayStr);
+                          setCustomEndDate(todayStr);
+                        }}
+                        className="text-[10px] font-bold text-teal-600 dark:text-teal-400 hover:underline flex items-center gap-1 cursor-pointer"
+                        title="Restaurar para a data atual"
+                      >
+                        <RotateCw className="w-2.5 h-2.5" />
+                        <span>Voltar para Hoje (Padrão)</span>
+                      </button>
+                    )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-1.5">
                     <button
                       type="button"
                       id="filter-scope-today-btn"
                       onClick={() => {
-                        setDateScope('today');
+                        setIsCalendarOpen((prev) => !prev);
+                        if (dateScope === 'all') {
+                          setDateScope('today');
+                          setCustomStartDate(todayStr);
+                          setCustomEndDate(todayStr);
+                        }
                         if (selectedStatuses.length === 0) setSelectedStatuses(['active']);
                       }}
                       className={`p-2 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
-                        dateScope === 'today'
-                          ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-100'
+                        dateScope === 'today' || dateScope === 'custom'
+                          ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-100 ring-1 ring-teal-500/20 shadow-xs'
                           : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
                       }`}
+                      title="Clique para abrir o calendário e escolher uma data ou intervalo"
                     >
-                      <div className="flex items-center gap-1.5">
-                        <Calendar className="w-3.5 h-3.5 text-teal-600" />
-                        <span>Dia Vigente</span>
+                      <div className="flex items-center gap-1.5 min-w-0">
+                        <Calendar className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span className="truncate">
+                          {dateScope === 'today'
+                            ? 'Dia Vigente'
+                            : dateScope === 'custom'
+                            ? customStartDate === customEndDate
+                              ? formatDatePtBr(customStartDate)
+                              : `${formatDatePtBr(customStartDate).slice(0, 5)} - ${formatDatePtBr(customEndDate).slice(0, 5)}`
+                            : 'Dia Vigente'}
+                        </span>
                       </div>
-                      <span className="px-1.5 py-0.2 rounded-full bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 text-[10px] font-extrabold">
-                        {countTodayTotal}
-                      </span>
+                      <div className="flex items-center gap-1 shrink-0">
+                        <span className="px-1.5 py-0.2 rounded-full bg-teal-100 dark:bg-teal-900 text-teal-800 dark:text-teal-200 text-[10px] font-extrabold">
+                          {dateScope === 'today' ? countTodayTotal : countScopeTotal}
+                        </span>
+                        <ChevronDown className={`w-3 h-3 text-teal-600 transition-transform ${isCalendarOpen ? 'rotate-180' : ''}`} />
+                      </div>
                     </button>
 
                     <button
@@ -1295,22 +1596,190 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                       id="filter-scope-all-btn"
                       onClick={() => {
                         setDateScope('all');
+                        setIsCalendarOpen(false);
                       }}
                       className={`p-2 rounded-xl text-xs font-bold flex items-center justify-between border transition-all cursor-pointer ${
                         dateScope === 'all'
-                          ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-100'
+                          ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-100 ring-1 ring-teal-500/20 shadow-xs'
                           : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
                       }`}
                     >
                       <div className="flex items-center gap-1.5">
-                        <Sparkles className="w-3.5 h-3.5 text-teal-600" />
-                        <span>Todos</span>
+                        <Sparkles className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                        <span>Todas as Datas</span>
                       </div>
                       <span className="px-1.5 py-0.2 rounded-full bg-slate-200 dark:bg-slate-700 text-slate-700 dark:text-slate-300 text-[10px] font-extrabold">
                         {countAllTotal}
                       </span>
                     </button>
                   </div>
+
+                  {/* Painel do Calendário (Data única ou Intervalo de Datas) */}
+                  {isCalendarOpen && (
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-teal-500/30 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+                      {/* Abas: Data Única vs Intervalo */}
+                      <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
+                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCalendarMode('single');
+                              setCustomEndDate(customStartDate);
+                              setDateScope(customStartDate === todayStr ? 'today' : 'custom');
+                            }}
+                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                              calendarMode === 'single'
+                                ? 'bg-teal-600 text-white shadow-xs'
+                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                            }`}
+                          >
+                            Data Única
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setCalendarMode('range');
+                              setDateScope('custom');
+                            }}
+                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
+                              calendarMode === 'range'
+                                ? 'bg-teal-600 text-white shadow-xs'
+                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                            }`}
+                          >
+                            Intervalo
+                          </button>
+                        </div>
+                        <span className="text-[10px] font-extrabold text-teal-600 dark:text-teal-400">
+                          {dateScope === 'today' ? 'Dia Vigente (Padrão)' : 'Data Filtrada'}
+                        </span>
+                      </div>
+
+                      {/* Atalhos Rápidos */}
+                      <div className="flex flex-wrap gap-1">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setDateScope('today');
+                            setCustomStartDate(todayStr);
+                            setCustomEndDate(todayStr);
+                            setCalendarMode('single');
+                          }}
+                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer border ${
+                            dateScope === 'today'
+                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          Hoje (Dia Vigente)
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const y = new Date();
+                            y.setDate(y.getDate() - 1);
+                            const yStr = y.toISOString().split('T')[0];
+                            setDateScope('custom');
+                            setCustomStartDate(yStr);
+                            setCustomEndDate(yStr);
+                            setCalendarMode('single');
+                          }}
+                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer border ${
+                            dateScope === 'custom' && customStartDate === customEndDate && customStartDate !== todayStr
+                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
+                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
+                          }`}
+                        >
+                          Ontem
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const t = new Date();
+                            t.setDate(t.getDate() + 1);
+                            const tStr = t.toISOString().split('T')[0];
+                            setDateScope('custom');
+                            setCustomStartDate(tStr);
+                            setCustomEndDate(tStr);
+                            setCalendarMode('single');
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
+                        >
+                          Amanhã
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            const d7 = new Date();
+                            d7.setDate(d7.getDate() + 7);
+                            setDateScope('custom');
+                            setCustomStartDate(todayStr);
+                            setCustomEndDate(d7.toISOString().split('T')[0]);
+                            setCalendarMode('range');
+                          }}
+                          className="px-2 py-1 rounded-md text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
+                        >
+                          Próximos 7 Dias
+                        </button>
+                      </div>
+
+                      {/* Inputs do Calendário */}
+                      {calendarMode === 'single' ? (
+                        <div className="space-y-1">
+                          <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
+                            Data Específica
+                          </label>
+                          <input
+                            type="date"
+                            value={customStartDate}
+                            onChange={(e) => {
+                              const val = e.target.value;
+                              setCustomStartDate(val);
+                              setCustomEndDate(val);
+                              if (val === todayStr) {
+                                setDateScope('today');
+                              } else {
+                                setDateScope('custom');
+                              }
+                            }}
+                            className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                          />
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
+                              De (Início)
+                            </label>
+                            <input
+                              type="date"
+                              value={customStartDate}
+                              onChange={(e) => {
+                                setCustomStartDate(e.target.value);
+                                setDateScope('custom');
+                              }}
+                              className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                            />
+                          </div>
+                          <div className="space-y-1">
+                            <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
+                              Até (Fim)
+                            </label>
+                            <input
+                              type="date"
+                              value={customEndDate}
+                              min={customStartDate}
+                              onChange={(e) => {
+                                setCustomEndDate(e.target.value);
+                                setDateScope('custom');
+                              }}
+                              className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  )}
                 </div>
 
                 {/* Section B: Status de Atendimento (Multiseleção) */}
@@ -1381,6 +1850,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     type="button"
                     onClick={() => {
                       setDateScope('today');
+                      setCustomStartDate(todayStr);
+                      setCustomEndDate(todayStr);
+                      setIsCalendarOpen(false);
                       setSelectedStatuses(['active']);
                     }}
                     className="text-[11px] font-semibold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
@@ -1497,71 +1969,140 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         /* Organização por Fila de Cada Profissional */
         <div className="space-y-6">
           {groupedByProf.map((group) => {
-            const profConfig = PROFESSIONS[group.professionalProfession];
             const isMyQueue = Boolean(currentUser && currentUser.id === group.professionalId);
-            const canCallFromGroup = isMyQueue || isAdmin;
+            const isExpanded = expandedGroupIds.has(group.professionalId);
+            const isShowingAbandoned = showAbandonedGroupIds.has(group.professionalId);
+
+            // Pacientes desistentes/cancelados ficam ocultos por padrão, a menos que o botão de desistentes seja acionado
+            const visibleItems = group.items.filter((item) => {
+              const isAbandoned = item.status === 'abandoned' || item.status === 'cancelled';
+              if (isAbandoned) {
+                return isShowingAbandoned;
+              }
+              return true;
+            });
 
             return (
               <div
                 key={group.professionalId}
                 id={`queue-group-${group.professionalId}`}
-                className="rounded-3xl bg-slate-50/70 dark:bg-slate-850/50 border border-slate-200 dark:border-slate-800 p-4 sm:p-5 space-y-3.5 shadow-xs"
+                className="rounded-3xl bg-indigo-50/40 dark:bg-slate-900/60 border-2 border-indigo-200/80 dark:border-indigo-950/60 p-3 sm:p-4 space-y-3 shadow-sm transition-all"
               >
-                {/* Professional Queue Header */}
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-slate-900 via-indigo-950 to-slate-900 text-white p-4 sm:p-5 rounded-2xl border border-indigo-700/50 shadow-md">
-                  <div className="flex items-center gap-3.5">
-                    <div className="w-11 h-11 rounded-2xl bg-indigo-500/25 text-indigo-300 border border-indigo-400/40 flex items-center justify-center font-black shrink-0 shadow-inner">
-                      <Stethoscope className="w-5 h-5 text-indigo-300" />
+                {/* Professional Queue Header Card - Drasticamente diferenciado nos modos Claro e Escuro */}
+                <div
+                  role="button"
+                  tabIndex={0}
+                  onClick={() => toggleGroupExpand(group.professionalId)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      toggleGroupExpand(group.professionalId);
+                    }
+                  }}
+                  className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 bg-gradient-to-r from-blue-900 via-indigo-950 to-slate-950 text-white p-4 sm:p-5 rounded-2xl border-2 border-indigo-400/60 hover:border-teal-400 shadow-xl shadow-indigo-950/25 cursor-pointer select-none group transition-all duration-200 hover:brightness-105"
+                  title="Clique para expandir ou recolher a lista de pacientes deste profissional"
+                >
+                  <div className="flex items-center gap-3.5 sm:gap-4 min-w-0">
+                    <div className="w-12 h-12 sm:w-14 sm:h-14 rounded-2xl bg-gradient-to-br from-indigo-500/40 via-teal-500/30 to-blue-600/30 text-teal-300 border-2 border-indigo-300/60 dark:border-indigo-400/50 flex items-center justify-center font-black shrink-0 shadow-inner group-hover:scale-105 transition-transform">
+                      <Stethoscope className="w-6 h-6 sm:w-7 sm:h-7 text-teal-300" />
                     </div>
-                    <div>
+                    <div className="min-w-0">
                       <div className="flex items-center gap-2 flex-wrap">
-                        <h3 className="text-base font-extrabold text-white tracking-tight">
+                        <h3 className="text-base sm:text-xl font-black text-white tracking-tight truncate group-hover:text-teal-200 transition-colors">
                           {group.professionalName}
                         </h3>
-                        <span className="px-2.5 py-0.5 rounded-full bg-indigo-500/30 text-indigo-100 text-[11px] font-bold border border-indigo-400/40">
-                          {profConfig?.name || group.professionalProfession}
-                        </span>
-                        {isMyQueue && (
-                          <span className="px-2.5 py-0.5 rounded-full bg-emerald-500/25 text-emerald-300 text-[10px] font-extrabold border border-emerald-400/40">
-                            Minha Fila
-                          </span>
-                        )}
                       </div>
-                      <p className="text-xs text-indigo-200/80 mt-1 flex items-center gap-2">
-                        <span className="font-semibold">{group.waitingCount} aguardando</span>
-                        <span className="opacity-60">•</span>
-                        <span>{group.completedCount} atendidos</span>
-                        <span className="opacity-60">•</span>
-                        <span>{group.items.length} total nesta lista</span>
-                      </p>
+                      <div className="flex items-center gap-2 sm:gap-2.5 mt-1.5 flex-wrap">
+                        {/* 1. Aguardando */}
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-500/25 text-teal-200 border border-teal-400/50 text-xs font-bold shadow-xs">
+                          <span className="w-2 h-2 rounded-full bg-teal-300 animate-pulse" />
+                          <span>{group.waitingCount} aguardando</span>
+                        </span>
+
+                        {/* 2. Atendidos */}
+                        <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-slate-800/90 text-slate-200 border border-slate-700 text-xs font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
+                          <span>{group.completedCount} atendidos</span>
+                        </span>
+
+                        {/* 3. Desistentes (Oculto por padrão, acionado mostra na lista) */}
+                        <button
+                          type="button"
+                          id={`toggle-abandoned-btn-${group.professionalId}`}
+                          onClick={(e) => toggleShowAbandoned(group.professionalId, e)}
+                          className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer select-none shadow-xs ${
+                            isShowingAbandoned
+                              ? 'bg-amber-500/35 text-amber-100 border-2 border-amber-400 ring-2 ring-amber-400/40 shadow-amber-950/40'
+                              : 'bg-slate-800/90 text-amber-300 hover:bg-slate-750 hover:text-amber-200 border border-amber-500/40'
+                          }`}
+                          title={
+                            isShowingAbandoned
+                              ? 'Clique para ocultar os pacientes desistentes desta lista'
+                              : 'Clique para exibir os pacientes desistentes nesta lista'
+                          }
+                        >
+                          <UserX className={`w-3.5 h-3.5 ${isShowingAbandoned ? 'text-amber-300' : 'text-amber-400'}`} />
+                          <span>{group.abandonedCount} {group.abandonedCount === 1 ? 'desistente' : 'desistentes'}</span>
+                          <span
+                            className={`text-[9px] font-black px-1.5 py-0.2 rounded-md uppercase tracking-wider ${
+                              isShowingAbandoned
+                                ? 'bg-amber-400 text-slate-950'
+                                : 'bg-slate-700/80 text-slate-300'
+                            }`}
+                          >
+                            {isShowingAbandoned ? 'Exibindo' : 'Oculto'}
+                          </span>
+                        </button>
+                      </div>
                     </div>
                   </div>
 
-                  {/* Chamar Próximo Deste Profissional */}
-                  {group.firstWaitingItem && canCallFromGroup && (
-                    <SpecularButton
-                      type="button"
-                      id={`call-next-btn-${group.professionalId}`}
-                      onClick={() => {
-                        if (group.firstWaitingItem) {
-                          setActiveCallingItem(group.firstWaitingItem);
-                          handleCall(group.firstWaitingItem);
-                        }
-                      }}
-                      size="sm"
-                      radius={12}
-                      className="px-4 py-2 bg-gradient-to-r from-emerald-500 to-teal-500 hover:from-emerald-400 hover:to-teal-400 text-slate-950 font-black text-xs flex items-center gap-2 shadow-md shadow-emerald-500/20 border border-emerald-300/40"
-                    >
-                      <Volume2 className="w-4 h-4 text-slate-950" />
-                      <span>Chamar 1º da Fila ({(group.firstWaitingItem?.patientName || 'Próximo').split(' ')[0]})</span>
-                    </SpecularButton>
-                  )}
+                  {/* Lado Direito: Indicador de Expansão / Quantidade */}
+                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                    <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/95 group-hover:bg-slate-750 border border-indigo-400/40 text-teal-300 text-xs font-extrabold transition-all shadow-md">
+                      <span>{isExpanded ? 'Recolher Fila' : 'Expandir Fila'}</span>
+                      <span className="px-2 py-0.5 rounded-md bg-teal-500/30 text-teal-100 font-mono text-xs font-black">
+                        {group.items.length}
+                      </span>
+                      <ChevronDown
+                        className={`w-4 h-4 text-teal-400 transition-transform duration-300 ${
+                          isExpanded ? 'rotate-180' : ''
+                        }`}
+                      />
+                    </div>
+                  </div>
                 </div>
 
-                {/* Patient Cards for this Professional */}
-                <div className="space-y-2.5">
-                  {group.items.map((item) => renderPatientCard(item))}
-                </div>
+                {/* Patient Cards for this Professional (Expandable/Collapsible) */}
+                <AnimatePresence initial={false}>
+                  {isExpanded && (
+                    <motion.div
+                      key={`patient-list-${group.professionalId}`}
+                      initial={{ opacity: 0, height: 0 }}
+                      animate={{ opacity: 1, height: 'auto' }}
+                      exit={{ opacity: 0, height: 0 }}
+                      transition={{ duration: 0.25, ease: 'easeInOut' }}
+                      className="overflow-hidden space-y-2.5 pt-1"
+                    >
+                      {visibleItems.length === 0 ? (
+                        <div className="text-center py-6 px-4 rounded-2xl bg-white/50 dark:bg-slate-900/40 border border-dashed border-slate-300 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
+                          Nenhum paciente aguardando nesta fila.{' '}
+                          {group.abandonedCount > 0 && !isShowingAbandoned && (
+                            <button
+                              type="button"
+                              onClick={(e) => toggleShowAbandoned(group.professionalId, e)}
+                              className="text-amber-600 dark:text-amber-400 font-bold underline hover:opacity-80 ml-1 cursor-pointer"
+                            >
+                              Exibir {group.abandonedCount} {group.abandonedCount === 1 ? 'desistente' : 'desistentes'}
+                            </button>
+                          )}
+                        </div>
+                      ) : (
+                        visibleItems.map((item) => renderPatientCard(item))
+                      )}
+                    </motion.div>
+                  )}
+                </AnimatePresence>
               </div>
             );
           })}

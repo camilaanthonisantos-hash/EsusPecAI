@@ -827,7 +827,10 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   <Calendar className="w-3.5 h-3.5 text-amber-400" />
                   Data: {formattedSelectedDate}
                   <button
-                    onClick={() => setSelectedDate(todayStr)}
+                    onClick={() => {
+                      setSelectedDate(todayStr);
+                      setIsControlsExpanded(false);
+                    }}
                     className="ml-1 text-amber-400 hover:text-white"
                     title="Restaurar para Hoje"
                   >
@@ -840,7 +843,10 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   <Stethoscope className="w-3.5 h-3.5 text-teal-400" />
                   Profissional: {activeSelectedProfessional?.name}
                   <button
-                    onClick={() => setSelectedProfessionalId('all')}
+                    onClick={() => {
+                      setSelectedProfessionalId('all');
+                      setIsControlsExpanded(false);
+                    }}
                     className="ml-1 text-teal-400 hover:text-white"
                     title="Remover filtro de profissional"
                   >
@@ -855,6 +861,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
               onClick={() => {
                 setSelectedDate(todayStr);
                 setSelectedProfessionalId('all');
+                setIsControlsExpanded(false);
               }}
               className="text-slate-400 hover:text-teal-300 font-bold flex items-center gap-1 text-[11px] underline"
             >
@@ -1054,28 +1061,69 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
 
               {/* Vertical Animated Scroll Canvas */}
               {allCategorizedItems.length === 0 ? (
-                <div className="flex-1 flex flex-col items-center justify-center p-12 rounded-3xl bg-slate-900/40 border border-slate-800 text-center">
-                  <Users className="w-16 h-16 text-slate-600 mb-3" />
-                  <h3 className="text-xl font-bold text-slate-300">
-                    Nenhum paciente na fila {isToday ? 'de hoje' : `do dia ${selectedDate.split('-').reverse().join('/')}`}
+                <div className="flex-1 flex flex-col items-center justify-center p-8 sm:p-12 rounded-3xl bg-slate-900/40 border border-slate-800 text-center">
+                  <Users className="w-16 h-16 text-slate-600 mb-4" />
+                  <h3 className="text-xl sm:text-2xl font-black text-slate-200">
+                    {isToday ? 'Nenhum na fila hoje' : `Nenhum na fila no dia ${selectedDate.split('-').reverse().join('/')}`}
                   </h3>
-                  {selectedProfessionalId !== 'all' && (
-                    <p className="text-sm text-teal-400 mt-1 font-medium">
-                      Filtrado por: {activeSelectedProfessional?.name}
-                    </p>
-                  )}
-                  <p className="text-sm text-slate-500 max-w-sm mt-2">
-                    Os pacientes agendados ou acolhidos na recepção surgirão nesta tela automaticamente em tempo real.
-                  </p>
+
+                  {/* 2 Filtros no Card: Calendário (Dia Vigente) e Lista Suspensa de Profissionais (Todos) */}
+                  <div className="flex flex-wrap items-center justify-center gap-3 mt-6">
+                    {/* Filtro 1: Calendário */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setCalendarViewMonth(new Date(selectedDate + 'T00:00:00'));
+                        setIsCalendarModalOpen(true);
+                      }}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
+                        !isToday
+                          ? 'bg-amber-500/20 border-amber-500/50 text-amber-200 hover:bg-amber-500/30'
+                          : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
+                      }`}
+                      title="Filtrar fila por data específica"
+                    >
+                      <CalendarDays className={`w-4 h-4 ${!isToday ? 'text-amber-400' : 'text-teal-400'}`} />
+                      <span className="truncate max-w-[150px] sm:max-w-[200px]">
+                        {isToday ? 'Hoje (Dia Vigente)' : formattedSelectedDate}
+                      </span>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+
+                    {/* Filtro 2: Lista Suspensa de Profissionais */}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setProfSearchQuery('');
+                        setIsProfFilterModalOpen(true);
+                      }}
+                      className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
+                        selectedProfessionalId !== 'all'
+                          ? 'bg-teal-500/20 border-teal-500/60 text-teal-200 hover:bg-teal-500/30'
+                          : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
+                      }`}
+                      title="Filtrar por profissional de atendimento"
+                    >
+                      <Filter className={`w-4 h-4 ${selectedProfessionalId !== 'all' ? 'text-teal-300' : 'text-slate-400'}`} />
+                      <span className="truncate max-w-[140px] sm:max-w-[190px]">
+                        {activeSelectedProfessional ? activeSelectedProfessional.name : 'Todos os Profissionais'}
+                      </span>
+                      <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+                    </button>
+                  </div>
+
                   {(!isToday || selectedProfessionalId !== 'all') && (
                     <button
+                      type="button"
                       onClick={() => {
                         setSelectedDate(todayStr);
                         setSelectedProfessionalId('all');
+                        setIsControlsExpanded(false);
                       }}
-                      className="mt-4 px-4 py-2 rounded-xl bg-slate-800 text-teal-300 hover:bg-slate-700 text-xs font-bold border border-slate-700"
+                      className="mt-4 text-slate-400 hover:text-teal-300 font-bold flex items-center gap-1.5 text-xs transition-colors"
                     >
-                      Voltar para Hoje • Todos os Profissionais
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      Restaurar Padrão (Hoje • Todos os Profissionais)
                     </button>
                   )}
                 </div>
@@ -1241,6 +1289,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     yesterday.setDate(yesterday.getDate() - 1);
                     setSelectedDate(yesterday.toISOString().split('T')[0]);
                     setIsCalendarModalOpen(false);
+                    setIsControlsExpanded(false);
                   }}
                   className="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 text-center transition-colors"
                 >
@@ -1251,6 +1300,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   onClick={() => {
                     setSelectedDate(todayStr);
                     setIsCalendarModalOpen(false);
+                    setIsControlsExpanded(false);
                   }}
                   className={`py-2 px-2 rounded-xl text-xs font-black border text-center transition-colors ${
                     isToday
@@ -1267,6 +1317,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     tomorrow.setDate(tomorrow.getDate() + 1);
                     setSelectedDate(tomorrow.toISOString().split('T')[0]);
                     setIsCalendarModalOpen(false);
+                    setIsControlsExpanded(false);
                   }}
                   className="py-2 px-2 rounded-xl bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white text-xs font-bold border border-slate-700 text-center transition-colors"
                 >
@@ -1329,6 +1380,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                         onClick={() => {
                           setSelectedDate(item.dateStr);
                           setIsCalendarModalOpen(false);
+                          setIsControlsExpanded(false);
                         }}
                         className={`h-11 rounded-xl flex flex-col items-center justify-center p-1 text-xs relative transition-all ${
                           isSelected
@@ -1368,6 +1420,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     if (e.target.value) {
                       setSelectedDate(e.target.value);
                       setIsCalendarModalOpen(false);
+                      setIsControlsExpanded(false);
                     }
                   }}
                   className="bg-slate-800 border border-slate-700 rounded-xl px-3 py-1.5 text-xs text-slate-200 font-mono focus:outline-none focus:border-teal-500"
@@ -1430,6 +1483,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   onClick={() => {
                     setSelectedProfessionalId('all');
                     setIsProfFilterModalOpen(false);
+                    setIsControlsExpanded(false);
                   }}
                   className={`w-full p-3 rounded-2xl border transition-all flex items-center justify-between text-left ${
                     selectedProfessionalId === 'all'
@@ -1471,6 +1525,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                         onClick={() => {
                           setSelectedProfessionalId(prof.id);
                           setIsProfFilterModalOpen(false);
+                          setIsControlsExpanded(false);
                         }}
                         className={`w-full p-3 rounded-2xl border transition-all flex items-center justify-between text-left ${
                           isSelected
