@@ -301,6 +301,77 @@ export function numberToDaysExtenso(days: number): string {
   return `${numPadded} (${word}) ${suffix}`;
 }
 
+/**
+ * Retorna o título legível da profissão do profissional ajustado por gênero (ex: "Médica", "Médico", "Enfermeira", "Enfermeiro", etc.)
+ */
+export function getProfessionalProfessionTitle(
+  prof?: { profession?: string; gender?: string; name?: string } | null,
+  fallbackProfessionId?: string
+): string {
+  const rawId = (prof?.profession || fallbackProfessionId || '').toLowerCase().trim();
+  const gender = (prof?.gender || '').toLowerCase().trim();
+  const isFemale = gender === 'f' || gender.startsWith('fem') || gender === 'mulher';
+
+  const mapFemale: Record<string, string> = {
+    medico: 'Médica',
+    enfermeiro: 'Enfermeira',
+    psicologo: 'Psicóloga',
+    psicopedagogo: 'Psicopedagoga',
+    nutricionista: 'Nutricionista',
+    assistente_social: 'Assistente Social',
+    educador_fisico: 'Educadora Física',
+    fisioterapeuta: 'Fisioterapeuta',
+    terapeuta_ocupacional: 'Terapeuta Ocupacional',
+    fonoaudiologo: 'Fonoaudióloga',
+    farmaceutico: 'Farmacêutica',
+    cirurgiao_dentista: 'Cirurgiã-Dentista',
+    dentista: 'Cirurgiã-Dentista',
+    tecnico_enfermagem: 'Técnica de Enfermagem',
+    auxiliar_enfermagem: 'Auxiliar de Enfermagem',
+    acs: 'Agente Comunitária de Saúde (ACS)',
+    ace: 'Agente de Combate às Endemias (ACE)',
+    administrativo: 'Recepcionista / Administrativo',
+  };
+
+  const mapMaleOrDefault: Record<string, string> = {
+    medico: 'Médico',
+    enfermeiro: 'Enfermeiro',
+    psicologo: 'Psicólogo',
+    psicopedagogo: 'Psicopedagogo',
+    nutricionista: 'Nutricionista',
+    assistente_social: 'Assistente Social',
+    educador_fisico: 'Educador Físico',
+    fisioterapeuta: 'Fisioterapeuta',
+    terapeuta_ocupacional: 'Terapeuta Ocupacional',
+    fonoaudiologo: 'Fonoaudiólogo',
+    farmaceutico: 'Farmacêutico',
+    cirurgiao_dentista: 'Cirurgião-Dentista',
+    dentista: 'Cirurgião-Dentista',
+    tecnico_enfermagem: 'Técnico de Enfermagem',
+    auxiliar_enfermagem: 'Auxiliar de Enfermagem',
+    acs: 'Agente Comunitário de Saúde (ACS)',
+    ace: 'Agente de Combate às Endemias (ACE)',
+    administrativo: 'Recepcionista / Administrativo',
+  };
+
+  if (isFemale && mapFemale[rawId]) {
+    return mapFemale[rawId];
+  }
+  if (mapMaleOrDefault[rawId]) {
+    return mapMaleOrDefault[rawId];
+  }
+
+  if (rawId && PROFESSIONS[rawId as ProfessionId]?.name) {
+    return PROFESSIONS[rawId as ProfessionId].name;
+  }
+
+  if (prof?.profession) {
+    return prof.profession;
+  }
+
+  return 'Profissional de Saúde';
+}
+
 export const PROFESSIONS: Record<ProfessionId, ProfessionConfig> = {
   enfermeiro: {
     id: 'enfermeiro',

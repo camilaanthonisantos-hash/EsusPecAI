@@ -39,7 +39,7 @@ import {
   RiskClassification,
   Appointment,
 } from '../types';
-import { PROFESSIONS, isUserAdmin } from '../data/professions';
+import { PROFESSIONS, isUserAdmin, getProfessionalProfessionTitle } from '../data/professions';
 import {
   calculateChronologicalAge,
   formatSimpleAge,
@@ -1006,13 +1006,14 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
                       );
                       const article = getProfessionalArticle(matchedProf, item.professionalName);
+                      const profTitle = getProfessionalProfessionTitle(matchedProf, item.professionalProfession);
 
                       let message = '';
                       if (isAbandonedOrCancelled) {
-                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.`;
+                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta com ${article} *${profName}* (*${profTitle}*) do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.`;
                       } else {
                         const remainingTime = formatRemainingTime(item.scheduledDate, item.scheduledTime, item.timestamp);
-                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}.`;
+                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}.`;
                       }
 
                       if (phone) {

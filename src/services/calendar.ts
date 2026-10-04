@@ -1,5 +1,6 @@
 import { Appointment, AvailableTimeSlot, ScheduleConfig, User, ProfessionalService } from '../types';
 import { DEFAULT_SCHEDULE_CONFIG, getDefaultServicesForProfession } from '../data/defaultSchedule';
+import { getProfessionalProfessionTitle } from '../data/professions';
 
 /**
  * Checks if a given Google Calendar ID is a valid secondary calendar.
@@ -245,7 +246,7 @@ export function generateGoogleCalendarUrl(appointment: Appointment): string {
 /**
  * Generates WhatsApp reminder link for patients
  */
-export function generateWhatsAppReminderLink(appointment: Appointment): string {
+export function generateWhatsAppReminderLink(appointment: Appointment, professionalObj?: User): string {
   const cleanPhone = (appointment.patientPhone || '').replace(/\D/g, '');
   let dateFormatted = appointment.date || 'Hoje';
   try {
@@ -259,13 +260,18 @@ export function generateWhatsAppReminderLink(appointment: Appointment): string {
     // fallback
   }
 
+  const profTitle = getProfessionalProfessionTitle(professionalObj, appointment.professionalProfession);
+  const professionalDisplay = appointment.professionalName
+    ? `*${appointment.professionalName}* (*${profTitle}*)`
+    : `*Profissional* (*${profTitle}*)`;
+
   const message = encodeURIComponent(
     `🏥 *Lembrete de Agendamento - e-SUS PEC Multiprofissional*\n\n` +
     `Olá *${appointment.patientName || 'Paciente'}*!\n\n` +
     `Seu atendimento está confirmado com os seguintes dados:\n` +
     `📅 *Data:* ${dateFormatted}\n` +
     `⏰ *Horário:* ${appointment.startTime || ''} às ${appointment.endTime || ''}\n` +
-    `👨‍⚕️ *Profissional:* ${appointment.professionalName || ''}\n` +
+    `👨‍⚕️ *Profissional:* ${professionalDisplay}\n` +
     `📋 *Serviço:* ${appointment.serviceName || 'Consulta'}\n` +
     `📍 *Local:* Atendimento e-SUS PEC / Unidade de Saúde\n\n` +
     `Em caso de dúvidas ou necessidade de reagendamento, favor nos avisar com antecedência. Tenha um ótimo dia!`

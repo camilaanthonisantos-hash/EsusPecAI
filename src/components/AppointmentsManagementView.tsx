@@ -602,7 +602,14 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
 
                       {/* WhatsApp Reminder Link */}
                       <a
-                        href={generateWhatsAppReminderLink(app)}
+                        href={generateWhatsAppReminderLink(
+                          app,
+                          professionals.find(
+                            (p) =>
+                              (app.professionalId && p.id === app.professionalId) ||
+                              (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
+                          )
+                        )}
                         target="_blank"
                         rel="noopener noreferrer"
                         id={`btn-whatsapp-link-${app.id}`}
