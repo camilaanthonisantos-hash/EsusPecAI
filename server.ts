@@ -3814,7 +3814,7 @@ function sanitizeForFirestoreServer(val: any): any {
   return clean;
 }
 
-// GET all items in collection (Supabase PostgreSQL + Cloud Firestore merged seamlessly with local store)
+// GET all items in collection (Supabase PostgreSQL primary source of truth merged with local store)
 app.get("/api/db/:collection", async (req, res) => {
   const { collection } = req.params;
   const localData = readStoreData(collection, collection === "settings" ? {} : []);
@@ -3849,48 +3849,15 @@ app.get("/api/db/:collection", async (req, res) => {
   }
 
   if (collection === "settings") {
-    try {
-      const snap = await getServerDoc(serverDoc(serverDb, "system_settings", "global"));
-      if (snap.exists()) {
-        const firestoreData = snap.data();
-        const mergedSettings = { ...localData, ...firestoreData };
-        if (JSON.stringify(localData) !== JSON.stringify(mergedSettings)) {
-          writeStoreData("settings", mergedSettings);
-        }
-        return res.json({ success: true, collection, data: mergedSettings });
-      }
-    } catch (err: any) {
-      console.warn(`[ServerFirestore] Leitura remota para settings em fallback:`, err?.message || err);
-    }
     return res.json({ success: true, collection, data: localData });
   }
 
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  let firestoreItems: any[] = [];
-  try {
-    const snap = await getServerDocs(serverCollection(serverDb, firestoreColName));
-    if (!snap.empty) {
-      snap.forEach((docSnap) => {
-        firestoreItems.push({ ...docSnap.data(), id: docSnap.id });
-      });
-    }
-  } catch (err: any) {
-    console.warn(`[ServerFirestore] Leitura remota para ${collection} em fallback:`, err?.message || err);
-  }
-
-  // Seamless merge by item ID to guarantee no items are dropped across Supabase, Firestore, and local store
+  // Seamless merge by item ID to guarantee no items are dropped across Supabase and local store
   const mergedMap = new Map<string, any>();
 
   // 1. Put Supabase items (primary source of truth)
   supabaseItems.forEach((it) => {
     if (it && it.id) mergedMap.set(it.id, it);
-  });
-
-  // 2. Put Firestore items if not already in map
-  firestoreItems.forEach((it) => {
-    if (it && it.id && !mergedMap.has(it.id)) {
-      mergedMap.set(it.id, it);
-    }
   });
 
   // 3. Put local store items, preserving any local items not yet synced
@@ -4012,12 +3979,8 @@ app.post("/api/db/:collection", async (req, res) => {
 
   writeStoreData(collection, list);
 
-  // Sync to Supabase PostgreSQL & Cloud Firestore
+  // Sync to Supabase PostgreSQL
   syncItemToSupabase(collection, itemWithId).catch(() => {});
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  serverSetDoc(serverDoc(serverDb, firestoreColName, itemId), sanitizeForFirestoreServer(itemWithId), { merge: true }).catch((err) => {
-    console.warn(`[ServerFirestore] Erro ao sincronizar ${itemId} em ${collection} no Firestore:`, err?.message || err);
-  });
 
   // Post-Atendimento Trigger: If saving a clinical consultation, automatically generate/update clinical evolution for the patient
   if (collection === "consultations" && itemWithId.patientId) {
@@ -4042,7 +4005,7 @@ app.post("/api/db/:collection", async (req, res) => {
               });
 
               if (!skippedAi) {
-                // Save to datastore & Firestore
+                // Save to datastore & Supabase
                 const evolutionsList: any[] = readStoreData("clinical_evolutions", []);
                 const exIdx = evolutionsList.findIndex((e) => e && (e.patientId === targetPatient.id || e.id === targetPatient.id));
                 if (exIdx >= 0) {
@@ -4051,8 +4014,7 @@ app.post("/api/db/:collection", async (req, res) => {
                   evolutionsList.unshift(parsedEvolution);
                 }
                 writeStoreData("clinical_evolutions", evolutionsList);
-
-                await serverSetDoc(serverDoc(serverDb, "clinical_evolutions", targetPatient.id), parsedEvolution, { merge: true });
+                syncItemToSupabase("clinical_evolutions", parsedEvolution).catch(() => {});
                 console.log(`[Auto-Evolution Trigger] Sucesso: Evolução longitudinal do paciente ${targetPatient.fullName} atualizada e persistida (incremental).`);
               } else {
                 console.log(`[Auto-Evolution Trigger] Paciente ${targetPatient.fullName} já estava com prontuário em dia. IA economizada.`);
@@ -4136,8 +4098,7 @@ function initNightlyEvolutionBatchJob() {
               evolutionsList.unshift(parsedEvolution);
             }
             writeStoreData("clinical_evolutions", evolutionsList);
-
-            await serverSetDoc(serverDoc(serverDb, "clinical_evolutions", patient.id), parsedEvolution, { merge: true });
+            syncItemToSupabase("clinical_evolutions", parsedEvolution).catch(() => {});
             console.log(`[Nightly Evolution Batch] Evolução incremental atualizada para paciente: ${patient.fullName}`);
 
             // 1.5 second pause between patients to prevent API throttling
@@ -4155,19 +4116,15 @@ function initNightlyEvolutionBatchJob() {
   }, 60 * 1000); // Check every minute
 }
 
-// DELETE item from collection (Deletes simultaneously from local store & Cloud Firestore)
+// DELETE item from collection (Deletes from local store & Supabase)
 app.delete("/api/db/:collection/:id", async (req, res) => {
   const { collection, id } = req.params;
   const list: any[] = readStoreData(collection, []);
   const filtered = list.filter((x) => x && x.id !== id);
   writeStoreData(collection, filtered);
 
-  // Sync delete to Supabase PostgreSQL & Cloud Firestore
+  // Sync delete to Supabase PostgreSQL
   syncItemToSupabase(collection, null, true, id).catch(() => {});
-  const firestoreColName = collection === "settings" ? "system_settings" : collection;
-  serverDeleteDoc(serverDoc(serverDb, firestoreColName, id)).catch((err) => {
-    console.warn(`[ServerFirestore] Erro ao deletar ${id} em ${collection} no Firestore:`, err?.message || err);
-  });
 
   res.json({ success: true, id, remaining: filtered.length });
 });

@@ -92,6 +92,9 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
   const [isProfFilterModalOpen, setIsProfFilterModalOpen] = useState<boolean>(false);
   const [profSearchQuery, setProfSearchQuery] = useState<string>('');
 
+  // Mobile toggle state for expanding/collapsing header and queue controls
+  const [isMobileControlsExpanded, setIsMobileControlsExpanded] = useState<boolean>(false);
+
   // Scroll & Animation States
   const [isScrollPausedByUser, setIsScrollPausedByUser] = useState<boolean>(false);
   const scrollContainerRef = useRef<HTMLDivElement | null>(null);
@@ -661,17 +664,41 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
       )}
 
       {/* 2. Top TV Header */}
-      <header className="p-3 sm:p-5 lg:p-6 bg-slate-900/95 border-b border-slate-800 shadow-2xl backdrop-blur-md shrink-0 z-20">
-        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-4">
-          {/* Unit Brand */}
-          <div className="flex items-center text-center lg:text-left">
-            <h1 className="text-xl sm:text-3xl font-black tracking-wider text-white uppercase drop-shadow-sm">
-              PAINEL ATENDIMENTO
-            </h1>
+      <header className="p-3 sm:p-4 lg:p-6 bg-slate-900/95 border-b border-slate-800 shadow-2xl backdrop-blur-md shrink-0 z-20 transition-all">
+        <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-3 lg:gap-4">
+          {/* Unit Brand & Mobile Clock Top Row */}
+          <div className="flex items-center justify-between w-full lg:w-auto">
+            {/* Clickable Title that toggles mobile controls */}
+            <button
+              type="button"
+              id="tv-mobile-toggle-btn"
+              onClick={() => setIsMobileControlsExpanded((prev) => !prev)}
+              className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer select-none"
+              title="Clique para expandir/recolher controles no celular"
+            >
+              <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-wider text-white uppercase drop-shadow-sm group-hover:text-teal-300 transition-colors">
+                PAINEL ATENDIMENTO
+              </h1>
+              <div className="lg:hidden p-1 rounded-xl bg-slate-800/90 border border-slate-700 text-teal-400 group-hover:bg-slate-700 group-hover:border-teal-500/50 transition-all shadow-sm">
+                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isMobileControlsExpanded ? 'rotate-180 text-teal-300' : 'text-slate-400'}`} />
+              </div>
+            </button>
+
+            {/* Mobile-Only Live Clock: ALWAYS VISIBLE (mantenha a amostra) */}
+            <div className="flex lg:hidden flex-col items-end px-2">
+              <div className="flex items-baseline gap-1 text-xl sm:text-2xl font-black font-mono tracking-wider text-teal-300">
+                <span>{formattedHoursMinutes}</span>
+                <span className="text-xs text-slate-400 font-bold">:{formattedSeconds}</span>
+              </div>
+            </div>
           </div>
 
-          {/* Quick Filters (Date Picker + Professional Selector) & Clock & Controls */}
-          <div className="flex flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4">
+          {/* Quick Filters (Date Picker + Professional Selector) & Desktop Clock & Controls Container */}
+          <div
+            className={`w-full lg:w-auto ${
+              isMobileControlsExpanded ? 'flex flex-col sm:flex-row' : 'hidden lg:flex'
+            } flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4 pt-3 lg:pt-0 border-t border-slate-800/80 lg:border-t-0`}
+          >
             {/* Filter 1: Date Picker Trigger */}
             <button
               type="button"
@@ -716,8 +743,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
               <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
             </button>
 
-            {/* Live Clock */}
-            <div className="flex flex-col items-center lg:items-end px-2 border-l border-slate-800">
+            {/* Desktop-Only Live Clock (mantenha a amostra no desktop) */}
+            <div className="hidden lg:flex flex-col items-center lg:items-end px-2 border-l border-slate-800">
               <div className="flex items-baseline gap-1 text-xl sm:text-3xl font-black font-mono tracking-wider text-teal-300">
                 <span>{formattedHoursMinutes}</span>
                 <span className="text-xs sm:text-sm text-slate-400 font-bold">:{formattedSeconds}</span>
@@ -725,7 +752,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
             </div>
 
             {/* Quick TV Control Buttons */}
-            <div className="flex items-center gap-2 border-l border-slate-800 pl-3">
+            <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3 w-full sm:w-auto justify-center">
               {/* QR Code trigger */}
               <SpecularButton
                 type="button"
@@ -783,7 +810,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border-slate-700 text-xs font-bold"
                 >
                   <ArrowLeft className="w-4 h-4" />
-                  <span className="hidden sm:inline">Voltar</span>
+                  <span>Voltar</span>
                 </SpecularButton>
               )}
             </div>
@@ -792,7 +819,11 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
 
         {/* Active Filter Notice Bar (if viewing non-today or specific professional) */}
         {(!isToday || selectedProfessionalId !== 'all') && (
-          <div className="max-w-7xl mx-auto mt-3 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div
+            className={`max-w-7xl mx-auto mt-3 pt-3 border-t border-slate-800 ${
+              isMobileControlsExpanded ? 'flex' : 'hidden lg:flex'
+            } flex-wrap items-center justify-between gap-2 text-xs`}
+          >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-slate-400">Filtros ativos:</span>
               {!isToday && (
@@ -939,7 +970,9 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                ========================================================================= */
             <div className="flex flex-col h-full space-y-3 relative">
               {/* Summary Stats & Scroll Navigation Controls Bar */}
-              <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-lg shrink-0">
+              <div className={`${
+                isMobileControlsExpanded ? 'flex' : 'hidden lg:flex'
+              } flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-lg shrink-0 transition-all`}>
                 {/* Stats */}
                 <div className="flex items-center gap-2.5">
                   <Users className="w-5 h-5 text-teal-400" />

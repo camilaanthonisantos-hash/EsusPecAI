@@ -40,6 +40,7 @@ import { ProfessionalRegisterInputs } from './ProfessionalRegisterInputs';
 import { WorkplaceSelectInput } from './WorkplaceSelectInput';
 import { formatName, formatEmail } from '../utils/textFormatters';
 import { saveUserToFirestore } from '../services/firebase';
+import { supabase } from '../services/supabase';
 
 interface AuthModalProps {
   isOpen: boolean;
@@ -226,23 +227,49 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } catch {}
     }
 
-    // 2. If existing user found but password doesn't match in memory, or if user not found, check server /api/db/users
+    // 2. If existing user found but password doesn't match in memory, or if user not found, check Supabase directly and server
     if (!existingUser || (existingUser.password && passClean && existingUser.password !== passClean)) {
       try {
-        const res = await fetch('/api/db/users');
-        if (res.ok) {
-          const json = await res.json();
-          if (json.data && Array.isArray(json.data)) {
-            const serverUser = json.data.find(
-              (u: User) => u.email && u.email.trim().toLowerCase() === emailClean
-            );
-            if (serverUser) {
-              existingUser = serverUser;
-              onUpdateUser?.(serverUser);
-            }
+        const { data: sbUsers } = await supabase.from('users').select('*');
+        if (sbUsers && Array.isArray(sbUsers)) {
+          const foundSb = sbUsers.find(
+            (u: any) =>
+              (u.email && u.email.trim().toLowerCase() === emailClean) ||
+              (u.raw_data?.email && u.raw_data.email.trim().toLowerCase() === emailClean)
+          );
+          if (foundSb) {
+            const parsedUser: User = {
+              ...(foundSb.raw_data || {}),
+              id: foundSb.id,
+              name: foundSb.name || foundSb.raw_data?.name,
+              email: foundSb.email || foundSb.raw_data?.email,
+              role: foundSb.role || foundSb.raw_data?.role || 'user',
+              profession: foundSb.profession || foundSb.raw_data?.profession,
+              password: foundSb.raw_data?.password || foundSb.password,
+            };
+            existingUser = parsedUser;
+            onUpdateUser?.(parsedUser);
           }
         }
       } catch {}
+
+      if (!existingUser || (existingUser.password && passClean && existingUser.password !== passClean)) {
+        try {
+          const res = await fetch('/api/db/users');
+          if (res.ok) {
+            const json = await res.json();
+            if (json.data && Array.isArray(json.data)) {
+              const serverUser = json.data.find(
+                (u: User) => u.email && u.email.trim().toLowerCase() === emailClean
+              );
+              if (serverUser) {
+                existingUser = serverUser;
+                onUpdateUser?.(serverUser);
+              }
+            }
+          }
+        } catch {}
+      }
     }
 
     if (!existingUser) {
@@ -467,10 +494,22 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       password: newPass,
     };
 
-    // 1. Save to Cloud Firestore & Supabase direct
+    // 1. Save directly to Supabase
+    try {
+      await supabase.from('users').upsert({
+        id: updatedUser.id,
+        name: updatedUser.name || null,
+        email: updatedUser.email || null,
+        role: updatedUser.role || 'user',
+        profession: updatedUser.profession || null,
+        raw_data: updatedUser,
+        updated_at: Date.now(),
+      });
+    } catch {}
+
+    // 2. Save via saveUserToFirestore & server
     await saveUserToFirestore(updatedUser);
 
-    // 2. Save directly to Server Persistent Store
     try {
       await fetch('/api/db/users', {
         method: 'POST',
