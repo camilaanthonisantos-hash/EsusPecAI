@@ -92,8 +92,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
   const [isProfFilterModalOpen, setIsProfFilterModalOpen] = useState<boolean>(false);
   const [profSearchQuery, setProfSearchQuery] = useState<string>('');
 
-  // Mobile toggle state for expanding/collapsing header and queue controls
-  const [isMobileControlsExpanded, setIsMobileControlsExpanded] = useState<boolean>(false);
+  // State for expanding/collapsing header filters, quick controls, and queue stats (Components 3, 4, 5, 6, 7)
+  const [isControlsExpanded, setIsControlsExpanded] = useState<boolean>(false);
 
   // Scroll & Animation States
   const [isScrollPausedByUser, setIsScrollPausedByUser] = useState<boolean>(false);
@@ -608,7 +608,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
           {isWaiting && (
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-xl bg-teal-500/10 text-teal-300 border border-teal-500/30 text-xs font-black uppercase tracking-wider">
-                Aguardando
+                AGUARDANDO
               </span>
               <span className="px-3 py-1 rounded-xl bg-slate-800 text-slate-300 font-mono text-xs sm:text-sm font-bold border border-slate-700">
                 {item.scheduledTime || '08:00'}
@@ -620,7 +620,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
             <div className="flex items-center gap-2">
               <span className="px-3 py-1 rounded-xl bg-emerald-500/20 text-emerald-300 border border-emerald-500/40 text-xs font-black uppercase tracking-wider flex items-center gap-1">
                 <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400" />
-                <span>Atendido</span>
+                <span>ATENDIDO</span>
               </span>
               <span className="px-3 py-1 rounded-xl bg-slate-800/80 text-slate-400 font-mono text-xs font-bold">
                 Concluído
@@ -635,7 +635,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   ? 'bg-amber-500/15 text-amber-300 border-amber-500/30'
                   : 'bg-rose-500/15 text-rose-300 border-rose-500/30'
               }`}>
-                {item.status === 'abandoned' ? 'Desistência' : 'Cancelado'}
+                {item.status === 'abandoned' ? 'DESISTÊNCIA' : 'CANCELADO'}
               </span>
             </div>
           )}
@@ -666,163 +666,159 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
       {/* 2. Top TV Header */}
       <header className="p-3 sm:p-4 lg:p-6 bg-slate-900/95 border-b border-slate-800 shadow-2xl backdrop-blur-md shrink-0 z-20 transition-all">
         <div className="max-w-7xl mx-auto flex flex-col lg:flex-row items-center justify-between gap-3 lg:gap-4">
-          {/* Unit Brand & Mobile Clock Top Row */}
-          <div className="flex items-center justify-between w-full lg:w-auto">
-            {/* Clickable Title that toggles mobile controls */}
+          {/* Top Brand (Component 1) & Clock (Component 2) Row */}
+          <div className="flex items-center justify-between w-full lg:w-auto gap-4 sm:gap-6">
+            {/* Clickable Title (Component 1) */}
             <button
               type="button"
-              id="tv-mobile-toggle-btn"
-              onClick={() => setIsMobileControlsExpanded((prev) => !prev)}
+              id="tv-panel-toggle-btn"
+              onClick={() => setIsControlsExpanded((prev) => !prev)}
               className="flex items-center gap-2.5 group text-left focus:outline-none cursor-pointer select-none"
-              title="Clique para expandir/recolher controles no celular"
+              title="Clique no PAINEL ou no Relógio para expandir/recolher controles"
             >
               <h1 className="text-xl sm:text-2xl lg:text-3xl font-black tracking-wider text-white uppercase drop-shadow-sm group-hover:text-teal-300 transition-colors">
-                PAINEL ATENDIMENTO
+                PAINEL
               </h1>
-              <div className="lg:hidden p-1 rounded-xl bg-slate-800/90 border border-slate-700 text-teal-400 group-hover:bg-slate-700 group-hover:border-teal-500/50 transition-all shadow-sm">
-                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isMobileControlsExpanded ? 'rotate-180 text-teal-300' : 'text-slate-400'}`} />
+              <div className="p-1 rounded-xl bg-slate-800/90 border border-slate-700 text-teal-400 group-hover:bg-slate-700 group-hover:border-teal-500/50 transition-all shadow-sm">
+                <ChevronDown className={`w-4 h-4 transition-transform duration-300 ${isControlsExpanded ? 'rotate-180 text-teal-300' : 'text-slate-400'}`} />
               </div>
             </button>
 
-            {/* Mobile-Only Live Clock: ALWAYS VISIBLE (mantenha a amostra) */}
-            <div className="flex lg:hidden flex-col items-end px-2">
-              <div className="flex items-baseline gap-1 text-xl sm:text-2xl font-black font-mono tracking-wider text-teal-300">
+            {/* Clickable Clock (Component 2) - Expands components 3, 4, 5, 6, 7 when clicked */}
+            <button
+              type="button"
+              id="tv-clock-toggle-btn"
+              onClick={() => setIsControlsExpanded((prev) => !prev)}
+              className="flex items-center px-2.5 py-1 rounded-xl bg-slate-850/60 hover:bg-slate-800 border border-slate-800 hover:border-teal-500/40 transition-all cursor-pointer group select-none text-right shadow-inner"
+              title="Clique no Relógio para expandir/recolher ferramentas e controles"
+            >
+              <div className="flex items-baseline gap-1 text-xl sm:text-2xl lg:text-3xl font-black font-mono tracking-wider text-teal-300 group-hover:text-teal-200 transition-colors">
                 <span>{formattedHoursMinutes}</span>
-                <span className="text-xs text-slate-400 font-bold">:{formattedSeconds}</span>
+                <span className="text-xs sm:text-sm text-slate-400 font-bold group-hover:text-teal-400">:{formattedSeconds}</span>
               </div>
-            </div>
+            </button>
           </div>
 
-          {/* Quick Filters (Date Picker + Professional Selector) & Desktop Clock & Controls Container */}
-          <div
-            className={`w-full lg:w-auto ${
-              isMobileControlsExpanded ? 'flex flex-col sm:flex-row' : 'hidden lg:flex'
-            } flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4 pt-3 lg:pt-0 border-t border-slate-800/80 lg:border-t-0`}
-          >
-            {/* Filter 1: Date Picker Trigger */}
-            <button
-              type="button"
-              id="tv-calendar-filter-btn"
-              onClick={() => {
-                setCalendarViewMonth(new Date(selectedDate + 'T00:00:00'));
-                setIsCalendarModalOpen(true);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
-                !isToday
-                  ? 'bg-amber-500/20 border-amber-500/50 text-amber-200 hover:bg-amber-500/30'
-                  : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
-              }`}
-              title="Filtrar fila por data específica"
+          {/* Expanded Controls Container (Components 3, 4, 5) */}
+          {isControlsExpanded && (
+            <div
+              className="w-full lg:w-auto flex flex-col sm:flex-row flex-wrap items-center justify-center lg:justify-end gap-3 sm:gap-4 pt-3 lg:pt-0 border-t border-slate-800/80 lg:border-t-0 animate-in fade-in slide-in-from-top-2 duration-200"
             >
-              <CalendarDays className={`w-4 h-4 ${!isToday ? 'text-amber-400' : 'text-teal-400'}`} />
-              <span className="truncate max-w-[140px] sm:max-w-[180px]">
-                {isToday ? 'Hoje (Dia Vigente)' : formattedSelectedDate}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-
-            {/* Filter 2: Professional Filter Trigger */}
-            <button
-              type="button"
-              id="tv-prof-filter-btn"
-              onClick={() => {
-                setProfSearchQuery('');
-                setIsProfFilterModalOpen(true);
-              }}
-              className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
-                selectedProfessionalId !== 'all'
-                  ? 'bg-teal-500/20 border-teal-500/60 text-teal-200 hover:bg-teal-500/30'
-                  : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
-              }`}
-              title="Filtrar por profissional de atendimento"
-            >
-              <Filter className={`w-4 h-4 ${selectedProfessionalId !== 'all' ? 'text-teal-300' : 'text-slate-400'}`} />
-              <span className="truncate max-w-[130px] sm:max-w-[170px]">
-                {activeSelectedProfessional ? activeSelectedProfessional.name : 'Todos os Profissionais'}
-              </span>
-              <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
-            </button>
-
-            {/* Desktop-Only Live Clock (mantenha a amostra no desktop) */}
-            <div className="hidden lg:flex flex-col items-center lg:items-end px-2 border-l border-slate-800">
-              <div className="flex items-baseline gap-1 text-xl sm:text-3xl font-black font-mono tracking-wider text-teal-300">
-                <span>{formattedHoursMinutes}</span>
-                <span className="text-xs sm:text-sm text-slate-400 font-bold">:{formattedSeconds}</span>
-              </div>
-            </div>
-
-            {/* Quick TV Control Buttons */}
-            <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3 w-full sm:w-auto justify-center">
-              {/* QR Code trigger */}
-              <SpecularButton
+              {/* Component 3: Date Picker Trigger */}
+              <button
                 type="button"
-                id="tv-open-qr-modal-btn"
-                onClick={() => setIsQrModalOpen(true)}
-                size="icon"
-                radius={12}
-                className="bg-slate-800 hover:bg-slate-750 text-teal-300 hover:text-white border-slate-700"
-                title="Ver QR Code para Celular"
-              >
-                <QrCode className="w-5 h-5" />
-              </SpecularButton>
-
-              {/* Sound Toggle */}
-              <SpecularButton
-                type="button"
-                id="tv-sound-toggle-btn"
+                id="tv-calendar-filter-btn"
                 onClick={() => {
-                  if (!isAudioEnabled) playHospitalCallChime();
-                  setIsAudioEnabled(!isAudioEnabled);
+                  setCalendarViewMonth(new Date(selectedDate + 'T00:00:00'));
+                  setIsCalendarModalOpen(true);
                 }}
-                size="icon"
-                radius={12}
-                className={`${
-                  isAudioEnabled
-                    ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 hover:bg-teal-500/30'
-                    : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300'
+                className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
+                  !isToday
+                    ? 'bg-amber-500/20 border-amber-500/50 text-amber-200 hover:bg-amber-500/30'
+                    : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
                 }`}
-                title={isAudioEnabled ? 'Áudio Ativado (Voz & Som da Chamada)' : 'Áudio Desativado'}
+                title="Filtrar fila por data específica"
               >
-                {isAudioEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
-              </SpecularButton>
+                <CalendarDays className={`w-4 h-4 ${!isToday ? 'text-amber-400' : 'text-teal-400'}`} />
+                <span className="truncate max-w-[140px] sm:max-w-[180px]">
+                  {isToday ? 'Hoje (Dia Vigente)' : formattedSelectedDate}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
 
-              {/* Fullscreen Toggle */}
-              <SpecularButton
+              {/* Component 4: Professional Filter Trigger */}
+              <button
                 type="button"
-                id="tv-fullscreen-toggle-btn"
-                onClick={toggleFullscreen}
-                size="icon"
-                radius={12}
-                className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border-slate-700"
-                title={isFullscreen ? 'Sair da Tela Cheia' : 'Modo Tela Cheia (TV)'}
+                id="tv-prof-filter-btn"
+                onClick={() => {
+                  setProfSearchQuery('');
+                  setIsProfFilterModalOpen(true);
+                }}
+                className={`flex items-center gap-2 px-3 py-2 rounded-2xl text-xs sm:text-sm font-bold border transition-all ${
+                  selectedProfessionalId !== 'all'
+                    ? 'bg-teal-500/20 border-teal-500/60 text-teal-200 hover:bg-teal-500/30'
+                    : 'bg-slate-800/90 border-slate-700 text-slate-200 hover:bg-slate-750 hover:border-teal-500/50'
+                }`}
+                title="Filtrar por profissional de atendimento"
               >
-                {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
-              </SpecularButton>
+                <Filter className={`w-4 h-4 ${selectedProfessionalId !== 'all' ? 'text-teal-300' : 'text-slate-400'}`} />
+                <span className="truncate max-w-[130px] sm:max-w-[170px]">
+                  {activeSelectedProfessional ? activeSelectedProfessional.name : 'Todos os Profissionais'}
+                </span>
+                <ChevronDown className="w-3.5 h-3.5 text-slate-400" />
+              </button>
 
-              {/* Exit/Back button */}
-              {handleExit && (
+              {/* Component 5: Quick TV Control Buttons */}
+              <div className="flex items-center gap-2 border-t sm:border-t-0 sm:border-l border-slate-800 pt-2 sm:pt-0 sm:pl-3 w-full sm:w-auto justify-center">
+                {/* QR Code trigger */}
                 <SpecularButton
                   type="button"
-                  id="tv-back-to-panel-btn"
-                  onClick={handleExit}
-                  size="sm"
+                  id="tv-open-qr-modal-btn"
+                  onClick={() => setIsQrModalOpen(true)}
+                  size="icon"
                   radius={12}
-                  className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border-slate-700 text-xs font-bold"
+                  className="bg-slate-800 hover:bg-slate-750 text-teal-300 hover:text-white border-slate-700"
+                  title="Ver QR Code para Celular"
                 >
-                  <ArrowLeft className="w-4 h-4" />
-                  <span>Voltar</span>
+                  <QrCode className="w-5 h-5" />
                 </SpecularButton>
-              )}
+
+                {/* Sound Toggle */}
+                <SpecularButton
+                  type="button"
+                  id="tv-sound-toggle-btn"
+                  onClick={() => {
+                    if (!isAudioEnabled) playHospitalCallChime();
+                    setIsAudioEnabled(!isAudioEnabled);
+                  }}
+                  size="icon"
+                  radius={12}
+                  className={`${
+                    isAudioEnabled
+                      ? 'bg-teal-500/20 text-teal-300 border-teal-500/40 hover:bg-teal-500/30'
+                      : 'bg-slate-800 text-slate-500 border-slate-700 hover:text-slate-300'
+                  }`}
+                  title={isAudioEnabled ? 'Áudio Ativado (Voz & Som da Chamada)' : 'Áudio Desativado'}
+                >
+                  {isAudioEnabled ? <Volume2 className="w-5 h-5" /> : <VolumeX className="w-5 h-5" />}
+                </SpecularButton>
+
+                {/* Fullscreen Toggle */}
+                <SpecularButton
+                  type="button"
+                  id="tv-fullscreen-toggle-btn"
+                  onClick={toggleFullscreen}
+                  size="icon"
+                  radius={12}
+                  className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border-slate-700"
+                  title={isFullscreen ? 'Sair da Tela Cheia' : 'Modo Tela Cheia (TV)'}
+                >
+                  {isFullscreen ? <Minimize2 className="w-5 h-5" /> : <Maximize2 className="w-5 h-5" />}
+                </SpecularButton>
+
+                {/* Exit/Back button */}
+                {handleExit && (
+                  <SpecularButton
+                    type="button"
+                    id="tv-back-to-panel-btn"
+                    onClick={handleExit}
+                    size="sm"
+                    radius={12}
+                    className="bg-slate-800 hover:bg-slate-750 text-slate-300 hover:text-white border-slate-700 text-xs font-bold"
+                  >
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Voltar</span>
+                  </SpecularButton>
+                )}
+              </div>
             </div>
-          </div>
+          )}
         </div>
 
-        {/* Active Filter Notice Bar (if viewing non-today or specific professional) */}
-        {(!isToday || selectedProfessionalId !== 'all') && (
+        {/* Component 6: Active Filter Notice Bar */}
+        {isControlsExpanded && (!isToday || selectedProfessionalId !== 'all') && (
           <div
-            className={`max-w-7xl mx-auto mt-3 pt-3 border-t border-slate-800 ${
-              isMobileControlsExpanded ? 'flex' : 'hidden lg:flex'
-            } flex-wrap items-center justify-between gap-2 text-xs`}
+            className="max-w-7xl mx-auto mt-3 pt-3 border-t border-slate-800 flex flex-wrap items-center justify-between gap-2 text-xs animate-in fade-in slide-in-from-top-1 duration-200"
           >
             <div className="flex items-center gap-2 flex-wrap">
               <span className="text-slate-400">Filtros ativos:</span>
@@ -969,10 +965,9 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                 WITH MANUAL SCROLL CONTROLS (CIMA / BAIXO / PAUSAR / TOPO)
                ========================================================================= */
             <div className="flex flex-col h-full space-y-3 relative">
-              {/* Summary Stats & Scroll Navigation Controls Bar */}
-              <div className={`${
-                isMobileControlsExpanded ? 'flex' : 'hidden lg:flex'
-              } flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-lg shrink-0 transition-all`}>
+              {/* Component 7: Summary Stats & Scroll Navigation Controls Bar */}
+              {isControlsExpanded && (
+                <div className="flex flex-wrap items-center justify-between gap-3 p-3 sm:p-4 rounded-2xl bg-slate-900/80 border border-slate-800 shadow-lg shrink-0 transition-all animate-in fade-in slide-in-from-top-1 duration-200">
                 {/* Stats */}
                 <div className="flex items-center gap-2.5">
                   <Users className="w-5 h-5 text-teal-400" />
@@ -988,15 +983,24 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
 
                 {/* Counts and Manual Scroll Buttons */}
                 <div className="flex items-center gap-2 sm:gap-3 flex-wrap">
-                  <span className="px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-xs font-bold">
-                    {waitingGroup.length} Aguardando
+                  <span className="px-2.5 py-1 rounded-xl bg-teal-500/15 text-teal-300 border border-teal-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                    <span>AGUARDANDO</span>
+                    <span className="px-1.5 py-0.2 rounded-md bg-teal-500/30 text-teal-200 font-mono font-black">
+                      {waitingGroup.length}
+                    </span>
                   </span>
-                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-bold">
-                    {completedGroup.length} Atendidos
+                  <span className="px-2.5 py-1 rounded-xl bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                    <span>ATENDIDO</span>
+                    <span className="px-1.5 py-0.2 rounded-md bg-emerald-500/30 text-emerald-200 font-mono font-black">
+                      {completedGroup.length}
+                    </span>
                   </span>
                   {otherGroup.length > 0 && (
-                    <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-xs font-bold">
-                      {otherGroup.length} Outros
+                    <span className="px-2.5 py-1 rounded-xl bg-slate-800 text-slate-400 border border-slate-700 text-xs font-black uppercase tracking-wider flex items-center gap-1.5">
+                      <span>OUTROS</span>
+                      <span className="px-1.5 py-0.2 rounded-md bg-slate-700 text-slate-300 font-mono font-black">
+                        {otherGroup.length}
+                      </span>
                     </span>
                   )}
 
@@ -1046,6 +1050,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                   </div>
                 </div>
               </div>
+              )}
 
               {/* Vertical Animated Scroll Canvas */}
               {allCategorizedItems.length === 0 ? (
@@ -1094,8 +1099,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {waitingGroup.length > 0 && (
                       <div className="space-y-3">
                         <div className="sticky top-0 z-10 py-1.5 px-3 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-800 flex items-center justify-between text-xs font-black text-teal-400 uppercase tracking-wider">
-                          <span>1º Bloco • Aguardando Atendimento (Ordem de Chegada)</span>
-                          <span>{waitingGroup.length} pacientes</span>
+                          <span>AGUARDANDO</span>
+                          <span>{waitingGroup.length}</span>
                         </div>
                         {waitingGroup.map((item) => renderPatientCard(item, `wait-1-${item.id}`))}
                       </div>
@@ -1105,8 +1110,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {completedGroup.length > 0 && (
                       <div className="space-y-3 pt-3">
                         <div className="sticky top-0 z-10 py-1.5 px-3 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-800 flex items-center justify-between text-xs font-black text-emerald-400 uppercase tracking-wider">
-                          <span>2º Bloco • Pacientes Já Atendidos Hoje</span>
-                          <span>{completedGroup.length} atendimentos</span>
+                          <span>ATENDIDO</span>
+                          <span>{completedGroup.length}</span>
                         </div>
                         {completedGroup.map((item) => renderPatientCard(item, `comp-1-${item.id}`))}
                       </div>
@@ -1116,8 +1121,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {otherGroup.length > 0 && (
                       <div className="space-y-3 pt-3">
                         <div className="sticky top-0 z-10 py-1.5 px-3 rounded-xl bg-slate-900/90 backdrop-blur-md border border-slate-800 flex items-center justify-between text-xs font-black text-slate-400 uppercase tracking-wider">
-                          <span>3º Bloco • Desistências e Cancelamentos</span>
-                          <span>{otherGroup.length} registros</span>
+                          <span>OUTROS</span>
+                          <span>{otherGroup.length}</span>
                         </div>
                         {otherGroup.map((item) => renderPatientCard(item, `other-1-${item.id}`))}
                       </div>
@@ -1129,8 +1134,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {waitingGroup.length > 0 && (
                       <div className="space-y-3">
                         <div className="py-1.5 px-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs font-black text-teal-400 uppercase tracking-wider">
-                          <span>1º Bloco • Aguardando Atendimento (Ordem de Chegada)</span>
-                          <span>{waitingGroup.length} pacientes</span>
+                          <span>AGUARDANDO</span>
+                          <span>{waitingGroup.length}</span>
                         </div>
                         {waitingGroup.map((item) => renderPatientCard(item, `wait-2-${item.id}`))}
                       </div>
@@ -1139,8 +1144,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {completedGroup.length > 0 && (
                       <div className="space-y-3 pt-3">
                         <div className="py-1.5 px-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs font-black text-emerald-400 uppercase tracking-wider">
-                          <span>2º Bloco • Pacientes Já Atendidos Hoje</span>
-                          <span>{completedGroup.length} atendimentos</span>
+                          <span>ATENDIDO</span>
+                          <span>{completedGroup.length}</span>
                         </div>
                         {completedGroup.map((item) => renderPatientCard(item, `comp-2-${item.id}`))}
                       </div>
@@ -1149,8 +1154,8 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
                     {otherGroup.length > 0 && (
                       <div className="space-y-3 pt-3">
                         <div className="py-1.5 px-3 rounded-xl bg-slate-900/90 border border-slate-800 flex items-center justify-between text-xs font-black text-slate-400 uppercase tracking-wider">
-                          <span>3º Bloco • Desistências e Cancelamentos</span>
-                          <span>{otherGroup.length} registros</span>
+                          <span>OUTROS</span>
+                          <span>{otherGroup.length}</span>
                         </div>
                         {otherGroup.map((item) => renderPatientCard(item, `other-2-${item.id}`))}
                       </div>

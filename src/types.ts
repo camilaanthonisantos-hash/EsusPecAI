@@ -659,6 +659,7 @@ export interface User {
   digitalStampUrl?: string; // Imagem do carimbo / assinatura digitalizada (PNG/JPG base64 ou URL)
   useDigitalStamp?: boolean; // Chave para alternar entre carimbo imagem ou texto tradicional
   createdAt: number;
+  updatedAt?: number;
   // Subscription & Free Trial
   free_used?: boolean;
   subscription_status?: 'free' | 'pendente' | 'pago';
