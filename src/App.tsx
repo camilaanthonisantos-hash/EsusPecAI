@@ -117,6 +117,7 @@ import {
 import { calculateChronologicalAge, formatQueueDateTime } from './utils/dateCalculator';
 import { isUserSubscriptionActive, normalizeSubscriptionExpiresAt } from './utils/pixExpiration';
 import { ensureSectionsConfig } from './utils/aiOrchestrationConfig';
+import { safeSetItem, safeGetItem, safeGetString, safeRemoveItem } from './utils/safeStorage';
 import { Header } from './components/Header';
 import { TriageForm } from './components/TriageForm';
 import { MultimodalInput } from './components/MultimodalInput';
@@ -326,13 +327,12 @@ export default function App() {
   // Global System Settings
   const [systemSettings, setSystemSettings] = useState<SystemSettings>(() => {
     try {
-      const saved = localStorage.getItem('pec_system_settings');
+      const saved = safeGetItem<any>('pec_system_settings', null);
       if (saved) {
-        const parsed = JSON.parse(saved);
         return {
           ...DEFAULT_SYSTEM_SETTINGS,
-          ...parsed,
-          sectionsConfig: ensureSectionsConfig(parsed?.sectionsConfig),
+          ...saved,
+          sectionsConfig: ensureSectionsConfig(saved?.sectionsConfig),
         };
       }
       return DEFAULT_SYSTEM_SETTINGS;
@@ -344,15 +344,11 @@ export default function App() {
   // Patients registry (Real data)
   const [patients, setPatients] = useState<Patient[]>(() => {
     try {
-      const saved = localStorage.getItem('pec_patients');
-      if (saved) {
-        const parsed: Patient[] = JSON.parse(saved);
-        const cleaned = parsed.filter(
-          (p) => !['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza'].includes(p.id)
-        );
-        return cleaned;
-      }
-      return [];
+      const saved = safeGetItem<Patient[]>('pec_patients', []);
+      const cleaned = (saved || []).filter(
+        (p) => !['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza'].includes(p.id)
+      );
+      return cleaned;
     } catch {
       return [];
     }
@@ -364,18 +360,13 @@ export default function App() {
   // Multiprofessional Consultations database (Real data)
   const [consultations, setConsultations] = useState<Consultation[]>(() => {
     try {
-      const saved = localStorage.getItem('pec_consultations');
-      if (saved) {
-        const parsed: Consultation[] = JSON.parse(saved);
-        const cleaned = parsed.filter((c) => !c.id.startsWith('cons-lucas-'));
-        return cleaned;
-      }
-      return [];
+      const saved = safeGetItem<Consultation[]>('pec_consultations', []);
+      const cleaned = (saved || []).filter((c) => !c.id.startsWith('cons-lucas-'));
+      return cleaned;
     } catch {
       return [];
     }
   });
-
 
   // Local storage state initialization
   const [selectedProfession, setSelectedProfession] = useState<ProfessionId>(() => {
@@ -383,7 +374,7 @@ export default function App() {
   });
 
   const [selectedModel, setSelectedModel] = useState<AIModelId>(() => {
-    const saved = localStorage.getItem('pec_model');
+    const saved = safeGetString('pec_model', 'gemini-3.7-flash');
     if (saved === 'gemini-3.1-pro-preview' || saved === 'gemini-2.5-pro' || saved === 'gemini-pro') {
       return 'gemini-3.1-pro-preview';
     }
@@ -391,42 +382,27 @@ export default function App() {
   });
 
   const [userApiKey, setUserApiKey] = useState<string>(() => {
-    return localStorage.getItem('pec_user_api_key') || '';
+    return safeGetString('pec_user_api_key', '');
   });
 
   const [isDarkMode, setIsDarkMode] = useState<boolean>(() => {
-    const saved = localStorage.getItem('pec_dark_mode');
-    if (saved !== null) return saved === 'true';
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const saved = safeGetString('pec_dark_mode', '');
+    if (saved) return saved === 'true';
+    return typeof window !== 'undefined' && window.matchMedia ? window.matchMedia('(prefers-color-scheme: dark)').matches : false;
   });
 
   const [knowledgeList, setKnowledgeList] = useState<KnowledgeItem[]>(() => {
-    try {
-      const saved = localStorage.getItem('pec_knowledge_base');
-      return saved ? JSON.parse(saved) : DEFAULT_KNOWLEDGE_BASE;
-    } catch {
-      return DEFAULT_KNOWLEDGE_BASE;
-    }
+    return safeGetItem<KnowledgeItem[]>('pec_knowledge_base', DEFAULT_KNOWLEDGE_BASE);
   });
 
   // SUS / REMUME Public Health Medications catalog
   const [medications, setMedications] = useState<SUSMedication[]>(() => {
-    try {
-      const saved = localStorage.getItem('pec_medications');
-      return saved ? JSON.parse(saved) : OFFICIAL_SUS_MEDICATIONS;
-    } catch {
-      return OFFICIAL_SUS_MEDICATIONS;
-    }
+    return safeGetItem<SUSMedication[]>('pec_medications', OFFICIAL_SUS_MEDICATIONS);
   });
   const [isMedicationsDrawerOpen, setIsMedicationsDrawerOpen] = useState(false);
 
   const [history, setHistory] = useState<GeneratedPECRecord[]>(() => {
-    try {
-      const saved = localStorage.getItem('pec_history');
-      return saved ? JSON.parse(saved) : [];
-    } catch {
-      return [];
-    }
+    return safeGetItem<GeneratedPECRecord[]>('pec_history', []);
   });
 
   // Multimodal inputs state
@@ -603,7 +579,7 @@ export default function App() {
     } else {
       document.documentElement.classList.remove('dark');
     }
-    localStorage.setItem('pec_dark_mode', String(isDarkMode));
+    safeSetItem('pec_dark_mode', String(isDarkMode));
   }, [isDarkMode]);
 
   // Keep selected profession automatically bound to current user's profession
@@ -676,11 +652,10 @@ export default function App() {
           }
         }
       }
-      const savedCurrent = localStorage.getItem('pec_current_user');
+      const savedCurrent = safeGetItem<any>('pec_current_user', null);
       if (savedCurrent) {
-        const parsed = JSON.parse(savedCurrent);
-        if (isMockUser(parsed)) {
-          localStorage.setItem('pec_current_user', JSON.stringify(DEFAULT_USERS[0]));
+        if (isMockUser(savedCurrent)) {
+          safeSetItem('pec_current_user', DEFAULT_USERS[0]);
           setCurrentUser(DEFAULT_USERS[0]);
         }
       }
@@ -754,9 +729,7 @@ export default function App() {
           const merged = Array.from(map.values()).sort(
             (a, b) => (Number(b.timestamp) || 0) - (Number(a.timestamp) || 0)
           );
-          try {
-            localStorage.setItem('pec_consultations', JSON.stringify(merged));
-          } catch {}
+          safeSetItem('pec_consultations', merged);
           return merged;
         });
       }
@@ -779,7 +752,7 @@ export default function App() {
           const cleanedUsers = liveUsers.filter((u) => !isMockUser(u));
           if (cleanedUsers.length > 0) {
             setUsers(cleanedUsers);
-            localStorage.setItem('pec_users_list', JSON.stringify(cleanedUsers));
+            safeSetItem('pec_users_list', cleanedUsers);
             setCurrentUser((prev) => {
               if (!prev || isMockUser(prev)) return cleanedUsers[0];
               const updatedUser = cleanedUsers.find(
@@ -874,53 +847,53 @@ export default function App() {
 
   // Sync current user to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_current_user', JSON.stringify(currentUser));
+    safeSetItem('pec_current_user', currentUser);
     setSelectedProfession(currentUser.profession);
   }, [currentUser]);
 
   // Sync users list to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_users_list', JSON.stringify(users));
+    safeSetItem('pec_users_list', users);
   }, [users]);
 
   // Sync system settings to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_system_settings', JSON.stringify(systemSettings));
+    safeSetItem('pec_system_settings', systemSettings);
   }, [systemSettings]);
 
   // Sync patients to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_patients', JSON.stringify(patients));
+    safeSetItem('pec_patients', patients);
   }, [patients]);
 
   // Sync consultations to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_consultations', JSON.stringify(consultations));
+    safeSetItem('pec_consultations', consultations);
   }, [consultations]);
 
   // Sync selected model to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_model', selectedModel);
+    safeSetItem('pec_model', selectedModel);
   }, [selectedModel]);
 
   // Sync knowledge list to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_knowledge_base', JSON.stringify(knowledgeList));
+    safeSetItem('pec_knowledge_base', knowledgeList);
   }, [knowledgeList]);
 
   // Sync history to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_history', JSON.stringify(history));
+    safeSetItem('pec_history', history);
   }, [history]);
 
   // Sync medications to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_medications', JSON.stringify(medications));
+    safeSetItem('pec_medications', medications);
   }, [medications]);
 
   // Sync exams to localStorage
   useEffect(() => {
-    localStorage.setItem('pec_exams', JSON.stringify(exams));
+    safeSetItem('pec_exams', exams);
   }, [exams]);
 
   // Medication CRUD handlers
@@ -1001,9 +974,9 @@ export default function App() {
   const handleSaveApiKey = (key: string) => {
     setUserApiKey(key);
     if (key) {
-      localStorage.setItem('pec_user_api_key', key);
+      safeSetItem('pec_user_api_key', key);
     } else {
-      localStorage.removeItem('pec_user_api_key');
+      safeSetItem('pec_user_api_key', '');
     }
   };
 
@@ -1185,14 +1158,11 @@ export default function App() {
 
     if (isSelf) {
       setCurrentUser((prev) => ({ ...prev, ...safeUpdatedUser }));
-      try {
-        localStorage.setItem('pec_current_user', JSON.stringify({ ...currentUser, ...safeUpdatedUser }));
-      } catch {}
+      safeSetItem('pec_current_user', { ...currentUser, ...safeUpdatedUser });
     }
 
     try {
-      const saved = localStorage.getItem('pec_users_list');
-      const list: UserModel[] = saved ? JSON.parse(saved) : [];
+      const list = safeGetItem<UserModel[]>('pec_users_list', []);
       const idx = list.findIndex(
         (u) =>
           u.id === safeUpdatedUser.id ||
@@ -1205,7 +1175,7 @@ export default function App() {
       } else {
         list.unshift(safeUpdatedUser);
       }
-      localStorage.setItem('pec_users_list', JSON.stringify(list));
+      safeSetItem('pec_users_list', list);
     } catch {}
 
     try {
@@ -1263,13 +1233,13 @@ export default function App() {
       const liveList = await fetchAllUsersFromFirestore();
       if (liveList && liveList.length > 0) {
         setUsers(liveList);
-        localStorage.setItem('pec_users_list', JSON.stringify(liveList));
+        safeSetItem('pec_users_list', liveList);
         showToast('success', `${liveList.length} usuário(s) carregado(s) do banco de dados!`, 'Sincronização Concluída');
       } else {
         const adminMaster = DEFAULT_USERS[0];
         await saveUserToFirestore(adminMaster);
         setUsers([adminMaster]);
-        localStorage.setItem('pec_users_list', JSON.stringify([adminMaster]));
+        safeSetItem('pec_users_list', [adminMaster]);
         showToast('success', '1 Administrador Master sincronizado com o banco de dados.', 'Sincronização Concluída');
       }
     } catch (err: any) {
@@ -1308,11 +1278,11 @@ export default function App() {
     setSystemSettings(newSettings);
     if (newSettings.geminiApiKey) {
       setUserApiKey(newSettings.geminiApiKey);
-      localStorage.setItem('pec_user_api_key', newSettings.geminiApiKey);
+      safeSetItem('pec_user_api_key', newSettings.geminiApiKey);
     }
     if (newSettings.defaultModel) {
       setSelectedModel(newSettings.defaultModel);
-      localStorage.setItem('pec_model', newSettings.defaultModel);
+      safeSetItem('pec_model', newSettings.defaultModel);
     }
 
     try {
@@ -1369,11 +1339,11 @@ export default function App() {
       body: JSON.stringify(user),
     }).catch(() => {});
     if (remember) {
-      localStorage.setItem('pec_is_authenticated', 'true');
-      localStorage.setItem('pec_current_user', JSON.stringify(user));
+      safeSetItem('pec_is_authenticated', 'true');
+      safeSetItem('pec_current_user', user);
     } else {
       sessionStorage.setItem('pec_is_authenticated', 'true');
-      localStorage.removeItem('pec_is_authenticated');
+      safeRemoveItem('pec_is_authenticated');
     }
   };
 
@@ -1394,11 +1364,11 @@ export default function App() {
       console.warn('Erro ao salvar usuário no Firestore:', err)
     );
     if (remember) {
-      localStorage.setItem('pec_is_authenticated', 'true');
-      localStorage.setItem('pec_current_user', JSON.stringify(newUser));
+      safeSetItem('pec_is_authenticated', 'true');
+      safeSetItem('pec_current_user', newUser);
     } else {
       sessionStorage.setItem('pec_is_authenticated', 'true');
-      localStorage.removeItem('pec_is_authenticated');
+      safeRemoveItem('pec_is_authenticated');
     }
   };
 
@@ -1769,9 +1739,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
     setConsultations((prev) => {
       const filtered = prev.filter((c) => c.id !== consultationId);
       const updated = [newConsultation, ...filtered];
-      try {
-        localStorage.setItem('pec_consultations', JSON.stringify(updated));
-      } catch {}
+      safeSetItem('pec_consultations', updated);
       return updated;
     });
     setIsRecordSavedToTimeline(true);
@@ -1833,9 +1801,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         };
         setConsultations((prev) => {
           const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
-          try {
-            localStorage.setItem('pec_consultations', JSON.stringify(updated));
-          } catch {}
+          safeSetItem('pec_consultations', updated);
           return updated;
         });
         if (currentRecord) {
@@ -1914,9 +1880,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       setConsultations((prev) => {
         const filtered = prev.filter((c) => c.id !== consId);
         const updated = [newConsultation, ...filtered];
-        try {
-          localStorage.setItem('pec_consultations', JSON.stringify(updated));
-        } catch {}
+        safeSetItem('pec_consultations', updated);
         return updated;
       });
       setIsRecordSavedToTimeline(true);
@@ -1962,9 +1926,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
       setConsultations((prev) => {
         const updated = [newConsultation, ...prev];
-        try {
-          localStorage.setItem('pec_consultations', JSON.stringify(updated));
-        } catch {}
+        safeSetItem('pec_consultations', updated);
         return updated;
       });
       await saveConsultationToFirestore(newConsultation);

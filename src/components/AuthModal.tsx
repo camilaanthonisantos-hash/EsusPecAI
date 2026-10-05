@@ -28,6 +28,7 @@ import {
   FileCheck2,
 } from 'lucide-react';
 import { User, ProfessionId, ProfessionConfig, WorkplaceType, UserRole, SystemSettings } from '../types';
+import { safeSetItem, safeGetItem } from '../utils/safeStorage';
 import {
   PROFESSIONS,
   ADMIN_MASTER_EMAIL,
@@ -523,8 +524,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
 
     // 4. Update localStorage immediately so subsequent page refreshes never revert
     try {
-      const saved = localStorage.getItem('pec_users_list');
-      const list: User[] = saved ? JSON.parse(saved) : [];
+      const list: User[] = safeGetItem<User[]>('pec_users_list', []);
       const idx = list.findIndex(
         (u) =>
           u.id === updatedUser.id ||
@@ -535,7 +535,7 @@ export const AuthModal: React.FC<AuthModalProps> = ({
       } else {
         list.unshift(updatedUser);
       }
-      localStorage.setItem('pec_users_list', JSON.stringify(list));
+      safeSetItem('pec_users_list', list);
     } catch {}
 
     // 5. Pre-fill login input credentials

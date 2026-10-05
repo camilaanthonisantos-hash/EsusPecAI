@@ -21,6 +21,7 @@ import { ADMIN_MASTER_EMAIL, LEGACY_MOCK_USER_IDS, LEGACY_MOCK_USER_NAMES } from
 import { OFFICIAL_SUS_MEDICATIONS } from '../data/susMedications';
 import { OFFICIAL_SUS_EXAMS } from '../data/susExams';
 import { normalizeSubscriptionExpiresAt } from '../utils/pixExpiration';
+import { safeSetItem, safeGetItem } from '../utils/safeStorage';
 
 // Dummy stubs for legacy references to avoid breaking any remaining imports
 export const db: any = {};
@@ -378,17 +379,16 @@ export async function saveConsultationToFirestore(consultation: Consultation): P
     timestamp: consultation.timestamp || Date.now(),
   };
 
-  // 1. Persist to localStorage
+  // 1. Persist to localStorage safely
   try {
-    const saved = localStorage.getItem('pec_consultations');
-    const list: Consultation[] = saved ? JSON.parse(saved) : [];
+    const list: Consultation[] = safeGetItem<Consultation[]>('pec_consultations', []);
     const idx = list.findIndex((c) => c.id === consultation.id);
     if (idx >= 0) {
       list[idx] = { ...list[idx], ...consultation };
     } else {
       list.unshift(consultation);
     }
-    localStorage.setItem('pec_consultations', JSON.stringify(list));
+    safeSetItem('pec_consultations', list);
   } catch {}
 
   // 2. Persist to Supabase & server
@@ -397,12 +397,9 @@ export async function saveConsultationToFirestore(consultation: Consultation): P
 
 export async function deleteConsultationFromFirestore(consultationId: string): Promise<void> {
   try {
-    const saved = localStorage.getItem('pec_consultations');
-    if (saved) {
-      const list: Consultation[] = JSON.parse(saved);
-      const filtered = list.filter((c) => c.id !== consultationId);
-      localStorage.setItem('pec_consultations', JSON.stringify(filtered));
-    }
+    const list: Consultation[] = safeGetItem<Consultation[]>('pec_consultations', []);
+    const filtered = list.filter((c) => c.id !== consultationId);
+    safeSetItem('pec_consultations', filtered);
   } catch {}
   await apiDbDelete('consultations', consultationId);
 }

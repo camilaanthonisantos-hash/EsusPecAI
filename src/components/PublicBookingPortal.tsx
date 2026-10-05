@@ -63,6 +63,7 @@ import {
   db,
 } from '../services/firebase';
 import { doc, getDoc } from 'firebase/firestore';
+import { safeSetItem } from '../utils/safeStorage';
 import { SpecularButton } from './SpecularButton';
 
 // Formatting Helpers
@@ -970,9 +971,9 @@ export const PublicBookingPortal: React.FC<PublicBookingPortalProps> = ({
 
       await savePixTransaction(pixOrder);
 
-      localStorage.setItem(
+      safeSetItem(
         'pending_pix_booking',
-        JSON.stringify({
+        {
           orderId,
           expiresAt,
           amountToPayPix,
@@ -989,7 +990,7 @@ export const PublicBookingPortal: React.FC<PublicBookingPortalProps> = ({
           patientBirthDate,
           patientGender,
           appointmentNotes,
-        })
+        }
       );
 
       setActivePixOrder(pixOrder);

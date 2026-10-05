@@ -36,10 +36,20 @@ export class ErrorBoundary extends Component<Props, State> {
 
   private handleReset = () => {
     try {
+      localStorage.removeItem('pec_consultations');
+      localStorage.removeItem('pec_history');
       localStorage.removeItem('pec_current_user');
       localStorage.removeItem('pec_system_settings');
     } catch {}
     window.location.href = '/';
+  };
+
+  private handleClearCache = () => {
+    try {
+      localStorage.removeItem('pec_consultations');
+      localStorage.removeItem('pec_history');
+    } catch {}
+    window.location.reload();
   };
 
   public render(): ReactNode {
