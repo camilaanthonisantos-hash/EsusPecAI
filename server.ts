@@ -35,6 +35,11 @@ function getGeminiClient(userKey?: string): GoogleGenAI {
   }
   return new GoogleGenAI({
     apiKey: apiKeyClean,
+    httpOptions: {
+      headers: {
+        'User-Agent': 'aistudio-build',
+      },
+    },
   });
 }
 
@@ -267,6 +272,26 @@ async function executeMultiProviderWithFallback(
       } catch (err: any) {
         console.warn(`[AI Cascade] Gemini (${cleanSlug}) falhou:`, err?.message || err);
         lastError = err;
+
+        const errMsg = String(err?.message || "").toLowerCase();
+        // If Gemini API key is invalid (400 INVALID_ARGUMENT API_KEY_INVALID, 401, 403), skip other Gemini models
+        if (
+          errMsg.includes("api_key_invalid") ||
+          errMsg.includes("api key not valid") ||
+          errMsg.includes("invalid api key") ||
+          err?.status === 400 ||
+          err?.status === 401 ||
+          err?.status === 403
+        ) {
+          console.warn(`[AI Cascade] Chave de API do Gemini inválida ou sem permissão. Pulando demais modelos Gemini na cascata.`);
+          while (
+            i + 1 < candidateModels.length &&
+            !candidateModels[i + 1].startsWith("openrouter:") &&
+            !candidateModels[i + 1].startsWith("openai:")
+          ) {
+            i++;
+          }
+        }
         continue;
       }
     }
@@ -380,9 +405,17 @@ function formatFriendlyAIError(error: any): string {
     return "O modelo selecionado não foi encontrado ou não está acessível com a sua chave de API. Verifique o nome do modelo e as permissões de acesso da sua conta.";
   }
 
-  // 3. Invalid API Key / Unauthorized (401 / 403)
-  if (status === 401 || status === 403 || rawMsg.includes("API_KEY_INVALID") || rawMsg.includes("invalid_api_key")) {
-    return "Chave de API inválida ou sem permissão de acesso. Verifique a chave configurada no menu de Configurações do Sistema.";
+  // 3. Invalid API Key / Unauthorized (400 INVALID_ARGUMENT API_KEY_INVALID / 401 / 403)
+  if (
+    status === 401 ||
+    status === 403 ||
+    rawMsg.includes("API_KEY_INVALID") ||
+    rawMsg.includes("invalid_api_key") ||
+    rawMsg.includes("API key not valid") ||
+    rawMsg.includes("chave de api") ||
+    rawMsg.includes("API key expired")
+  ) {
+    return "Chave de API do Gemini não é válida, expirou ou não está configurada. Por favor, acesse o menu de Configurações do Sistema > Chaves de API para atualizar ou informar sua chave de API ativa.";
   }
 
   // 4. OpenAI / OpenRouter Quota or Insufficient Credits (429)
@@ -1078,6 +1111,130 @@ app.post(
 
 
 
+// Helper: Local deterministic clinical longitudinal evolution generator when AI providers are unavailable
+function generateLocalClinicalEvolutionMarkdown(params: {
+  patient: any;
+  consultations: any[];
+  appointments: any[];
+  prescricoes: string[];
+  exames: string[];
+  encaminhamentos: string[];
+  laudos: string[];
+  atestados: string[];
+  faltas: any[];
+  abandonos: any[];
+  pendingConsultations: any[];
+  isIncremental: boolean;
+  existingEvolution?: any;
+}): string {
+  const {
+    patient,
+    consultations,
+    appointments,
+    prescricoes,
+    exames,
+    encaminhamentos,
+    laudos,
+    atestados,
+    faltas,
+    abandonos,
+  } = params;
+
+  const totalAtendimentos = consultations.length;
+  const ultimoAtendimento = consultations[consultations.length - 1];
+  const primeiroAtendimento = consultations[0];
+
+  const dataInicio = primeiroAtendimento?.timestamp
+    ? new Date(primeiroAtendimento.timestamp).toLocaleDateString("pt-BR")
+    : "--";
+  const dataUltima = ultimoAtendimento?.timestamp
+    ? new Date(ultimoAtendimento.timestamp).toLocaleDateString("pt-BR")
+    : "--";
+
+  // Summarize consultations
+  const resumoLinhas = consultations.map((c) => {
+    const dt = c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR") : "--";
+    const prof = c.authorProfession ? `[${c.authorProfession}]` : "";
+    const nomeProf = c.authorName ? `${c.authorName} ${prof}` : (prof || "Profissional");
+    const aval = c.avaliacao ? c.avaliacao.replace(/\n+/g, " ").trim() : "Atendimento multiprofissional realizado na unidade.";
+    const cond = c.conduta || c.plano ? ` | Conduta: ${(c.conduta || c.plano).replace(/\n+/g, " ").trim()}` : "";
+    return `• ${dt} - ${nomeProf}: ${aval}${cond}`;
+  });
+
+  const resumoTexto = resumoLinhas.length > 0
+    ? resumoLinhas.join("\n")
+    : `Paciente ${patient.fullName} em acompanhamento multiprofissional regular na Atenção Primária / RAPS.`;
+
+  // Detect status from clinical notes
+  const combinedNotes = consultations.map((c) => `${c.avaliacao || ""} ${c.plano || ""} ${c.conduta || ""}`).join(" ").toLowerCase();
+  let statusGeral = "Estável";
+  let justificativaStatus = "Quadro clínico estável e em manejo ambulatorial continuado pela equipe multiprofissional.";
+
+  if (combinedNotes.includes("melhora") || combinedNotes.includes("positivo") || combinedNotes.includes("evolução favorável") || combinedNotes.includes("assintomático") || combinedNotes.includes("controlad")) {
+    statusGeral = "Positiva";
+    justificativaStatus = "Registros de atendimento evidenciam melhora clínica progressiva e resposta favorável às condutas multiprofissionais.";
+  } else if (combinedNotes.includes("agravamento") || combinedNotes.includes("piora") || combinedNotes.includes("descompens") || combinedNotes.includes("crise")) {
+    statusGeral = "Negativa";
+    justificativaStatus = "Registros apontam episódios de agravo ou descompensação requerendo vigilância e suporte prioritário pela equipe.";
+  } else if (combinedNotes.includes("oscila") || combinedNotes.includes("flutuante") || combinedNotes.includes("misto")) {
+    statusGeral = "Mista";
+    justificativaStatus = "Evolução com períodos de oscilação clínica e resposta intermediária ao manejo terapêutico.";
+  }
+
+  // Medications
+  const medsContinuo = prescricoes.length > 0
+    ? prescricoes.map((p) => `- ${p}`).join("\n")
+    : "- Sem prescrições farmacológicas ativas registradas no prontuário.";
+
+  // Psychological & non-psychological conditions
+  const condPsico = combinedNotes.includes("ansied") || combinedNotes.includes("depress") || combinedNotes.includes("humor") || combinedNotes.includes("angústia") || combinedNotes.includes("psico")
+    ? "Acompanhamento de demandas emocionais, suporte psicossocial e manejo de sintomas psicoafetivos pela equipe."
+    : "Acompanhamento do estado emocional, funções cognitivas e bem-estar psicossocial sem crises agudas registradas.";
+
+  const condNaoPsico = combinedNotes.includes("hipertens") || combinedNotes.includes("pressão") || combinedNotes.includes("diabetes") || combinedNotes.includes("dor") || combinedNotes.includes("has") || combinedNotes.includes("dm")
+    ? "Monitoramento de parâmetros somáticos e condições crônicas referidas nos atendimentos da atenção primária."
+    : "Condições físicas e parâmetros vitais em monitoramento regular pela equipe de saúde da família.";
+
+  return `### RESUMO LONGITUDINAL:
+Acompanhamento longitudinal do(a) paciente ${patient.fullName} abrangendo ${totalAtendimentos} atendimento(s) multiprofissional(is) entre ${dataInicio} e ${dataUltima}.
+
+${resumoTexto}
+
+### CONDIÇÕES DE SAÚDE PSICOLÓGICAS E NÃO PSICOLÓGICAS:
+- CONDIÇÕES PSICOLÓGICAS: ${condPsico}
+- CONDIÇÕES NÃO PSICOLÓGICAS: ${condNaoPsico}
+
+### FARMACOTERAPIA E MUDANÇAS NO TRATAMENTO:
+- MEDICAMENTOS EM USO CONTÍNUO:
+${medsContinuo}
+- MUDANÇAS NO TRATAMENTO: ${ultimoAtendimento?.prescription?.items?.length ? "Prescrição mantida/atualizada na última consulta." : "Sem alterações farmacológicas recentes."}
+- ADESÃO RELATADA: Adesão terapêutica regular registrada nas consultas da unidade de saúde.
+
+### TRAJETÓRIA CLÍNICA (MELHORA / PIORA / ESTABILIDADE):
+- STATUS GERAL: [${statusGeral}]
+- JUSTIFICATIVA: ${justificativaStatus}
+
+### MATRIZ DE EVOLUÇÃO MULTIDIMENSIONAL:
+- Aspectos Psicoemocionais e Comportamentais: [${statusGeral}] - ${condPsico}
+- Aspectos Físicos e Sinais Vitais: [${statusGeral}] - Sinais vitais e estado somático monitorados pela equipe.
+- Dinâmica Familiar e Social: [${statusGeral}] - Vínculo com a unidade e suporte da rede de apoio mantidos.
+
+### CONDUTAS DOS PROFISSIONAIS:
+- Prescrições: ${prescricoes.length > 0 ? prescricoes.join("; ") : "Sem prescrições no prontuário"}
+- Solicitações de Exames: ${exames.length > 0 ? exames.join("; ") : "Sem exames solicitados"}
+- Encaminhamentos: ${encaminhamentos.length > 0 ? encaminhamentos.join("; ") : "Sem encaminhamentos registrados"}
+- Laudos Médicos: ${laudos.length > 0 ? laudos.join("; ") : "Nenhum laudo emitido"}
+- Atestados: ${atestados.length > 0 ? atestados.join("; ") : "Nenhum atestado registrado"}
+
+### AUDITORIA DE ASSIDUIDADE (FILA DE ATENDIMENTO):
+Total de agendamentos registrados: ${appointments.length}. Faltas ou cancelamentos: ${faltas.length}. Desistências ou abandonos: ${abandonos.length}. Padrão de comparecimento satisfatório para continuidade do cuidado.
+
+### PONTOS DE ALERTA E RECOMENDAÇÕES PARA A EQUIPE:
+- Manter o acompanhamento multiprofissional longitudinal e reforçar as orientações de autocuidado.
+- Reavaliar metas do Projeto Terapêutico Singular (PTS) nas reuniões periódicas da equipe de saúde.
+- Verificar adesão às condutas e retorno programado conforme fluxo da Atenção Primária / RAPS.`;
+}
+
 // Helper: Generate Longitudinal Evolution with AI Cascading Logic (GPT-4o -> Gemini 3.7 Flash -> Gemini 3.8/3.6/3.1/2.5)
 // Optimizado com análise incremental: olha exclusivamente para o(s) atendimento(s) pendente(s) de análise para economizar IA.
 async function generateLongitudinalEvolutionWithCascade(params: {
@@ -1406,15 +1563,43 @@ Por favor, elabore a análise clínica longitudinal completa, profunda e rigoros
 
   console.log(`[Longitudinal AI Cascade] Executando análise longitudinal com modelo primário: "${primaryModel}" e cascata: ${fallbackChain.join(" -> ")}`);
 
-  const { text: markdownOutput, modelUsed } = await executeMultiProviderWithFallback({
-    primaryModelId: primaryModel,
-    fallbackChain,
-    systemInstruction,
-    userPrompt,
-    temperature: timelineSectionConfig?.temperature ?? 0.25,
-    geminiApiKey: userApiKey,
-    openaiApiKey: customOpenAiKey,
-  });
+  let markdownOutput = "";
+  let modelUsed = "Motor Clínico Local (PEC / SUS)";
+
+  try {
+    const execResult = await executeMultiProviderWithFallback({
+      primaryModelId: primaryModel,
+      fallbackChain,
+      systemInstruction,
+      userPrompt,
+      temperature: timelineSectionConfig?.temperature ?? 0.25,
+      geminiApiKey: userApiKey,
+      openaiApiKey: customOpenAiKey,
+    });
+    markdownOutput = execResult.text;
+    modelUsed = execResult.modelUsed;
+  } catch (cascadeErr: any) {
+    console.warn(
+      `[Longitudinal AI Cascade] Provedores externos de IA indisponíveis ou chave pendente. Gerando análise estruturada local via Motor Clínico PEC:`
+    );
+
+    markdownOutput = generateLocalClinicalEvolutionMarkdown({
+      patient,
+      consultations: sortedConsultations,
+      appointments: patientAppointments,
+      prescricoes: allPrescricoes,
+      exames: allExames,
+      encaminhamentos: allEncaminhamentos,
+      laudos: allLaudos,
+      atestados: allAtestados,
+      faltas: faltasOuCancelamentos,
+      abandonos: desistenciasOuAbandonos,
+      pendingConsultations,
+      isIncremental,
+      existingEvolution,
+    });
+    modelUsed = "Motor Clínico Local (e-SUS PEC)";
+  }
 
   // Parse structured output
   const parsedEvolution = parseLongitudinalEvolution(

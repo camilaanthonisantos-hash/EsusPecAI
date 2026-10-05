@@ -1051,7 +1051,12 @@ export function subscribeToReceptionQueue(
 ) {
   return createSupabaseSubscription<ReceptionQueueItem>(
     'reception_queue',
-    (rows) => rows.sort((a, b) => (Number(a.timestamp) || 0) - (Number(b.timestamp) || 0)),
+    (rows) =>
+      rows.sort((a, b) => {
+        const orderA = a.orderIndex !== undefined ? a.orderIndex : (Number(a.timestamp) || 0);
+        const orderB = b.orderIndex !== undefined ? b.orderIndex : (Number(b.timestamp) || 0);
+        return orderA - orderB;
+      }),
     onUpdate
   );
 }

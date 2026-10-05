@@ -2701,6 +2701,41 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
     }
   };
 
+  // Reorder queue items (Drag and drop / repositioning for all professionals)
+  const handleReorderQueueItems = async (reorderedItems: ReceptionQueueItem[]) => {
+    try {
+      const reorderedMap = new Map(reorderedItems.map((item) => [item.id, item]));
+
+      // Optimistically update local queue state
+      setQueueItems((prev) => {
+        return prev.map((item) => {
+          const updated = reorderedMap.get(item.id);
+          return updated ? { ...item, ...updated } : item;
+        });
+      });
+
+      // Also sync corresponding appointment if applicable
+      setAppointments((prev) => {
+        return prev.map((app) => {
+          const updated = reorderedMap.get(app.id);
+          if (updated && updated.orderIndex !== undefined) {
+            return { ...app, orderIndex: updated.orderIndex, updatedAt: Date.now() };
+          }
+          return app;
+        });
+      });
+
+      // Persist reordered queue items to Firestore asynchronously
+      for (const item of reorderedItems) {
+        if (item.id) {
+          saveQueueItemToFirestore(item).catch(console.warn);
+        }
+      }
+    } catch (err: any) {
+      console.error('Erro ao salvar reposicionamento da fila:', err);
+    }
+  };
+
   // Start consultation from Reception Queue ("Atender")
   const handleStartConsultationFromQueue = async (item: ReceptionQueueItem) => {
     // 1. Update queue item to 'in_service'
@@ -3494,6 +3529,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               }}
               onUpdateQueueItemStatus={handleUpdateQueueItemStatus}
               onDeleteQueueItem={handleDeleteQueueItem}
+              onReorderQueue={handleReorderQueueItems}
               onOpenPublicCallScreen={() => setIsPublicCallScreenOpen(true)}
               onOpenTimeline={(patient) => {
                 verifyAccessOrOpenPaywall(() => {

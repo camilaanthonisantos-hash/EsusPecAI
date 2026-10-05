@@ -772,6 +772,7 @@ export interface ReceptionQueueItem {
 
   // Status
   status: QueueItemStatus;
+  orderIndex?: number; // Custom position order index in queue for drag-and-drop / repositioning
 
   // Clinical & Triage Details
   riskClassification?: RiskClassification;
@@ -816,6 +817,7 @@ export interface Appointment {
   startTime: string; // "09:00"
   endTime: string; // "09:30"
   timestamp: number; // Epoch time em ms
+  orderIndex?: number; // Custom position order index
   status: AppointmentStatus;
   notes?: string;
   googleCalendarEventId?: string;

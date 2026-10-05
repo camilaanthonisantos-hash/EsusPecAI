@@ -30,6 +30,10 @@ import {
   List,
   QrCode,
   History,
+  GripVertical,
+  ArrowUp,
+  ArrowDown,
+  ChevronUp,
 } from 'lucide-react';
 import {
   ReceptionQueueItem,
@@ -188,6 +192,7 @@ export interface ReceptionQueueViewProps {
   onCancelQueueItem?: (item: ReceptionQueueItem) => void;
   onUpdateQueueItemStatus?: (queueItemId: string, newStatus: any) => void;
   onDeleteQueueItem?: (queueItemId: string) => void;
+  onReorderQueue?: (reorderedItems: ReceptionQueueItem[]) => void;
   onRefreshQueue?: () => void;
   onOpenPublicCallScreen?: () => void;
   onOpenTimeline?: (patient: Patient) => void;
@@ -209,6 +214,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   onCancelQueueItem,
   onUpdateQueueItemStatus,
   onDeleteQueueItem,
+  onReorderQueue,
   onRefreshQueue,
   onOpenPublicCallScreen,
   onOpenTimeline,
@@ -348,6 +354,125 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
   // Dropdown menu state for queue card actions
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+
+  // Drag and drop / repositioning state
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+
+  // Helper to determine accurate ordering priority (orderIndex takes precedence, followed by timestamp)
+  const getItemOrderValue = (item: ReceptionQueueItem): number => {
+    if (typeof item.orderIndex === 'number') {
+      return item.orderIndex;
+    }
+    return Number(item.timestamp) || 0;
+  };
+
+  // Drag & Drop reorder execution for any professional's queue
+  const handleReorderItem = (
+    sourceItemId: string,
+    targetItemId: string,
+    position: 'before' | 'after'
+  ) => {
+    if (!sourceItemId || !targetItemId || sourceItemId === targetItemId) return;
+
+    const sourceItem = mergedAllQueueItems.find((i) => i.id === sourceItemId);
+    const targetItem = mergedAllQueueItems.find((i) => i.id === targetItemId);
+    if (!sourceItem || !targetItem) return;
+
+    const targetProfKey = targetItem.professionalId || targetItem.professionalName || 'geral';
+
+    // Get active scope items belonging to the target professional's queue
+    const profGroupItems = mergedAllQueueItems
+      .filter((i) => {
+        const pKey = i.professionalId || i.professionalName || 'geral';
+        return pKey === targetProfKey && isItemInDateScope(i);
+      })
+      .sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+
+    // Remove sourceItem from the group if already present
+    const filteredGroup = profGroupItems.filter((i) => i.id !== sourceItemId);
+
+    // Locate target index
+    const targetIdx = filteredGroup.findIndex((i) => i.id === targetItemId);
+    if (targetIdx === -1) return;
+
+    const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
+
+    // Ensure professional alignment if dragged into another professional
+    const updatedSourceItem: ReceptionQueueItem = {
+      ...sourceItem,
+      professionalId: targetItem.professionalId,
+      professionalName: targetItem.professionalName,
+      professionalProfession: targetItem.professionalProfession,
+      scheduledDate: targetItem.scheduledDate || sourceItem.scheduledDate,
+    };
+
+    filteredGroup.splice(insertIdx, 0, updatedSourceItem);
+
+    // Re-index orderIndex with spacing of 10 for deterministic sorting
+    const reorderedResults = filteredGroup.map((item, index) => ({
+      ...item,
+      orderIndex: (index + 1) * 10,
+      updatedAt: Date.now(),
+    }));
+
+    if (onReorderQueue) {
+      onReorderQueue(reorderedResults);
+    }
+
+    if (onShowToast) {
+      onShowToast(
+        'success',
+        `"${sourceItem.patientName}" reposicionado(a) para a posição ${insertIdx + 1}º da fila.`,
+        'Fila Reposicionada'
+      );
+    }
+  };
+
+  // Quick move buttons helper (Subir, Descer, Mover ao Topo, Ao Final)
+  const handleQuickMove = (item: ReceptionQueueItem, direction: 'top' | 'up' | 'down' | 'bottom') => {
+    const profKey = item.professionalId || item.professionalName || 'geral';
+    const profGroupItems = mergedAllQueueItems
+      .filter((i) => {
+        const pKey = i.professionalId || i.professionalName || 'geral';
+        return pKey === profKey && isItemInDateScope(i);
+      })
+      .sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+
+    const currentIndex = profGroupItems.findIndex((i) => i.id === item.id);
+    if (currentIndex === -1) return;
+
+    let targetIndex = currentIndex;
+    if (direction === 'top') targetIndex = 0;
+    else if (direction === 'up') targetIndex = Math.max(0, currentIndex - 1);
+    else if (direction === 'down') targetIndex = Math.min(profGroupItems.length - 1, currentIndex + 1);
+    else if (direction === 'bottom') targetIndex = profGroupItems.length - 1;
+
+    if (targetIndex === currentIndex) return;
+
+    const reorderedList = [...profGroupItems];
+    const [moved] = reorderedList.splice(currentIndex, 1);
+    reorderedList.splice(targetIndex, 0, moved);
+
+    const reorderedResults = reorderedList.map((it, idx) => ({
+      ...it,
+      orderIndex: (idx + 1) * 10,
+      updatedAt: Date.now(),
+    }));
+
+    if (onReorderQueue) {
+      onReorderQueue(reorderedResults);
+    }
+
+    if (onShowToast) {
+      onShowToast(
+        'success',
+        `"${item.patientName}" reposicionado(a) para o ${targetIndex + 1}º lugar da fila.`,
+        'Posição Atualizada'
+      );
+    }
+  };
 
   // Filter Dropdown / Popover state
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState<boolean>(false);
@@ -618,8 +743,8 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     >();
 
     grouped.forEach((profItems) => {
-      // Sort chronologically (oldest to newest: ascending timestamp)
-      profItems.sort((a, b) => a.timestamp - b.timestamp);
+      // Sort using custom orderIndex if defined, otherwise chronologically by timestamp
+      profItems.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
 
       let waitingCounter = 0;
       const waitingTotal = profItems.filter(
@@ -687,13 +812,13 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       });
     }
 
-    // Sort: group primarily by professional name and then chronologically by timestamp
+    // Sort: group primarily by professional name and then by custom orderIndex/timestamp
     list.sort((a, b) => {
       const profCompare = (a.professionalName || '').localeCompare(b.professionalName || '');
       if (profCompare !== 0 && selectedProfId === 'all') {
         return profCompare;
       }
-      return a.timestamp - b.timestamp;
+      return getItemOrderValue(a) - getItemOrderValue(b);
     });
 
     return list;
@@ -753,7 +878,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }[] = [];
 
     map.forEach((items, key) => {
-      items.sort((a, b) => a.timestamp - b.timestamp);
+      items.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
       const firstItem = items[0];
       const profUser = professionals.find(
         (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim())
@@ -899,23 +1024,92 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     // 2. Para pacientes em atendimento/aguardando caso a data/hora agendada ainda não tenha expirado
     const showWhatsAppButton = isAbandonedOrCancelled || (!isCompleted && !isAppointmentExpired);
 
+    const isBeingDragged = draggedItemId === item.id;
+    const isDragOverThis = dragOverItemId === item.id;
+
     return (
       <motion.div
         key={item.id}
         layout
         initial={{ opacity: 0, y: 8 }}
-        animate={{ opacity: 1, y: 0 }}
+        animate={{ opacity: isBeingDragged ? 0.45 : 1, y: 0, scale: isBeingDragged ? 0.98 : 1 }}
         exit={{ opacity: 0, scale: 0.95 }}
-        className={`relative rounded-3xl border transition-all ${
-          openDropdownId === item.id ? 'z-30' : 'z-10'
+        transition={{ duration: 0.2 }}
+        draggable={openDropdownId !== item.id}
+        onDragStart={(e: any) => {
+          if (e.dataTransfer) {
+            e.dataTransfer.setData('text/plain', item.id);
+            e.dataTransfer.effectAllowed = 'move';
+          }
+          setDraggedItemId(item.id);
+        }}
+        onDragOver={(e: any) => {
+          e.preventDefault();
+          if (e.dataTransfer) {
+            e.dataTransfer.dropEffect = 'move';
+          }
+          if (draggedItemId && draggedItemId !== item.id) {
+            const rect = e.currentTarget.getBoundingClientRect();
+            const isTop = (e.clientY - rect.top) < (rect.height / 2);
+            setDragOverItemId(item.id);
+            setDragPosition(isTop ? 'before' : 'after');
+          }
+        }}
+        onDragLeave={(e: any) => {
+          if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+            if (dragOverItemId === item.id) {
+              setDragOverItemId(null);
+              setDragPosition(null);
+            }
+          }
+        }}
+        onDrop={(e: any) => {
+          e.preventDefault();
+          const sourceId = (e.dataTransfer && e.dataTransfer.getData('text/plain')) || draggedItemId;
+          if (sourceId && sourceId !== item.id) {
+            handleReorderItem(sourceId, item.id, dragPosition || 'after');
+          }
+          setDraggedItemId(null);
+          setDragOverItemId(null);
+          setDragPosition(null);
+        }}
+        onDragEnd={() => {
+          setDraggedItemId(null);
+          setDragOverItemId(null);
+          setDragPosition(null);
+        }}
+        className={`relative rounded-3xl border transition-all cursor-grab active:cursor-grabbing select-none ${
+          openDropdownId === item.id ? 'z-50' : 'z-10'
         } ${
-          isCalling
+          isBeingDragged
+            ? 'border-teal-500 ring-2 ring-teal-500/60 shadow-2xl bg-teal-50/30 dark:bg-teal-950/40'
+            : isCalling
             ? 'bg-gradient-to-r from-emerald-50/90 via-teal-50/50 to-white dark:from-emerald-950/40 dark:via-teal-950/20 dark:to-slate-900 border-emerald-500 ring-4 ring-emerald-500/20 shadow-xl'
             : isInConsultation
             ? 'bg-blue-50/50 dark:bg-blue-950/20 border-blue-300 dark:border-blue-800'
             : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-800 hover:border-teal-300 dark:hover:border-teal-700 shadow-xs'
         }`}
       >
+        {/* Drop Target Visual Indicator Bars */}
+        {isDragOverThis && dragPosition === 'before' && (
+          <div className="absolute -top-2 left-3 right-3 h-1.5 bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500 rounded-full shadow-lg shadow-teal-500/60 z-40 animate-pulse flex items-center justify-between pointer-events-none">
+            <span className="w-3 h-3 rounded-full bg-teal-500 -ml-1 border-2 border-white shadow-xs" />
+            <span className="text-[10px] font-black uppercase text-teal-800 dark:text-teal-200 bg-teal-100 dark:bg-teal-900/90 px-2 py-0.5 rounded-full border border-teal-400 shadow-xs">
+              Mover para esta posição (Acima)
+            </span>
+            <span className="w-3 h-3 rounded-full bg-teal-500 -mr-1 border-2 border-white shadow-xs" />
+          </div>
+        )}
+        {isDragOverThis && dragPosition === 'after' && (
+          <div className="absolute -bottom-2 left-3 right-3 h-1.5 bg-gradient-to-r from-teal-500 via-emerald-400 to-teal-500 rounded-full shadow-lg shadow-teal-500/60 z-40 animate-pulse flex items-center justify-between pointer-events-none">
+            <span className="w-3 h-3 rounded-full bg-teal-500 -ml-1 border-2 border-white shadow-xs" />
+            <span className="text-[10px] font-black uppercase text-teal-800 dark:text-teal-200 bg-teal-100 dark:bg-teal-900/90 px-2 py-0.5 rounded-full border border-teal-400 shadow-xs">
+              Mover para esta posição (Abaixo)
+            </span>
+            <span className="w-3 h-3 rounded-full bg-teal-500 -mr-1 border-2 border-white shadow-xs" />
+          </div>
+        )}
+
         {/* Visual Animated Green Top Bar if Calling */}
         {isCalling && (
           <div className="h-1.5 w-full bg-gradient-to-r from-emerald-400 via-teal-500 to-emerald-400 animate-pulse rounded-t-3xl" />
@@ -923,7 +1117,15 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
         <div className="p-4 sm:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
           {/* Left: Position & Patient Info */}
-          <div className="flex items-center gap-3.5 sm:gap-4 min-w-0 flex-1">
+          <div className="flex items-center gap-2.5 sm:gap-4 min-w-0 flex-1">
+            {/* 0. Alça / Grip para arrastar e reposicionar a fila */}
+            <div
+              className="cursor-grab active:cursor-grabbing p-1.5 -ml-1 rounded-xl text-slate-400 hover:text-teal-600 dark:hover:text-teal-400 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors flex items-center justify-center shrink-0"
+              title="Clique e segure para arrastar e reposicionar na fila de atendimento"
+            >
+              <GripVertical className="w-5 h-5" />
+            </div>
+
             {/* 1. Ordem (1º, 2º... sem texto adicional) */}
             <div
               className={`flex items-center justify-center w-12 h-12 sm:w-14 sm:h-14 rounded-2xl shrink-0 font-black text-lg sm:text-xl text-center shadow-xs transition-transform ${
@@ -933,7 +1135,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   ? 'bg-teal-600 text-white'
                   : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300'
               }`}
-              title={`Posição na fila: ${rankInfo.profOrder}º`}
+              title={`Posição na fila: ${rankInfo.profOrder}º de ${rankInfo.profTotal}`}
             >
               <span>{rankInfo.profOrder}º</span>
             </div>
@@ -1118,7 +1320,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
             {/* Dropdown Menu (Lista Suspensa) */}
             {openDropdownId === item.id && (
               <div
-                className="absolute right-0 top-full mt-2 w-64 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-xl shadow-slate-900/15 dark:shadow-black/60 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
+                className="absolute right-0 top-full mt-2 w-64 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl shadow-slate-900/30 dark:shadow-black/90 py-1.5 z-50 animate-in fade-in zoom-in-95 duration-100"
                 onClick={(e) => e.stopPropagation()}
               >
                 <div className="px-3.5 py-2 border-b border-slate-100 dark:border-slate-800 text-[11px] text-slate-500 dark:text-slate-400 font-semibold flex items-center justify-between">
@@ -1290,6 +1492,88 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
+                {/* Reposicionamento Rápido na Fila */}
+                <div className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 border-t border-b border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center justify-between">
+                  <span>Reposicionar Fila</span>
+                  <span className="text-teal-600 font-black">#{rankInfo.profOrder}º de {rankInfo.profTotal}</span>
+                </div>
+
+                <div className="grid grid-cols-2 gap-1 p-1.5 bg-slate-50/60 dark:bg-slate-900/60">
+                  <button
+                    type="button"
+                    disabled={rankInfo.profOrder <= 1}
+                    onClick={() => {
+                      handleQuickMove(item, 'up');
+                      setOpenDropdownId(null);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      rankInfo.profOrder <= 1
+                        ? 'opacity-30 cursor-not-allowed text-slate-400'
+                        : 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 border border-teal-200 dark:border-teal-800'
+                    }`}
+                    title="Subir 1 posição na fila"
+                  >
+                    <ChevronUp className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Subir 1</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={rankInfo.profOrder >= rankInfo.profTotal}
+                    onClick={() => {
+                      handleQuickMove(item, 'down');
+                      setOpenDropdownId(null);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      rankInfo.profOrder >= rankInfo.profTotal
+                        ? 'opacity-30 cursor-not-allowed text-slate-400'
+                        : 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 border border-teal-200 dark:border-teal-800'
+                    }`}
+                    title="Descer 1 posição na fila"
+                  >
+                    <ChevronDown className="w-3.5 h-3.5 text-teal-600" />
+                    <span>Descer 1</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={rankInfo.profOrder <= 1}
+                    onClick={() => {
+                      handleQuickMove(item, 'top');
+                      setOpenDropdownId(null);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      rankInfo.profOrder <= 1
+                        ? 'opacity-30 cursor-not-allowed text-slate-400'
+                        : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800'
+                    }`}
+                    title="Mover diretamente para o 1º lugar"
+                  >
+                    <ArrowUp className="w-3.5 h-3.5 text-indigo-600" />
+                    <span>Mover ao Topo</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    disabled={rankInfo.profOrder >= rankInfo.profTotal}
+                    onClick={() => {
+                      handleQuickMove(item, 'bottom');
+                      setOpenDropdownId(null);
+                    }}
+                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
+                      rankInfo.profOrder >= rankInfo.profTotal
+                        ? 'opacity-30 cursor-not-allowed text-slate-400'
+                        : 'text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 border border-slate-200 dark:border-slate-700'
+                    }`}
+                    title="Mover para o último lugar da fila"
+                  >
+                    <ArrowDown className="w-3.5 h-3.5 text-slate-600" />
+                    <span>Ao Final</span>
+                  </button>
+                </div>
+
+                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
+
                 {/* 6. Desistência */}
                 {!isAbandoned && !isCompleted && (
                   <button
@@ -1404,8 +1688,12 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                 {filteredItems.length} pacientes ({groupedByProf.length} profissional(is))
               </span>
             </div>
-            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5">
-              Ordem de chamada individual e cronológica classificada por cada profissional de saúde
+            <p className="text-xs text-slate-500 dark:text-slate-400 mt-0.5 flex items-center gap-1.5 flex-wrap">
+              <span>Ordem de chamada individual classificada por profissional de saúde.</span>
+              <span className="text-teal-600 dark:text-teal-400 font-bold inline-flex items-center gap-1">
+                <GripVertical className="w-3.5 h-3.5" />
+                Clique e segure para arrastar e reposicionar
+              </span>
             </p>
           </div>
         </div>
@@ -1973,6 +2261,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
             const isMyQueue = Boolean(currentUser && currentUser.id === group.professionalId);
             const isExpanded = expandedGroupIds.has(group.professionalId);
             const isShowingAbandoned = showAbandonedGroupIds.has(group.professionalId);
+            const groupHasOpenDropdown = Boolean(
+              openDropdownId && group.items.some((item) => item.id === openDropdownId)
+            );
 
             // Pacientes desistentes/cancelados ficam ocultos por padrão, a menos que o botão de desistentes seja acionado
             const visibleItems = group.items.filter((item) => {
@@ -1987,7 +2278,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
               <div
                 key={group.professionalId}
                 id={`queue-group-${group.professionalId}`}
-                className="rounded-3xl bg-indigo-50/40 dark:bg-slate-900/60 border-2 border-indigo-200/80 dark:border-indigo-950/60 p-3 sm:p-4 space-y-3 shadow-sm transition-all"
+                className={`rounded-3xl bg-indigo-50/40 dark:bg-slate-900/60 border-2 border-indigo-200/80 dark:border-indigo-950/60 p-3 sm:p-4 space-y-3 shadow-sm transition-all ${
+                  groupHasOpenDropdown ? 'relative z-50' : 'relative z-10'
+                }`}
               >
                 {/* Professional Queue Header Card - Drasticamente diferenciado nos modos Claro e Escuro */}
                 <div
@@ -2083,7 +2376,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                       animate={{ opacity: 1, height: 'auto' }}
                       exit={{ opacity: 0, height: 0 }}
                       transition={{ duration: 0.25, ease: 'easeInOut' }}
-                      className="overflow-hidden space-y-2.5 pt-1"
+                      className="space-y-2.5 pt-1"
                     >
                       {visibleItems.length === 0 ? (
                         <div className="text-center py-6 px-4 rounded-2xl bg-white/50 dark:bg-slate-900/40 border border-dashed border-slate-300 dark:border-slate-800 text-xs text-slate-500 dark:text-slate-400">
