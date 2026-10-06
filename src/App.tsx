@@ -83,6 +83,9 @@ import {
   fetchAllUsersFromFirestore,
   purgeLegacyMockDataFromFirestore,
   isMockUser,
+  isMockPatient,
+  isMockQueueItem,
+  isMockAppointment,
   saveUserToFirestore,
   deleteUserFromFirestore,
   subscribeToSystemSettings,
@@ -534,6 +537,9 @@ export default function App() {
     // Admin master has full unrestricted access
     if (isUserAdmin(currentUser)) return true;
 
+    // Vitalício Teste has unrestricted testing quota
+    if (currentUser.lifetime_trial) return true;
+
     // Check paid subscription
     if (isUserSubscriptionActive(currentUser)) {
       return true;
@@ -632,9 +638,19 @@ export default function App() {
     return () => window.removeEventListener('popstate', handleCheckUrl);
   }, []);
 
-  // Immediate purge of mock data from browser localStorage on startup
+  // Immediate purge of mock data from browser localStorage and database on startup
   useEffect(() => {
     try {
+      // Explicitly purge legacy mock user "Profissional da Unidade" from Firestore
+      deleteUserFromFirestore('Profissional da Unidade').catch(() => {});
+      deleteUserFromFirestore('user-profissional-da-unidade').catch(() => {});
+      deleteUserFromFirestore('profissional-da-unidade').catch(() => {});
+      deleteQueueItemFromFirestore('Profissional da Unidade').catch(() => {});
+      deleteAppointmentFromFirestore('Profissional da Unidade').catch(() => {});
+      deletePatientFromFirestore('cidadao').catch(() => {});
+      deletePatientFromFirestore('cidadão').catch(() => {});
+      deletePatientFromFirestore('Cidadão').catch(() => {});
+
       const savedUsers = localStorage.getItem('pec_users_list');
       if (savedUsers) {
         const parsed = JSON.parse(savedUsers);
@@ -658,6 +674,17 @@ export default function App() {
           safeSetItem('pec_current_user', DEFAULT_USERS[0]);
           setCurrentUser(DEFAULT_USERS[0]);
         }
+      }
+
+      const savedPatients = localStorage.getItem('pec_patients');
+      if (savedPatients) {
+        try {
+          const parsedP = JSON.parse(savedPatients);
+          if (Array.isArray(parsedP)) {
+            const cleanedP = parsedP.filter((p: Patient) => !isMockPatient(p));
+            safeSetItem('pec_patients', cleanedP);
+          }
+        } catch {}
       }
     } catch (err) {
       console.warn('LocalStorage sanitize error:', err);
@@ -692,15 +719,15 @@ export default function App() {
     const unsubPatients = subscribeToPatients(
       (livePatients) => {
         const cleanedPatients = (livePatients || []).filter(
-          (p) => !['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza'].includes(p.id)
+          (p) => !isMockPatient(p)
         );
         setPatients((prevLocal) => {
           const liveIds = new Set(cleanedPatients.map((p) => p.id));
-          const localOnly = (prevLocal || []).filter((p) => !liveIds.has(p.id));
+          const localOnly = (prevLocal || []).filter((p) => !liveIds.has(p.id) && !isMockPatient(p));
           return [...cleanedPatients, ...localOnly];
         });
         setSelectedPatient((prev) => {
-          if (!prev) return null;
+          if (!prev || isMockPatient(prev)) return null;
           const updatedSelected = cleanedPatients.find((p) => p.id === prev.id);
           return updatedSelected || prev;
         });
@@ -817,7 +844,14 @@ export default function App() {
     const unsubAppointments = subscribeToAppointments(
       (liveAppointments) => {
         if (liveAppointments) {
-          setAppointments(liveAppointments);
+          const cleaned = (liveAppointments || []).filter((a) => {
+            if (isMockAppointment(a)) {
+              deleteAppointmentFromFirestore(a.id).catch(() => {});
+              return false;
+            }
+            return true;
+          });
+          setAppointments(cleaned);
         }
       }
     );
@@ -826,7 +860,14 @@ export default function App() {
     const unsubQueue = subscribeToReceptionQueue(
       (liveQueue) => {
         if (liveQueue) {
-          setQueueItems(liveQueue);
+          const cleaned = (liveQueue || []).filter((q) => {
+            if (isMockQueueItem(q)) {
+              deleteQueueItemFromFirestore(q.id).catch(() => {});
+              return false;
+            }
+            return true;
+          });
+          setQueueItems(cleaned);
         }
       }
     );
@@ -1631,8 +1672,13 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
       setCurrentRecord(generated);
 
-      // Consume 1-time trial if user is on free tier and not admin
-      if (currentUser?.subscription_status !== 'pago' && !currentUser?.free_used && !isUserAdmin(currentUser)) {
+      // Consume 1-time trial if user is on free tier, not admin and not lifetime trial
+      if (
+        currentUser?.subscription_status !== 'pago' &&
+        !currentUser?.lifetime_trial &&
+        !currentUser?.free_used &&
+        !isUserAdmin(currentUser)
+      ) {
         if (currentUser?.id) {
           updateUserFreeTrialUsed(currentUser.id).catch((err) =>
             console.warn('Erro ao atualizar free_used no Firestore:', err)
@@ -2591,9 +2637,9 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
             patientCns: app.patientCns,
             patientBirthDate: app.patientBirthDate,
             patientPhone: app.patientPhone,
-            professionalId: app.professionalId || '',
-            professionalName: app.professionalName || 'Profissional da Unidade',
-            professionalProfession: app.professionalProfession || 'enfermeiro',
+            professionalId: app.professionalId || (users[0]?.id || ''),
+            professionalName: app.professionalName || (users[0]?.name || 'Profissional Responsável'),
+            professionalProfession: app.professionalProfession || (users[0]?.profession || 'enfermeiro'),
             scheduledDate: app.date,
             scheduledTime: app.startTime || '08:00',
             timestamp: app.timestamp || Date.now(),
@@ -2695,6 +2741,40 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       }
     } catch (err: any) {
       console.error('Erro ao salvar reposicionamento da fila:', err);
+    }
+  };
+
+  // Update date and time for queue item
+  const handleUpdateQueueItem = async (updatedItem: ReceptionQueueItem) => {
+    try {
+      // 1. Update queueItems state
+      setQueueItems((prev) => {
+        const idx = prev.findIndex((q) => q.id === updatedItem.id || q.appointmentId === updatedItem.id);
+        if (idx >= 0) {
+          const copy = [...prev];
+          copy[idx] = updatedItem;
+          return copy;
+        }
+        return [updatedItem, ...prev];
+      });
+
+      // 2. Persist to Firestore
+      await saveQueueItemToFirestore(updatedItem);
+
+      // 3. Sync corresponding appointment if linked or matching ID
+      const matchingApp = appointments.find((a) => a.id === updatedItem.id || a.id === updatedItem.appointmentId);
+      if (matchingApp) {
+        const updatedApp: Appointment = {
+          ...matchingApp,
+          date: updatedItem.scheduledDate,
+          startTime: updatedItem.scheduledTime,
+          updatedAt: Date.now(),
+        };
+        setAppointments((prev) => prev.map((a) => (a.id === matchingApp.id ? updatedApp : a)));
+        await saveAppointmentToFirestore(updatedApp).catch(console.warn);
+      }
+    } catch (err: any) {
+      console.error('Erro ao atualizar data/hora do item da fila:', err);
     }
   };
 
@@ -3492,6 +3572,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               onUpdateQueueItemStatus={handleUpdateQueueItemStatus}
               onDeleteQueueItem={handleDeleteQueueItem}
               onReorderQueue={handleReorderQueueItems}
+              onUpdateQueueItem={handleUpdateQueueItem}
               onOpenPublicCallScreen={() => setIsPublicCallScreenOpen(true)}
               onOpenTimeline={(patient) => {
                 verifyAccessOrOpenPaywall(() => {

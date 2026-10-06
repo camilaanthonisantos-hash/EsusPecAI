@@ -1167,28 +1167,56 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       return;
     }
 
-    const isCurrentlyFreeAvailable = !targetUser.free_used;
-    const newFreeUsed = isCurrentlyFreeAvailable ? true : false;
+    // Ciclo de 3 estados para cotas de teste:
+    // 1. "Remover Teste" (está em 1 Grátis: !free_used && !lifetime_trial) -> Clicou vai para "Renovar Teste" (Esgotada/Bloqueada: free_used: true, lifetime_trial: false)
+    // 2. "Renovar Teste" (está em Esgotada: free_used: true && !lifetime_trial) -> Clicou vai para "Vitalício Teste" (lifetime_trial: true, free_used: false)
+    // 3. "Vitalício Teste" (está em Vitalício: lifetime_trial: true) -> Clicou volta para "Remover Teste" (1 Grátis: lifetime_trial: false, free_used: false)
 
-    const updated: User = {
-      ...targetUser,
-      free_used: newFreeUsed,
-      subscription_status: targetUser.subscription_status === 'pago' ? 'pago' : 'free',
-    };
-
-    onUpdateUser(updated);
-
-    if (newFreeUsed) {
+    let updated: User;
+    if (targetUser.lifetime_trial) {
+      // Estado atual: Vitalício Teste -> Próximo: 1 Teste Grátis (Botão mostrará 'Remover Teste')
+      updated = {
+        ...targetUser,
+        lifetime_trial: false,
+        free_used: false,
+        subscription_status: targetUser.subscription_status === 'pago' ? 'pago' : 'free',
+        updatedAt: Date.now(),
+      };
+      onUpdateUser(updated);
+      onShowToast(
+        'info',
+        `Cota de ${targetUser.name} alterada para 1 Teste Grátis.`,
+        '1 Teste Ativado'
+      );
+    } else if (!targetUser.free_used) {
+      // Estado atual: 1 Teste Grátis -> Próximo: Teste Bloqueado/Removido (Botão mostrará 'Renovar Teste')
+      updated = {
+        ...targetUser,
+        lifetime_trial: false,
+        free_used: true,
+        subscription_status: targetUser.subscription_status === 'pago' ? 'pago' : 'free',
+        updatedAt: Date.now(),
+      };
+      onUpdateUser(updated);
       onShowToast(
         'info',
         `Cota de teste removida para ${targetUser.name}. O acesso foi bloqueado para exigir plano.`,
         'Cota Removida'
       );
     } else {
+      // Estado atual: Teste Esgotado/Bloqueado -> Próximo: Vitalício Teste (Botão mostrará 'Vitalício Teste')
+      updated = {
+        ...targetUser,
+        lifetime_trial: true,
+        free_used: false,
+        subscription_status: targetUser.subscription_status === 'pago' ? 'pago' : 'free',
+        updatedAt: Date.now(),
+      };
+      onUpdateUser(updated);
       onShowToast(
         'success',
-        `Cota de teste renovada para ${targetUser.name}! Agora ele pode gerar mais 1 prontuário grátis.`,
-        'Cota Renovada'
+        `Cota configurada como Vitalício Teste para ${targetUser.name}! Acesso irrestrito a testes ativado.`,
+        'Vitalício Teste Ativado'
       );
     }
   };
@@ -2198,6 +2226,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
                                         <Sparkles className="w-3 h-3" /> Vitalício
                                       </span>
+                                    ) : u.lifetime_trial ? (
+                                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-purple-500/15 text-purple-700 dark:text-purple-300 border border-purple-500/30 text-[11px] font-bold">
+                                        <Sparkles className="w-3 h-3 text-purple-600 dark:text-purple-400" /> Vitalício Teste
+                                      </span>
                                     ) : u.subscription_status === 'pago' && u.subscription_expires_at && u.subscription_expires_at > Date.now() ? (
                                       <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-emerald-500/10 text-emerald-600 dark:text-emerald-400 text-[11px] font-bold">
                                         <CheckCircle2 className="w-3 h-3" /> Ativo
@@ -2215,23 +2247,32 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
 
                                   <td className="py-3 px-4 text-right">
                                     <div className="flex items-center justify-end gap-1.5">
-                                      {/* Botão Alternador: Renovar Teste ou Remover Teste */}
+                                      {/* Botão Alternador Cíclico: Remover Teste -> Renovar Teste -> Vitalício Teste */}
                                       {!isTargetAdmin && (
                                         <button
                                           type="button"
                                           onClick={() => handleToggleFreeTrial(u)}
                                           className={`px-2.5 py-1 rounded-lg border text-[11px] font-bold flex items-center gap-1.5 transition-all shadow-2xs cursor-pointer ${
-                                            !u.free_used
+                                            u.lifetime_trial
+                                              ? 'bg-purple-500/10 hover:bg-purple-500/20 text-purple-600 dark:text-purple-400 border-purple-500/30'
+                                              : !u.free_used
                                               ? 'bg-rose-500/10 hover:bg-rose-500/20 text-rose-600 dark:text-rose-400 border-rose-500/30'
                                               : 'bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-600 dark:text-emerald-400 border-emerald-500/30'
                                           }`}
                                           title={
-                                            !u.free_used
-                                              ? `Remover cota de teste de ${u.name} (bloquear para exigir contratação de plano)`
-                                              : `Renovar cota de teste para ${u.name} (concede mais 1 prontuário grátis)`
+                                            u.lifetime_trial
+                                              ? `Status atual: Vitalício Teste. Clique para alterar para 1 Teste Grátis.`
+                                              : !u.free_used
+                                              ? `Status atual: 1 Teste Grátis. Clique para remover teste (bloquear para exigir plano).`
+                                              : `Status atual: Teste Esgotado. Clique para ativar Vitalício Teste.`
                                           }
                                         >
-                                          {!u.free_used ? (
+                                          {u.lifetime_trial ? (
+                                            <>
+                                              <Sparkles className="w-3 h-3 text-purple-500" />
+                                              <span>Vitalício Teste</span>
+                                            </>
+                                          ) : !u.free_used ? (
                                             <>
                                               <Ban className="w-3 h-3" />
                                               <span>Remover Teste</span>

@@ -418,11 +418,13 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
               className="px-2.5 py-1 rounded-lg bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-xs text-slate-800 dark:text-slate-200 font-semibold"
             >
               <option value="all">Todos os Profissionais</option>
-              {professionals.map((p) => (
-                <option key={p.id} value={p.id}>
-                  {p.name} ({PROFESSIONS[p.profession]?.name || p.profession})
-                </option>
-              ))}
+              {professionals
+                .filter((p) => p.profession !== 'administrativo')
+                .map((p) => (
+                  <option key={p.id} value={p.id}>
+                    {p.name} ({PROFESSIONS[p.profession]?.name || p.profession})
+                  </option>
+                ))}
             </select>
           </div>
 

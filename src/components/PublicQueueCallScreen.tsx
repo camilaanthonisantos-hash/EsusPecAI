@@ -117,15 +117,44 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
 
   // Build unified items pool from queueItems and appointments
   const allAvailableItems = useMemo(() => {
-    const list: ReceptionQueueItem[] = [...queueItems];
+    const clinicalProfs = (professionals || []).filter((p) => p && p.profession !== 'administrativo');
+    const fallbackProf = clinicalProfs[0] || (professionals || [])[0];
+    const defaultProfName = fallbackProf?.name || 'Profissional Responsável';
+    const defaultProfId = fallbackProf?.id || '';
+    const defaultProfProfession = fallbackProf?.profession || 'enfermeiro';
+
+    const validQueueItems = (queueItems || []).filter((q) => {
+      const patName = (q.patientName || '').trim().toLowerCase();
+      if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado') return false;
+      const profName = (q.professionalName || '').trim().toLowerCase();
+      const profId = (q.professionalId || '').trim().toLowerCase();
+      if (profName === 'profissional da unidade' || profId === 'profissional da unidade' || profId === 'user-profissional-da-unidade') return false;
+      if (q.professionalProfession === 'administrativo') return false;
+      return true;
+    });
+
+    const list: ReceptionQueueItem[] = [...validQueueItems];
     const existingAppointmentIds = new Set(
-      queueItems.map((q) => q.appointmentId || q.id).filter(Boolean)
+      validQueueItems.map((q) => q.appointmentId || q.id).filter(Boolean)
     );
 
     if (appointments && appointments.length > 0) {
       for (const app of appointments) {
         if (!app.patientName && !app.date) continue;
         if (existingAppointmentIds.has(app.id)) continue;
+
+        const patName = (app.patientName || '').trim().toLowerCase();
+        if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado') continue;
+        const appPName = (app.professionalName || '').trim().toLowerCase();
+        const appPId = (app.professionalId || '').trim().toLowerCase();
+        if (appPName === 'profissional da unidade' || appPId === 'profissional da unidade' || appPId === 'user-profissional-da-unidade') continue;
+        if (app.professionalProfession === 'administrativo') continue;
+
+        const matchedProf = clinicalProfs.find(
+          (p) =>
+            (app.professionalId && p.id === app.professionalId) ||
+            (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
+        );
 
         let mappedStatus: QueueItemStatus = 'waiting';
         if (app.status === 'em_atendimento') {
@@ -149,14 +178,14 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
         const queueItemFromAppointment: ReceptionQueueItem = {
           id: app.id,
           patientId: app.patientId || `pat-${app.id}`,
-          patientName: app.patientName || 'Paciente Agendado',
+          patientName: app.patientName,
           patientCpf: app.patientCpf,
           patientCns: app.patientCns,
           patientBirthDate: app.patientBirthDate,
           patientPhone: app.patientPhone,
-          professionalId: app.professionalId || '',
-          professionalName: app.professionalName || 'Profissional da Unidade',
-          professionalProfession: app.professionalProfession || 'enfermeiro',
+          professionalId: matchedProf?.id || defaultProfId,
+          professionalName: matchedProf?.name || defaultProfName,
+          professionalProfession: matchedProf?.profession || app.professionalProfession || defaultProfProfession,
           scheduledDate: app.date,
           scheduledTime: app.startTime || '08:00',
           timestamp: itemTimestamp,
@@ -175,7 +204,7 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
     }
 
     return list;
-  }, [queueItems, appointments]);
+  }, [queueItems, appointments, professionals]);
 
   // List of distinct professionals with patient counts for currently selected date
   const distinctProfessionalsList = useMemo(() => {

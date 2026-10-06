@@ -188,11 +188,48 @@ const LEGACY_MOCK_EMAILS = [
 
 export function isMockUser(u: Partial<User> | null | undefined, docId?: string): boolean {
   if (!u) return false;
-  if (docId && LEGACY_MOCK_USER_IDS.includes(docId)) return true;
-  if (u.id && LEGACY_MOCK_USER_IDS.includes(u.id)) return true;
-  if (u.name && LEGACY_MOCK_USER_NAMES.includes(u.name.trim())) return true;
+  const targetId = (u.id || docId || '').toLowerCase().trim();
+  if (targetId && (LEGACY_MOCK_USER_IDS.some((id) => id.toLowerCase() === targetId) || targetId.includes('profissional da unidade') || targetId === 'user-profissional-da-unidade' || targetId === 'profissional-da-unidade')) return true;
+  const name = (typeof u.name === 'string' ? u.name : '').toLowerCase().trim();
+  if (name && (LEGACY_MOCK_USER_NAMES.map((n) => n.toLowerCase()).includes(name) || name === 'profissional da unidade' || name === 'profissional da saúde' || name === 'profissional da saude')) return true;
   const email = (typeof u.email === 'string' ? u.email : '').toLowerCase().trim();
-  if (email && LEGACY_MOCK_EMAILS.includes(email)) return true;
+  if (email && (LEGACY_MOCK_EMAILS.includes(email) || email.includes('profissional.da.unidade') || email.includes('profissionaldaunidade'))) return true;
+  return false;
+}
+
+export function isMockPatient(p: Partial<Patient> | null | undefined, docId?: string): boolean {
+  if (!p) return false;
+  const id = (p.id || docId || '').toLowerCase().trim();
+  if (['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza', 'cidadao', 'cidadão', 'pat-cidadao', 'pat-cidadão'].includes(id)) return true;
+  const name = (typeof p.fullName === 'string' ? p.fullName : '').toLowerCase().trim();
+  if (!name || name === 'cidadão' || name === 'cidadao' || name === 'paciente agendado' || name === 'paciente da fila' || name === 'cidadão identificado' || name === 'profissional da unidade') return true;
+  return false;
+}
+
+export function isMockQueueItem(q: Partial<ReceptionQueueItem> | null | undefined, docId?: string): boolean {
+  if (!q) return false;
+  const id = (q.id || docId || '').toLowerCase().trim();
+  if (id.includes('profissional da unidade') || id === 'profissional da unidade') return true;
+  const patName = (q.patientName || '').toLowerCase().trim();
+  if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || patName === 'profissional da unidade') return true;
+  const profName = (q.professionalName || '').toLowerCase().trim();
+  const profId = (q.professionalId || '').toLowerCase().trim();
+  if (profName === 'profissional da unidade' || profId === 'profissional da unidade' || profId === 'user-profissional-da-unidade' || profId === 'profissional-da-unidade') return true;
+  // Exclude items assigned to administrative profiles
+  if (q.professionalProfession === 'administrativo') return true;
+  return false;
+}
+
+export function isMockAppointment(a: Partial<Appointment> | null | undefined, docId?: string): boolean {
+  if (!a) return false;
+  const id = (a.id || docId || '').toLowerCase().trim();
+  if (id.includes('profissional da unidade') || id === 'profissional da unidade') return true;
+  const patName = (a.patientName || '').toLowerCase().trim();
+  if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || patName === 'profissional da unidade') return true;
+  const profName = (a.professionalName || '').toLowerCase().trim();
+  const profId = (a.professionalId || '').toLowerCase().trim();
+  if (profName === 'profissional da unidade' || profId === 'profissional da unidade' || profId === 'user-profissional-da-unidade' || profId === 'profissional-da-unidade') return true;
+  if (a.professionalProfession === 'administrativo') return true;
   return false;
 }
 
@@ -342,7 +379,16 @@ export function subscribeToPatients(
 ) {
   return createSupabaseSubscription<Patient>(
     'patients',
-    (rows) => rows.sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)),
+    (rows) =>
+      rows
+        .filter((p) => {
+          if (isMockPatient(p)) {
+            if (p.id) deletePatientFromFirestore(p.id).catch(() => {});
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => (Number(b.createdAt) || 0) - (Number(a.createdAt) || 0)),
     onUpdate
   );
 }
@@ -752,7 +798,7 @@ export async function updateUserFreeTrialUsed(userId: string): Promise<void> {
   try {
     const user = await apiDbGet<User[]>('users');
     const existing = (user || []).find((u) => u.id === userId);
-    if (existing) {
+    if (existing && !existing.lifetime_trial) {
       await saveUserToFirestore({ ...existing, free_used: true });
     }
   } catch (error) {
@@ -865,7 +911,16 @@ export function subscribeToAppointments(
 ) {
   return createSupabaseSubscription<Appointment>(
     'appointments',
-    (rows) => rows.sort((a, b) => (b.date || '').localeCompare(a.date || '')),
+    (rows) =>
+      rows
+        .filter((a) => {
+          if (isMockAppointment(a)) {
+            if (a.id) deleteAppointmentFromFirestore(a.id).catch(() => {});
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => (b.date || '').localeCompare(a.date || '')),
     onUpdate
   );
 }
@@ -1049,11 +1104,19 @@ export function subscribeToReceptionQueue(
   return createSupabaseSubscription<ReceptionQueueItem>(
     'reception_queue',
     (rows) =>
-      rows.sort((a, b) => {
-        const orderA = a.orderIndex !== undefined ? a.orderIndex : (Number(a.timestamp) || 0);
-        const orderB = b.orderIndex !== undefined ? b.orderIndex : (Number(b.timestamp) || 0);
-        return orderA - orderB;
-      }),
+      rows
+        .filter((q) => {
+          if (isMockQueueItem(q)) {
+            if (q.id) deleteQueueItemFromFirestore(q.id).catch(() => {});
+            return false;
+          }
+          return true;
+        })
+        .sort((a, b) => {
+          const orderA = a.orderIndex !== undefined ? a.orderIndex : (Number(a.timestamp) || 0);
+          const orderB = b.orderIndex !== undefined ? b.orderIndex : (Number(b.timestamp) || 0);
+          return orderA - orderB;
+        }),
     onUpdate
   );
 }

@@ -662,6 +662,7 @@ export interface User {
   updatedAt?: number;
   // Subscription & Free Trial
   free_used?: boolean;
+  lifetime_trial?: boolean;
   subscription_status?: 'free' | 'pendente' | 'pago';
   subscription_expires_at?: number;
   plan_name?: string;

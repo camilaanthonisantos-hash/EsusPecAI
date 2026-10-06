@@ -34,6 +34,8 @@ import {
   ArrowUp,
   ArrowDown,
   ChevronUp,
+  Pencil,
+  X,
 } from 'lucide-react';
 import {
   ReceptionQueueItem,
@@ -193,6 +195,8 @@ export interface ReceptionQueueViewProps {
   onUpdateQueueItemStatus?: (queueItemId: string, newStatus: any) => void;
   onDeleteQueueItem?: (queueItemId: string) => void;
   onReorderQueue?: (reorderedItems: ReceptionQueueItem[]) => void;
+  onUpdateQueueItem?: (updatedItem: ReceptionQueueItem) => void;
+  onUpdateQueueItemDateTime?: (itemId: string, newDate: string, newTime: string) => void;
   onRefreshQueue?: () => void;
   onOpenPublicCallScreen?: () => void;
   onOpenTimeline?: (patient: Patient) => void;
@@ -215,6 +219,8 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   onUpdateQueueItemStatus,
   onDeleteQueueItem,
   onReorderQueue,
+  onUpdateQueueItem,
+  onUpdateQueueItemDateTime,
   onRefreshQueue,
   onOpenPublicCallScreen,
   onOpenTimeline,
@@ -354,6 +360,53 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
   // Dropdown menu state for queue card actions
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+
+  // Edit Date & Time state for queue items
+  const [editingDateTimeItem, setEditingDateTimeItem] = useState<ReceptionQueueItem | null>(null);
+  const [editDate, setEditDate] = useState<string>('');
+  const [editTime, setEditTime] = useState<string>('');
+
+  const handleOpenEditDateTime = (item: ReceptionQueueItem, e?: React.MouseEvent) => {
+    if (e) e.stopPropagation();
+    setEditingDateTimeItem(item);
+    setEditDate(item.scheduledDate || getTodayDateString());
+    setEditTime(item.scheduledTime || '08:00');
+  };
+
+  const handleSaveDateTime = () => {
+    if (!editingDateTimeItem || !editDate || !editTime) return;
+
+    const [year, month, day] = editDate.split('-').map(Number);
+    const [hours, minutes] = editTime.split(':').map(Number);
+    const newDateObj = new Date(year, (month || 1) - 1, day || 1, hours || 8, minutes || 0, 0);
+    const newTimestamp = isNaN(newDateObj.getTime()) ? Date.now() : newDateObj.getTime();
+    const newFormatted = formatQueueDateTime(editDate, editTime);
+
+    const updatedItem: ReceptionQueueItem = {
+      ...editingDateTimeItem,
+      scheduledDate: editDate,
+      scheduledTime: editTime,
+      timestamp: newTimestamp,
+      formattedDateTime: newFormatted,
+      updatedAt: Date.now(),
+    };
+
+    if (onUpdateQueueItem) {
+      onUpdateQueueItem(updatedItem);
+    } else if (onUpdateQueueItemDateTime) {
+      onUpdateQueueItemDateTime(editingDateTimeItem.id, editDate, editTime);
+    }
+
+    if (onShowToast) {
+      onShowToast(
+        'success',
+        `Data e horário de "${editingDateTimeItem.patientName}" atualizados para ${formatDatePtBr(editDate)} às ${editTime}.`,
+        'Horário Atualizado'
+      );
+    }
+
+    setEditingDateTimeItem(null);
+  };
 
   // Drag and drop / repositioning state
   const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
@@ -600,18 +653,57 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   // Helper date
   const todayStr = getTodayDateString();
 
+  // Filter strictly clinical professionals (exclude administrative profiles who don't attend patients)
+  const clinicalProfessionals = useMemo(() => {
+    return (professionals || []).filter((p) => p && p.profession !== 'administrativo');
+  }, [professionals]);
+
   // Unified list of all queue items + scheduled appointments
   const mergedAllQueueItems = useMemo(() => {
+    // Default fallback clinical professional from real registered users
+    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id) || clinicalProfessionals[0];
+    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
+    const defaultProfId = defaultProf?.id || '';
+    const defaultProfession = defaultProf?.profession || 'enfermeiro';
+
     // Filter and normalize queue items to guarantee all properties exist
     const validQueueItems = (queueItems || [])
-      .filter((q) => q && (q.patientName || q.scheduledDate || q.id))
-      .map((q) => ({
-        ...q,
-        patientName: q.patientName || 'Cidadão',
-        professionalName: q.professionalName || 'Profissional da Unidade',
-        scheduledDate: q.scheduledDate || (q.timestamp && !isNaN(new Date(q.timestamp).getTime()) ? new Date(q.timestamp).toISOString().split('T')[0] : todayStr),
-        scheduledTime: q.scheduledTime || '08:00',
-      }));
+      .filter((q) => q && q.id)
+      .filter((q) => {
+        // Discard any legacy mock items associated with "Profissional da Unidade" or mock "Cidadão"
+        const pName = (q.professionalName || '').trim().toLowerCase();
+        const pId = (q.professionalId || '').trim().toLowerCase();
+        const patName = (q.patientName || '').trim().toLowerCase();
+        if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || !patName) return false;
+        if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') return false;
+
+        // Discard any queue item directed to an administrative user
+        const matchedProf = (professionals || []).find((p) => (q.professionalId && p.id === q.professionalId) || (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim()));
+        if (matchedProf?.profession === 'administrativo' || q.professionalProfession === 'administrativo') return false;
+
+        return true;
+      })
+      .map((q) => {
+        const matchedProf = clinicalProfessionals.find(
+          (p) =>
+            (q.professionalId && p.id === q.professionalId) ||
+            (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+        );
+        const pNameClean = (q.professionalName || '').trim().toLowerCase();
+        const finalProfName = matchedProf?.name || (pNameClean === 'profissional da unidade' || !q.professionalName ? defaultProfName : q.professionalName);
+        const finalProfId = matchedProf?.id || (pNameClean === 'profissional da unidade' || !q.professionalId ? defaultProfId : q.professionalId);
+        const finalProfession = matchedProf?.profession || q.professionalProfession || defaultProfession;
+
+        return {
+          ...q,
+          patientName: q.patientName,
+          professionalId: finalProfId,
+          professionalName: finalProfName,
+          professionalProfession: finalProfession,
+          scheduledDate: q.scheduledDate || (q.timestamp && !isNaN(new Date(q.timestamp).getTime()) ? new Date(q.timestamp).toISOString().split('T')[0] : todayStr),
+          scheduledTime: q.scheduledTime || '08:00',
+        };
+      });
 
     const list: ReceptionQueueItem[] = [...validQueueItems];
     const existingAppointmentIds = new Set(
@@ -623,6 +715,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         if (!app.patientName && !app.date) continue;
         if (app.id && app.id.startsWith('ord_pix')) continue;
         if (existingAppointmentIds.has(app.id)) continue;
+
+        const appPName = (app.professionalName || '').trim().toLowerCase();
+        const appPId = (app.professionalId || '').trim().toLowerCase();
+        const appPatName = (app.patientName || '').trim().toLowerCase();
+        if (appPatName === 'cidadão' || appPatName === 'cidadao' || appPatName === 'paciente agendado' || !appPatName) continue;
+        if (appPName === 'profissional da unidade' || appPId === 'profissional da unidade' || appPId === 'user-profissional-da-unidade') continue;
+
+        // Discard any appointment assigned to administrative staff
+        const matchedProf = (professionals || []).find(
+          (p) =>
+            (app.professionalId && p.id === app.professionalId) ||
+            (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
+        );
+        if (matchedProf?.profession === 'administrativo' || app.professionalProfession === 'administrativo') continue;
 
         let mappedStatus: QueueItemStatus = 'waiting';
         if (app.status === 'em_atendimento') {
@@ -645,21 +751,14 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
         const formattedDate = formatQueueDateTime(app.date, app.startTime || '08:00');
 
-        // Accurately resolve professional identity from registered users catalog
-        const matchedProf = professionals.find(
-          (p) =>
-            (app.professionalId && p.id === app.professionalId) ||
-            (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
-        );
-
-        const resolvedProfId = matchedProf?.id || app.professionalId || '';
-        const resolvedProfName = matchedProf?.name || app.professionalName || 'Profissional da Unidade';
-        const resolvedProfession = matchedProf?.profession || app.professionalProfession || 'assistente_social';
+        const resolvedProfId = matchedProf?.id || (appPName === 'profissional da unidade' ? defaultProfId : app.professionalId) || defaultProfId;
+        const resolvedProfName = matchedProf?.name || (appPName === 'profissional da unidade' ? defaultProfName : app.professionalName) || defaultProfName;
+        const resolvedProfession = matchedProf?.profession || app.professionalProfession || defaultProfession;
 
         const queueItemFromAppointment: ReceptionQueueItem = {
           id: app.id,
           patientId: app.patientId || `pat-${app.id}`,
-          patientName: app.patientName || 'Paciente Agendado',
+          patientName: app.patientName,
           patientCpf: app.patientCpf,
           patientCns: app.patientCns,
           patientBirthDate: app.patientBirthDate,
@@ -685,7 +784,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
 
     return list;
-  }, [queueItems, appointments]);
+  }, [queueItems, appointments, clinicalProfessionals, professionals, currentUser, todayStr]);
 
   // Helper: verifica se um item da fila está dentro do escopo de data selecionado
   const isItemInDateScope = (item: ReceptionQueueItem): boolean => {
@@ -850,15 +949,40 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       });
     }
 
+    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id && p.profession !== 'administrativo') || clinicalProfessionals[0];
+    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
+    const defaultProfId = defaultProf?.id || 'geral';
+    const defaultProfession = defaultProf?.profession || 'enfermeiro';
+
     const map = new Map<string, ReceptionQueueItem[]>();
     for (const item of baseList) {
-      // Find matching professional to group under the real professional UID
-      const matchedProf = professionals.find(
+      const patName = (item.patientName || '').trim().toLowerCase();
+      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || !patName) continue;
+
+      const pName = (item.professionalName || '').trim().toLowerCase();
+      const pId = (item.professionalId || '').trim().toLowerCase();
+      if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') continue;
+
+      // Check if item was assigned to an administrative user - if so, ignore as admin does not attend patients
+      const rawProf = (professionals || []).find(
         (p) =>
           (item.professionalId && p.id === item.professionalId) ||
           (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
       );
-      const key = matchedProf?.id || item.professionalId || item.professionalName || 'geral';
+      if (rawProf?.profession === 'administrativo' || item.professionalProfession === 'administrativo' || rawProf?.name.toLowerCase().includes('nangley')) {
+        continue;
+      }
+
+      // Find matching clinical professional
+      const matchedProf = clinicalProfessionals.find(
+        (p) =>
+          (item.professionalId && p.id === item.professionalId) ||
+          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      );
+
+      if (!matchedProf && !defaultProf) continue;
+
+      const key = matchedProf?.id || defaultProf?.id || 'geral';
       if (!map.has(key)) {
         map.set(key, []);
       }
@@ -880,17 +1004,22 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     map.forEach((items, key) => {
       items.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
       const firstItem = items[0];
-      const profUser = professionals.find(
-        (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim())
+      const profUser = clinicalProfessionals.find(
+        (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
       );
+      if (profUser?.profession === 'administrativo' || profUser?.name.toLowerCase().includes('nangley')) return; // Strictly ignore administrative staff from queue groups
+
+      const groupName = profUser?.name || (firstItem?.professionalName && firstItem.professionalName.toLowerCase().trim() !== 'profissional da unidade' ? firstItem.professionalName : defaultProfName);
+      if (groupName.toLowerCase().trim() === 'profissional da unidade') return;
+
       const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service');
       const completedItems = items.filter((i) => i.status === 'completed');
       const abandonedItems = items.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
 
       groups.push({
         professionalId: profUser?.id || key,
-        professionalName: profUser?.name || firstItem?.professionalName || 'Profissional da Unidade',
-        professionalProfession: profUser?.profession || firstItem?.professionalProfession || 'assistente_social',
+        professionalName: groupName,
+        professionalProfession: profUser?.profession || firstItem?.professionalProfession || defaultProfession,
         items,
         waitingCount: waitingItems.length,
         completedCount: completedItems.length,
@@ -1177,14 +1306,27 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
               {/* Linha 2: Data e hora do atendimento + Ícone de WhatsApp */}
               <div className="flex flex-wrap items-center gap-2.5 pt-0.5">
-                {/* Data e hora do atendimento */}
-                <span className="font-extrabold text-teal-800 dark:text-teal-300 flex items-center gap-1.5 bg-teal-50 dark:bg-teal-950/50 px-3 py-1 rounded-xl border border-teal-200 dark:border-teal-850 text-xs">
-                  <Clock className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                {/* Data e hora do atendimento (Clicável para editar data e hora para todos os pacientes de todos os profissionais) */}
+                <span
+                  role="button"
+                  tabIndex={0}
+                  onClick={(e) => handleOpenEditDateTime(item, e)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' || e.key === ' ') {
+                      e.preventDefault();
+                      handleOpenEditDateTime(item);
+                    }
+                  }}
+                  className="font-extrabold text-teal-800 dark:text-teal-300 flex items-center gap-1.5 bg-teal-50 hover:bg-teal-100 dark:bg-teal-950/50 dark:hover:bg-teal-900/60 px-3 py-1 rounded-xl border border-teal-200 hover:border-teal-400 dark:border-teal-850 dark:hover:border-teal-700 text-xs cursor-pointer select-none transition-all active:scale-95 group/datebtn shadow-xs hover:shadow-sm"
+                  title="Clique para editar a data e horário do atendimento deste paciente"
+                >
+                  <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 group-hover/datebtn:rotate-12 transition-transform shrink-0" />
                   <span>
                     {item.formattedDateTime
                       ? item.formattedDateTime.replace(/\s*\+\s*/g, ' ')
                       : formatQueueDateTime(item.scheduledDate, item.scheduledTime)}
                   </span>
+                  <Pencil className="w-3 h-3 text-teal-600 dark:text-teal-400 opacity-60 group-hover/datebtn:opacity-100 group-hover/datebtn:scale-110 transition-all shrink-0 ml-0.5" />
                 </span>
 
                 {/* Ícone de WhatsApp na Linha 2 (consultas ativas não expiradas OU desistências/cancelamentos) */}
@@ -1351,6 +1493,26 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     <span>Linha do tempo</span>
                     <span className="text-[10px] text-slate-400 font-normal">
                       Prontuário & histórico clínico
+                    </span>
+                  </div>
+                </button>
+
+                {/* 1.5. Editar Data e Horário */}
+                <button
+                  type="button"
+                  id={`dropdown-edit-datetime-${item.id}`}
+                  onClick={() => {
+                    handleOpenEditDateTime(item);
+                    setOpenDropdownId(null);
+                  }}
+                  className="w-full text-left px-3.5 py-2.5 text-xs font-bold flex items-center gap-2.5 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/40 transition-colors"
+                  title="Alterar data e horário deste paciente na fila"
+                >
+                  <Calendar className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
+                  <div className="flex flex-col min-w-0">
+                    <span>Editar Data e Horário</span>
+                    <span className="text-[10px] text-slate-400 font-normal">
+                      Reagendar ou ajustar horário na fila
                     </span>
                   </div>
                 </button>
@@ -2427,6 +2589,213 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
             setActiveCallingItem(null);
           }}
         />
+      )}
+
+      {/* Modal de Edição Rápida de Data e Horário para Pacientes da Fila de Todos os Profissionais */}
+      {editingDateTimeItem && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-slate-950/70 backdrop-blur-xs animate-in fade-in duration-150"
+          onClick={() => setEditingDateTimeItem(null)}
+        >
+          <div
+            className="relative w-full max-w-lg rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-2xl p-6 sm:p-7 space-y-5 animate-in zoom-in-95 duration-150"
+            onClick={(e) => e.stopPropagation()}
+          >
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-slate-100 dark:border-slate-800 pb-4">
+              <div className="flex items-center gap-3">
+                <div className="w-12 h-12 rounded-2xl bg-teal-50 dark:bg-teal-950/60 text-teal-600 dark:text-teal-400 flex items-center justify-center border border-teal-200 dark:border-teal-800 shrink-0">
+                  <Calendar className="w-6 h-6" />
+                </div>
+                <div>
+                  <h3 className="text-lg font-black text-slate-900 dark:text-slate-100 tracking-tight">
+                    Alterar Data e Horário
+                  </h3>
+                  <p className="text-xs text-slate-500 dark:text-slate-400">
+                    Edite a data e hora prevista de atendimento deste paciente na fila
+                  </p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setEditingDateTimeItem(null)}
+                className="p-2 rounded-xl text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors"
+                title="Fechar"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* Patient & Professional Summary Card */}
+            <div className="p-3.5 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80 space-y-1.5">
+              <div className="flex items-center justify-between gap-2">
+                <span className="text-sm font-black text-slate-900 dark:text-slate-100 truncate">
+                  👤 {editingDateTimeItem.patientName}
+                </span>
+                <span className="text-[10px] font-bold px-2.5 py-0.5 rounded-full bg-teal-100 dark:bg-teal-900/80 text-teal-800 dark:text-teal-200">
+                  Paciente da Fila
+                </span>
+              </div>
+              <div className="text-xs font-semibold text-slate-600 dark:text-slate-400 flex items-center gap-1.5">
+                <Stethoscope className="w-3.5 h-3.5 text-teal-600 shrink-0" />
+                <span>
+                  Fila de: <strong className="text-teal-700 dark:text-teal-300">{editingDateTimeItem.professionalName}</strong>
+                </span>
+              </div>
+            </div>
+
+            {/* Form Fields: Data e Hora */}
+            <div className="space-y-4">
+              {/* Field 1: Data */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Calendar className="w-4 h-4 text-teal-600" />
+                  <span>Data do Atendimento</span>
+                </label>
+                <input
+                  type="date"
+                  value={editDate}
+                  onChange={(e) => setEditDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+                />
+
+                {/* Date Quick Shortcuts */}
+                <div className="flex flex-wrap gap-1.5 pt-1">
+                  <button
+                    type="button"
+                    onClick={() => setEditDate(todayStr)}
+                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+                      editDate === todayStr
+                        ? 'bg-teal-600 text-white shadow-xs'
+                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300'
+                    }`}
+                  >
+                    Hoje
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 1);
+                      setEditDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                  >
+                    Amanhã
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 2);
+                      setEditDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                  >
+                    +2 Dias
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const d = new Date();
+                      d.setDate(d.getDate() + 7);
+                      setEditDate(d.toISOString().split('T')[0]);
+                    }}
+                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
+                  >
+                    +7 Dias
+                  </button>
+                </div>
+              </div>
+
+              {/* Field 2: Horário */}
+              <div className="space-y-1.5">
+                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                  <Clock className="w-4 h-4 text-teal-600" />
+                  <span>Horário Previsto (HH:mm)</span>
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="time"
+                    value={editTime}
+                    onChange={(e) => setEditTime(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const now = new Date();
+                      const hh = String(now.getHours()).padStart(2, '0');
+                      const mm = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
+                      setEditTime(`${hh}:${mm}`);
+                    }}
+                    className="px-3 py-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-xs font-bold shrink-0 transition-colors cursor-pointer"
+                    title="Definir horário atual"
+                  >
+                    Agora
+                  </button>
+                </div>
+
+                {/* Common Slot Presets */}
+                <div className="pt-1">
+                  <span className="text-[10.5px] font-semibold text-slate-400 dark:text-slate-500 block mb-1">
+                    Horários sugeridos:
+                  </span>
+                  <div className="flex flex-wrap gap-1">
+                    {['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'].map((slot) => (
+                      <button
+                        key={slot}
+                        type="button"
+                        onClick={() => setEditTime(slot)}
+                        className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
+                          editTime === slot
+                            ? 'bg-teal-600 text-white font-bold shadow-xs'
+                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
+                        }`}
+                      >
+                        {slot}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* Preview Banner */}
+              <div className="p-3 rounded-xl bg-teal-50/80 dark:bg-teal-950/40 border border-teal-200 dark:border-teal-800/70 text-xs text-teal-900 dark:text-teal-100 flex items-center gap-2">
+                <CheckCircle2 className="w-4 h-4 text-teal-600 shrink-0" />
+                <div>
+                  <span className="font-semibold text-slate-500 dark:text-slate-400 text-[11px] block">
+                    Como será exibido na fila:
+                  </span>
+                  <span className="font-extrabold text-teal-800 dark:text-teal-200">
+                    {formatQueueDateTime(editDate, editTime)}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Buttons */}
+            <div className="flex items-center justify-end gap-2.5 pt-3 border-t border-slate-100 dark:border-slate-800">
+              <button
+                type="button"
+                onClick={() => setEditingDateTimeItem(null)}
+                className="px-4 py-2.5 rounded-xl border border-slate-300 dark:border-slate-700 hover:bg-slate-100 dark:hover:bg-slate-800 text-slate-700 dark:text-slate-300 font-bold text-xs sm:text-sm transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <SpecularButton
+                type="button"
+                onClick={handleSaveDateTime}
+                size="sm"
+                radius={14}
+                className="px-5 py-2.5 bg-gradient-to-r from-teal-600 to-emerald-600 hover:from-teal-500 hover:to-emerald-500 text-white font-black text-xs sm:text-sm shadow-md shadow-teal-600/30 cursor-pointer"
+              >
+                <CheckCircle2 className="w-4 h-4" />
+                <span>Salvar Alterações</span>
+              </SpecularButton>
+            </div>
+          </div>
+        </div>
       )}
 
       {/* QR Code Modal for Public Queue TV & Mobile Screen */}

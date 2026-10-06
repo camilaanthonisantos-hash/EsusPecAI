@@ -638,6 +638,9 @@ export const LEGACY_MOCK_USER_IDS = [
   'user-as-01',
   'user-psi-01',
   'user-psp-01',
+  'Profissional da Unidade',
+  'user-profissional-da-unidade',
+  'profissional-da-unidade',
 ];
 
 export const LEGACY_MOCK_USER_NAMES = [
@@ -649,6 +652,9 @@ export const LEGACY_MOCK_USER_NAMES = [
   'Dra. Vanessa Lima',
   'Dr. Marcelo Ramos',
   'Dra. Camila Soares',
+  'Profissional da Unidade',
+  'Profissional da Saude',
+  'Profissional da Saúde',
 ];
 
 // -------------------------------------------------------------
