@@ -793,6 +793,12 @@ export interface ReceptionQueueItem {
   cancelledAt?: number;
   notes?: string;
 
+  // Active Consultation Lock (Prevents concurrent attendance while in progress)
+  currentAttendingProfessionalId?: string;
+  currentAttendingProfessionalName?: string;
+  attendingStartedAt?: number;
+  version?: number;
+
   createdAt: number;
   updatedAt: number;
 }
@@ -846,6 +852,13 @@ export interface Appointment {
     lastError?: string;
     lastEventDispatched?: string;
   };
+
+  // Active Consultation Lock (Prevents concurrent attendance while in progress)
+  currentAttendingProfessionalId?: string;
+  currentAttendingProfessionalName?: string;
+  attendingStartedAt?: number;
+  version?: number;
+
   createdAt: number;
   updatedAt: number;
 }

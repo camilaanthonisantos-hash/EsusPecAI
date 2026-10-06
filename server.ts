@@ -1845,6 +1845,108 @@ Por favor, elabore o laudo médico profissional em JSON conforme a instrução.`
   }
 });
 
+// Patient Referral (Guia de Encaminhamento SUS) AI Generation Endpoint
+app.post("/api/gemini/referral", async (req, res) => {
+  try {
+    const {
+      destination,
+      reasonDescription,
+      patient,
+      consultationContext,
+      userApiKey,
+    } = req.body;
+
+    const systemInstruction = `Você é um Auditor Clínico Especialista em Regulação e Encaminhamentos do Sistema Único de Saúde (SUS) no Brasil.
+Sua missão é converter o relato do motivo do encaminhamento (que pode ser fornecido em linguagem popular ou técnica, por texto ou áudio) em uma Justificativa Técnica Estruturada de Encaminhamento e sugerir as Hipóteses Diagnósticas adequadas (CID-10 e CIAP-2).
+
+DIRETRIZES OBRIGATÓRIAS:
+1. JUSTIFICATIVA CLÍNICA DO ENCAMINHAMENTO (clinicalIndication):
+- Redija uma justificativa técnica, clara, fundamentada e profissional, detalhando a sintomatologia, queixa principal, evolução clínica e a necessidade de avaliação pelo serviço de destino.
+- REGRA FUNDAMENTAL: NÃO insira o nome nem a idade do paciente no texto da justificativa (pois esses dados cadastrais já constam no cabeçalho do documento oficial).
+- Exemplo de início: "Solicito avaliação especializada para o paciente, com base no seguinte quadro:\\nPaciente compareceu à unidade referindo... [detalhamento do quadro]. Encaminhado para avaliação diagnóstica e conduta especializada."
+
+2. HIPÓTESES DIAGNÓSTICAS / DEMANDAS DE SUPORTE (hypotheses):
+- Sugira os códigos CID-10 e CIAP-2 mais adequados com código e descrição completa.
+- Exemplo Odontologia: "K02.9 (Cárie dentária não especificada) / K08.8 (Outros transtornos dos dentes e das estruturas de sustentação) / CIAP-2: D19 (Dor de dente)"
+- Exemplo Psiquiatria: "F41.1 (Ansiedade generalizada) / F32.1 (Episódio depressivo moderado) / CIAP-2: P01 (Sensação de ansiedade)"
+- Exemplo Oftalmologia: "H52.2 (Astigmatismo) / H52.1 (Miopia) / CIAP-2: F91 (Transtornos de refração)"
+- Exemplo Ortopedia: "M54.5 (Dor lombar baixa) / CIAP-2: L03 (Sintomas/queixas lombares)"
+
+3. CONDUTAS / PROCEDIMENTOS SOLICITADOS (proceduresRequested):
+- Sugira procedimentos e avaliações adequados ao serviço de destino (ex: "Avaliação clínica odontológica, exame clínico intraoral, avaliação diagnóstica e conduta restauradora para alívio da dor").
+
+FORMATO DE RESPOSTA OBRIGATÓRIO (JSON estrito):
+{
+  "destination": "Especialidade ou serviço de destino",
+  "priority": "Eletivo" | "Prioritário" | "Urgência/Emergência",
+  "clinicalIndication": "Justificativa estruturada do encaminhamento...",
+  "hypotheses": "Código(s) CID-10 e CIAP-2 com descrições...",
+  "proceduresRequested": "Procedimentos e condutas solicitadas..."
+}`;
+
+    const userPrompt = `SERVIÇO / ESPECIALIDADE DE DESTINO:
+${destination || "Avaliação Especializada"}
+
+RELATO DO MOTIVO / QUEIXA (Linguagem informada pelo profissional/usuário):
+${reasonDescription || "Paciente necessita de avaliação especializada para diagnóstico e conduta."}
+
+CONTEXTO CLÍNICO COMPLEMENTAR DA UNIDADE:
+Avaliação / Histórico: ${consultationContext?.avaliacao || "--"}
+Plano / Conduta: ${consultationContext?.plano || consultationContext?.conduta || "--"}
+
+Por favor, elabore a justificativa clínica estruturada (sem nome e sem idade do paciente) e as hipóteses diagnósticas (CID-10 / CIAP-2) em JSON rigoroso.`;
+
+    const primaryCandidate = "gemini-3.7-flash";
+    const fallbackCandidates = ["gemini-3.6-flash", "gemini-3.1-flash-lite", "openrouter:meta-llama/llama-3.3-70b-instruct:free"];
+
+    const { text: responseText, modelUsed } = await executeMultiProviderWithFallback({
+      primaryModelId: primaryCandidate,
+      fallbackChain: fallbackCandidates,
+      systemInstruction,
+      userPrompt,
+      temperature: 0.2,
+      responseMimeType: "application/json",
+      geminiApiKey: userApiKey,
+    });
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        parsed = {
+          destination: destination || "SERVIÇO ESPECIALIZADO",
+          priority: "Eletivo",
+          clinicalIndication: responseText,
+          hypotheses: "Avaliação clínica.",
+          proceduresRequested: "",
+        };
+      }
+    }
+
+    res.json({
+      success: true,
+      modelUsed,
+      data: {
+        destination: parsed.destination || destination || "SERVIÇO ESPECIALIZADO",
+        priority: parsed.priority || "Eletivo",
+        clinicalIndication: parsed.clinicalIndication || responseText,
+        hypotheses: parsed.hypotheses || "Avaliação clínica.",
+        proceduresRequested: parsed.proceduresRequested || "",
+      },
+    });
+  } catch (error: any) {
+    console.error("Erro na geração de encaminhamento com IA:", error);
+    res.status(500).json({
+      error: formatFriendlyAIError(error),
+      rawError: error?.message || String(error),
+    });
+  }
+});
+
 // Medical Certificate AI Recommendations Endpoint
 app.post("/api/gemini/certificate-recommendations", async (req, res) => {
   try {

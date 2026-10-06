@@ -26,6 +26,7 @@ import {
   QrCode,
   FileSpreadsheet,
   Users,
+  Lock,
 } from 'lucide-react';
 import { User, Appointment, AppointmentStatus, Patient, ProfessionId } from '../types';
 import {
@@ -481,6 +482,14 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
               const isAdministrative = currentUser?.profession === 'administrativo';
               const canAttend = !isAdministrative && (isAssignedToCurrentUser || isAdmin);
 
+              const isAttendedBySomeone = app.status === 'em_atendimento';
+              const isAttendedByMe = isAttendedBySomeone && Boolean(
+                (currentUser && app.currentAttendingProfessionalId === currentUser.id) ||
+                (currentUser && !app.currentAttendingProfessionalId && (app.professionalId === currentUser.id || app.professionalEmail === currentUser.email))
+              );
+              const isAttendedByOther = isAttendedBySomeone && !isAttendedByMe;
+              const attendingDoctorName = app.currentAttendingProfessionalName || app.professionalName || 'outro profissional';
+
               const getStatusBadge = (status: AppointmentStatus) => {
                 switch (status) {
                   case 'agendado':
@@ -492,9 +501,9 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
                     );
                   case 'em_atendimento':
                     return (
-                      <span className="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold flex items-center gap-1">
-                        <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                        Em Atendimento
+                      <span className="px-2.5 py-1 rounded-full bg-amber-100 dark:bg-amber-950 text-amber-800 dark:text-amber-300 text-[10px] font-extrabold flex items-center gap-1.5 border border-amber-300 dark:border-amber-800">
+                        <Lock className="w-3 h-3 text-amber-600" />
+                        {isAttendedByOther ? `Em Atendimento por ${attendingDoctorName}` : 'Em Atendimento Clínico'}
                       </span>
                     );
                   case 'finalizado':
@@ -649,8 +658,16 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
                         </SpecularButton>
                       )}
 
-                      {/* Finish attendance */}
-                      {app.status === 'em_atendimento' && (
+                      {/* Em atendimento por outro profissional */}
+                      {app.status === 'em_atendimento' && isAttendedByOther && (
+                        <span className="px-3 py-1.5 rounded-xl bg-amber-50 dark:bg-amber-950/60 border border-amber-300 dark:border-amber-800 text-amber-800 dark:text-amber-300 text-xs font-bold flex items-center gap-1.5 shadow-xs">
+                          <Lock className="w-3.5 h-3.5 text-amber-600" />
+                          <span>Em atendimento por {attendingDoctorName}</span>
+                        </span>
+                      )}
+
+                      {/* Finish attendance (Only the attending professional or admin) */}
+                      {app.status === 'em_atendimento' && (isAttendedByMe || isAdmin) && (
                         <SpecularButton
                           type="button"
                           id={`btn-finish-appointment-${app.id}`}

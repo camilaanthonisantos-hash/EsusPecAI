@@ -184,7 +184,7 @@ export function buildNotificationPayload(
         `👨‍⚕️ *Profissional:* ${professionalName}\n` +
         `🩺 *Serviço:* ${serviceName}\n` +
         `📍 *Local:* ${unitName}\n\n` +
-        `⚠️ _Recomendamos chegar com 10 minutos de antecedência munido de documento oficial e Cartão SUS._\n\n` +
+        `⚠️ *Importante:* Chegue com pelo menos 1 hora de antecedência ao horário da consulta munido de documento oficial com foto e Cartão SUS.\n\n` +
         `Caso precise cancelar ou alterar a data, utilize os botões abaixo:`;
       break;
     }
@@ -197,6 +197,7 @@ export function buildNotificationPayload(
         `👨‍⚕️ *Profissional:* ${professionalName}\n` +
         `🩺 *Serviço:* ${serviceName}\n` +
         `📍 *Local:* ${unitName}\n\n` +
+        `⚠️ *Importante:* Por favor, chegue com pelo menos 1 hora de antecedência ao horário da consulta munido de documento oficial com foto e Cartão SUS.\n\n` +
         `Por favor, confirme se comparecerá utilizando os botões abaixo:`;
       break;
     }

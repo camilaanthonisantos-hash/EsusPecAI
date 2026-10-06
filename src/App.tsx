@@ -115,6 +115,10 @@ import {
   saveQueueItemToFirestore,
   updateQueueItemStatusInFirestore,
   deleteQueueItemFromFirestore,
+  fetchLatestQueueFromFirestore,
+  fetchLatestAppointmentsFromFirestore,
+  acquirePatientAttendanceLock,
+  releasePatientAttendanceLock,
   cleanupExpiredSubscriptions,
 } from './services/firebase';
 import { calculateChronologicalAge, formatQueueDateTime } from './utils/dateCalculator';
@@ -1425,6 +1429,25 @@ export default function App() {
   // Start new consultation for a specific patient
   const handleStartConsultationForPatient = (patient: Patient) => {
     verifyAccessOrOpenPaywall(() => {
+      // Check if patient is already in attendance by another professional
+      const activeItem = queueItems.find(
+        (q) =>
+          (q.patientId === patient.id || normalizePersonName(q.patientName) === normalizePersonName(patient.fullName)) &&
+          (q.status === 'in_service' || q.status === 'in_consultation')
+      );
+      if (
+        activeItem &&
+        activeItem.currentAttendingProfessionalId &&
+        activeItem.currentAttendingProfessionalId !== currentUser.id
+      ) {
+        showToast(
+          'error',
+          `O paciente "${patient.fullName}" já está em atendimento com ${activeItem.currentAttendingProfessionalName || activeItem.professionalName}. Aguarde a conclusão da consulta atual.`,
+          'Atendimento em Andamento'
+        );
+        return;
+      }
+
       setSelectedPatient(patient);
       setActiveTab('generator');
       setCurrentRecord(null);
@@ -2488,12 +2511,33 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   // Handle start consultation directly from Appointment (Atender)
   const handleStartConsultationFromAppointment = async (appointment: Appointment) => {
-    // 1. Update status to 'em_atendimento'
-    try {
-      await updateAppointmentStatusInFirestore(appointment.id, 'em_atendimento');
-    } catch (e) {
-      console.warn('Erro ao atualizar status do agendamento:', e);
+    // 1. Check if appointment is already being attended by another professional
+    const isAppInAttendance =
+      appointment.status === 'em_atendimento' &&
+      appointment.currentAttendingProfessionalId &&
+      appointment.currentAttendingProfessionalId !== currentUser.id;
+
+    if (isAppInAttendance) {
+      showToast(
+        'error',
+        `Este agendamento já está em atendimento com ${appointment.currentAttendingProfessionalName || appointment.professionalName}. Aguarde a finalização da consulta atual.`,
+        'Atendimento em Andamento'
+      );
+      return;
     }
+
+    // 2. Update status and lock to 'em_atendimento'
+    const updatedApp: Appointment = {
+      ...appointment,
+      status: 'em_atendimento',
+      currentAttendingProfessionalId: currentUser.id,
+      currentAttendingProfessionalName: currentUser.name,
+      attendingStartedAt: Date.now(),
+      version: (appointment.version || 0) + 1,
+      updatedAt: Date.now(),
+    };
+    setAppointments((prev) => prev.map((a) => (a.id === appointment.id ? updatedApp : a)));
+    await saveAppointmentToFirestore(updatedApp).catch(console.warn);
 
     // 2. Look for existing patient by exact ID first, then exact normalized name
     const appCpfClean = (appointment.patientCpf || '').replace(/\D/g, '');
@@ -2601,30 +2645,51 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
   // --- RECEPTION QUEUE HANDLERS ---
   const handleSaveQueueItem = async (queueItem: ReceptionQueueItem) => {
     try {
-      await saveQueueItemToFirestore(queueItem);
+      const itemToSave: ReceptionQueueItem = {
+        ...queueItem,
+        version: 1,
+        createdAt: queueItem.createdAt || Date.now(),
+        updatedAt: Date.now(),
+      };
+      await saveQueueItemToFirestore(itemToSave);
       setQueueItems((prev) => {
-        const idx = prev.findIndex((q) => q.id === queueItem.id);
+        const idx = prev.findIndex((q) => q.id === itemToSave.id);
         if (idx >= 0) {
           const copy = [...prev];
-          copy[idx] = queueItem;
+          copy[idx] = itemToSave;
           return copy;
         }
-        return [queueItem, ...prev];
+        return [itemToSave, ...prev];
       });
       showToast('success', `${queueItem.patientName} inserido na fila de ${queueItem.professionalName}!`, 'Fila Atualizada');
     } catch (err) {
-      console.warn('Erro ao salvar item da fila no Supabase:', err);
+      console.warn('Erro ao salvar item da fila:', err);
       showToast('error', 'Falha ao adicionar paciente na fila.');
     }
   };
 
   const handleUpdateQueueItemStatus = async (queueItemId: string, newStatus: QueueItemStatus) => {
     try {
-      await updateQueueItemStatusInFirestore(queueItemId, newStatus);
+      const extraFields: Partial<ReceptionQueueItem> = {
+        ...(newStatus === 'in_service' || newStatus === 'in_consultation'
+          ? {
+              currentAttendingProfessionalId: currentUser.id,
+              currentAttendingProfessionalName: currentUser.name,
+              attendingStartedAt: Date.now(),
+            }
+          : {}),
+        ...(newStatus === 'completed' ? { completedAt: Date.now() } : {}),
+      };
+
+      await updateQueueItemStatusInFirestore(queueItemId, newStatus, extraFields);
       setQueueItems((prev) => {
         const item = prev.find((q) => q.id === queueItemId);
         if (item) {
-          return prev.map((q) => (q.id === queueItemId ? { ...q, status: newStatus, updatedAt: Date.now() } : q));
+          return prev.map((q) =>
+            q.id === queueItemId
+              ? { ...q, status: newStatus, ...extraFields, updatedAt: Date.now() }
+              : q
+          );
         }
         // If not present in queueItems, it was an appointment mapped dynamically
         const app = appointments.find((a) => a.id === queueItemId);
@@ -2649,6 +2714,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
             priorityCategory: 'padrao',
             appointmentId: app.id,
             notes: app.serviceName ? `Serviço: ${app.serviceName}${app.notes ? ` • ${app.notes}` : ''}` : app.notes,
+            ...extraFields,
             createdAt: app.createdAt || Date.now(),
             updatedAt: Date.now(),
           };
@@ -2666,10 +2732,23 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         else if (newStatus === 'cancelled' || newStatus === 'abandoned') appStatus = 'cancelado';
         else if (newStatus === 'waiting' || newStatus === 'calling') appStatus = 'agendado';
 
+        const updatedApp: Appointment = {
+          ...matchingApp,
+          status: appStatus,
+          ...(newStatus === 'in_consultation' || newStatus === 'in_service'
+            ? {
+                currentAttendingProfessionalId: currentUser.id,
+                currentAttendingProfessionalName: currentUser.name,
+                attendingStartedAt: Date.now(),
+              }
+            : {}),
+          updatedAt: Date.now(),
+        };
+
         setAppointments((prev) =>
-          prev.map((a) => (a.id === queueItemId ? { ...a, status: appStatus, updatedAt: Date.now() } : a))
+          prev.map((a) => (a.id === queueItemId ? updatedApp : a))
         );
-        updateAppointmentStatusInFirestore(queueItemId, appStatus).catch(console.warn);
+        saveAppointmentToFirestore(updatedApp).catch(console.warn);
       }
 
       const statusLabels: Record<QueueItemStatus, string> = {
@@ -2709,17 +2788,29 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
     }
   };
 
-  // Reorder queue items (Drag and drop / repositioning for all professionals)
+  // Reorder queue items (Always loads fresh state first, merges order and saves)
   const handleReorderQueueItems = async (reorderedItems: ReceptionQueueItem[]) => {
     try {
+      // 1. Fresh state fetch from Firestore/Supabase to avoid stale state
+      const latestQueue = await fetchLatestQueueFromFirestore();
+      const latestMap = new Map(latestQueue.map((q) => [q.id, q]));
       const reorderedMap = new Map(reorderedItems.map((item) => [item.id, item]));
+
+      // 2. Merge reordered items onto fresh snapshot
+      const mergedItems: ReceptionQueueItem[] = reorderedItems.map((item) => {
+        const fresh = latestMap.get(item.id);
+        return {
+          ...(fresh || item),
+          orderIndex: item.orderIndex,
+          version: ((fresh?.version || item.version || 0) + 1),
+          updatedAt: Date.now(),
+        };
+      });
 
       // Optimistically update local queue state
       setQueueItems((prev) => {
-        return prev.map((item) => {
-          const updated = reorderedMap.get(item.id);
-          return updated ? { ...item, ...updated } : item;
-        });
+        const mergedMap = new Map(mergedItems.map((m) => [m.id, m]));
+        return prev.map((item) => mergedMap.get(item.id) || item);
       });
 
       // Also sync corresponding appointment if applicable
@@ -2734,7 +2825,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       });
 
       // Persist reordered queue items to Firestore asynchronously
-      for (const item of reorderedItems) {
+      for (const item of mergedItems) {
         if (item.id) {
           saveQueueItemToFirestore(item).catch(console.warn);
         }
@@ -2744,30 +2835,40 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
     }
   };
 
-  // Update date and time for queue item
+  // Update date and time for queue item (Loads latest snapshot before applying)
   const handleUpdateQueueItem = async (updatedItem: ReceptionQueueItem) => {
     try {
+      const latestQueue = await fetchLatestQueueFromFirestore();
+      const existing = latestQueue.find((q) => q.id === updatedItem.id || q.appointmentId === updatedItem.id);
+
+      const itemToSave: ReceptionQueueItem = {
+        ...(existing || updatedItem),
+        ...updatedItem,
+        version: ((existing?.version || updatedItem.version || 0) + 1),
+        updatedAt: Date.now(),
+      };
+
       // 1. Update queueItems state
       setQueueItems((prev) => {
-        const idx = prev.findIndex((q) => q.id === updatedItem.id || q.appointmentId === updatedItem.id);
+        const idx = prev.findIndex((q) => q.id === itemToSave.id || q.appointmentId === itemToSave.id);
         if (idx >= 0) {
           const copy = [...prev];
-          copy[idx] = updatedItem;
+          copy[idx] = itemToSave;
           return copy;
         }
-        return [updatedItem, ...prev];
+        return [itemToSave, ...prev];
       });
 
       // 2. Persist to Firestore
-      await saveQueueItemToFirestore(updatedItem);
+      await saveQueueItemToFirestore(itemToSave);
 
       // 3. Sync corresponding appointment if linked or matching ID
-      const matchingApp = appointments.find((a) => a.id === updatedItem.id || a.id === updatedItem.appointmentId);
+      const matchingApp = appointments.find((a) => a.id === itemToSave.id || a.id === itemToSave.appointmentId);
       if (matchingApp) {
         const updatedApp: Appointment = {
           ...matchingApp,
-          date: updatedItem.scheduledDate,
-          startTime: updatedItem.scheduledTime,
+          date: itemToSave.scheduledDate,
+          startTime: itemToSave.scheduledTime,
           updatedAt: Date.now(),
         };
         setAppointments((prev) => prev.map((a) => (a.id === matchingApp.id ? updatedApp : a)));
@@ -2778,10 +2879,34 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
     }
   };
 
-  // Start consultation from Reception Queue ("Atender")
+  // Start consultation from Reception Queue ("Atender" with Lock Verification)
   const handleStartConsultationFromQueue = async (item: ReceptionQueueItem) => {
-    // 1. Update queue item to 'in_service'
-    await handleUpdateQueueItemStatus(item.id, 'in_service');
+    // 1. Attempt acquiring atomic attendance lock to prevent other professionals from attending simultaneously
+    const lockResult = await acquirePatientAttendanceLock(item.id, currentUser.id, currentUser.name);
+    if (!lockResult.success) {
+      showToast(
+        'error',
+        `O paciente "${item.patientName}" já está em atendimento com ${lockResult.lockedBy || 'outro profissional'}. Aguarde a conclusão da consulta atual.`,
+        'Atendimento em Andamento'
+      );
+      return;
+    }
+
+    // 2. Update queue item in local state
+    setQueueItems((prev) =>
+      prev.map((q) =>
+        q.id === item.id
+          ? {
+              ...q,
+              status: 'in_service',
+              currentAttendingProfessionalId: currentUser.id,
+              currentAttendingProfessionalName: currentUser.name,
+              attendingStartedAt: Date.now(),
+              updatedAt: Date.now(),
+            }
+          : q
+      )
+    );
 
     // 2. Find or restore patient (Prioritize exact ID, then exact normalized name)
     const itemCpfClean = (item.patientCpf || '').replace(/\D/g, '');

@@ -23,6 +23,8 @@ import {
   Sparkles,
   ShieldAlert,
   ChevronDown,
+  ChevronLeft,
+  ChevronRight,
   MoreVertical,
   Tv,
   CalendarCheck,
@@ -35,6 +37,7 @@ import {
   ArrowDown,
   ChevronUp,
   Pencil,
+  Lock,
   X,
 } from 'lucide-react';
 import {
@@ -246,6 +249,23 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   };
 
   const handleStartConsult = (item: ReceptionQueueItem) => {
+    const isAttendedBySomeone = (item.status === 'in_consultation' || item.status === 'in_service');
+    const isAttendedByMe = isAttendedBySomeone && Boolean(
+      (currentUser && item.currentAttendingProfessionalId === currentUser.id) ||
+      (currentUser && !item.currentAttendingProfessionalId && item.professionalId === currentUser.id)
+    );
+    const isAttendedByOther = isAttendedBySomeone && !isAttendedByMe;
+    const attendingDoctorName = item.currentAttendingProfessionalName || item.professionalName || 'outro profissional';
+
+    if (isAttendedByOther) {
+      onShowToast?.(
+        'warning',
+        `O paciente "${item.patientName}" já está em atendimento com ${attendingDoctorName}. Aguarde a conclusão da consulta para iniciar um novo atendimento.`,
+        'Atendimento em Andamento'
+      );
+      return;
+    }
+
     const isAssigned = Boolean(currentUser && currentUser.id === item.professionalId);
     if (!isAssigned && !isAdmin) {
       onShowToast?.('warning', `Apenas ${item.professionalName} pode realizar este atendimento.`, 'Acesso Restrito');
@@ -556,6 +576,83 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const [customEndDate, setCustomEndDate] = useState<string>(() => getTodayDateString());
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
   const [calendarMode, setCalendarMode] = useState<'single' | 'range'>('single');
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date());
+
+  const CALENDAR_MONTHS = [
+    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
+    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
+  ];
+  const CALENDAR_WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
+  // Calendar grid computation for interactive date/range selection
+  const calendarDays = useMemo(() => {
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const days: { day: number; dateStr: string; isCurrentMonth: boolean }[] = [];
+
+    // Previous month padding
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const d = prevMonthDays - i;
+      const prevM = month === 0 ? 11 : month - 1;
+      const prevY = month === 0 ? year - 1 : year;
+      const dateStr = `${prevY}-${String(prevM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: false });
+    }
+
+    // Current month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: true });
+    }
+
+    // Next month padding to complete 7-day rows
+    const totalSlots = Math.ceil(days.length / 7) * 7;
+    const remaining = totalSlots - days.length;
+    for (let d = 1; d <= remaining; d++) {
+      const nextM = month === 11 ? 0 : month + 1;
+      const nextY = month === 11 ? year + 1 : year;
+      const dateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: false });
+    }
+
+    return days;
+  }, [calendarViewDate]);
+
+  const handleCalendarDayClick = (dateStr: string) => {
+    if (calendarMode === 'single') {
+      setCustomStartDate(dateStr);
+      setCustomEndDate(dateStr);
+      if (dateStr === todayStr) {
+        setDateScope('today');
+      } else {
+        setDateScope('custom');
+      }
+    } else {
+      // Range mode selection
+      if (customStartDate && customEndDate && customStartDate !== customEndDate) {
+        // Reset and start new range selection
+        setCustomStartDate(dateStr);
+        setCustomEndDate(dateStr);
+        setDateScope('custom');
+      } else if (customStartDate && customEndDate === customStartDate) {
+        if (dateStr >= customStartDate) {
+          setCustomEndDate(dateStr);
+        } else {
+          setCustomEndDate(customStartDate);
+          setCustomStartDate(dateStr);
+        }
+        setDateScope('custom');
+      } else {
+        setCustomStartDate(dateStr);
+        setCustomEndDate(dateStr);
+        setDateScope('custom');
+      }
+    }
+  };
 
   // selectedStatuses: multiselection of status categories ('active' | 'completed' | 'cancelled')
   // Default: ['active'] (which combined with dateScope 'today' shows today's active queue)
@@ -1115,11 +1212,19 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     const canAttend = canManageItem && !isAdministrative;
     const isCalling = item.status === 'calling';
     const isWaiting = item.status === 'waiting';
-    const isInConsultation = item.status === 'in_consultation';
+    const isInConsultation = item.status === 'in_consultation' || item.status === 'in_service';
     const isCompleted = item.status === 'completed';
     const isCancelled = item.status === 'cancelled';
     const isAbandoned = item.status === 'abandoned';
     const isAbandonedOrCancelled = isAbandoned || isCancelled;
+
+    const isAttendedBySomeone = isInConsultation;
+    const isAttendedByMe = isAttendedBySomeone && Boolean(
+      (currentUser && item.currentAttendingProfessionalId === currentUser.id) ||
+      (currentUser && !item.currentAttendingProfessionalId && item.professionalId === currentUser.id)
+    );
+    const isAttendedByOther = isAttendedBySomeone && !isAttendedByMe;
+    const attendingDoctorName = item.currentAttendingProfessionalName || item.professionalName || 'outro profissional';
 
     const simpleAge = formatSimpleAge(item.patientBirthDate);
     const rankInfo = profRankingMap.get(item.id) || {
@@ -1302,6 +1407,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     <span>👉 Próximo</span>
                   </span>
                 )}
+
+                {/* Status em tempo real se em atendimento por outro colega ou por mim */}
+                {isAttendedByOther && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-amber-100 dark:bg-amber-950/90 text-amber-900 dark:text-amber-200 border border-amber-300 dark:border-amber-700 text-xs font-black shadow-xs animate-pulse">
+                    <Lock className="w-3.5 h-3.5 text-amber-600 dark:text-amber-400 shrink-0" />
+                    <span>Em atendimento por {attendingDoctorName}</span>
+                  </span>
+                )}
+                {isAttendedByMe && (
+                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-100 dark:bg-teal-950/90 text-teal-900 dark:text-teal-200 border border-teal-300 dark:border-teal-700 text-xs font-black shadow-xs">
+                    <Play className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 fill-current shrink-0" />
+                    <span>Você está atendendo</span>
+                  </span>
+                )}
               </div>
 
               {/* Linha 2: Data e hora do atendimento + Ícone de WhatsApp */}
@@ -1357,7 +1476,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                         message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta com ${article} *${profName}* (*${profTitle}*) do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.`;
                       } else {
                         const remainingTime = formatRemainingTime(item.scheduledDate, item.scheduledTime, item.timestamp);
-                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}.`;
+                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}. Por favor, chegue pelo menos 1 hora antes da hora da consulta.`;
                       }
 
                       if (phone) {
@@ -1554,29 +1673,39 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                 <button
                   type="button"
                   id={`dropdown-attend-${item.id}`}
-                  disabled={!canAttend}
+                  disabled={!canAttend || isAttendedByOther}
                   onClick={() => {
-                    if (!canAttend) return;
+                    if (!canAttend || isAttendedByOther) return;
                     handleStartConsult(item);
                     setOpenDropdownId(null);
                   }}
                   className={`w-full text-left px-3.5 py-2.5 text-xs font-bold flex items-center gap-2.5 transition-colors ${
-                    !canAttend
+                    !canAttend || isAttendedByOther
                       ? 'opacity-40 cursor-not-allowed text-slate-400 dark:text-slate-600'
                       : 'text-slate-700 dark:text-slate-200 hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:text-teal-700 dark:hover:text-teal-300'
                   }`}
                   title={
-                    !canManageItem
+                    isAttendedByOther
+                      ? `Atendimento em andamento com ${attendingDoctorName}. Bloqueado até a finalização.`
+                      : !canManageItem
                       ? `Apenas ${item.professionalName} pode realizar este atendimento`
                       : isAdministrative
                       ? 'Perfil Administrativo não realiza atendimento clínico'
                       : 'Iniciar atendimento clínico'
                   }
                 >
-                  <Play className="w-4 h-4 text-teal-600 fill-current shrink-0" />
+                  {isAttendedByOther ? (
+                    <Lock className="w-4 h-4 text-amber-600 dark:text-amber-400 shrink-0" />
+                  ) : (
+                    <Play className="w-4 h-4 text-teal-600 fill-current shrink-0" />
+                  )}
                   <div className="flex flex-col min-w-0">
-                    <span>Iniciar Atendimento Clínico</span>
-                    {!canManageItem ? (
+                    <span>{isAttendedByOther ? `Em Atendimento (${attendingDoctorName.split(' ')[0]})` : 'Iniciar Atendimento Clínico'}</span>
+                    {isAttendedByOther ? (
+                      <span className="text-[10px] text-amber-600 dark:text-amber-400 font-bold truncate">
+                        Bloqueado por {attendingDoctorName}
+                      </span>
+                    ) : !canManageItem ? (
                       <span className="text-[10px] text-slate-400 font-normal truncate">
                         Apenas {item.professionalName}
                       </span>
@@ -2065,9 +2194,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     </button>
                   </div>
 
-                  {/* Painel do Calendário (Data única ou Intervalo de Datas) */}
+                  {/* Painel do Calendário (Data única ou Intervalo de Datas com Calendário Interativo) */}
                   {isCalendarOpen && (
-                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-teal-500/30 space-y-2.5 animate-in fade-in zoom-in-95 duration-150">
+                    <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-teal-500/30 space-y-3 animate-in fade-in zoom-in-95 duration-150">
                       {/* Abas: Data Única vs Intervalo */}
                       <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
                         <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
@@ -2081,7 +2210,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                             className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                               calendarMode === 'single'
                                 ? 'bg-teal-600 text-white shadow-xs'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
                             Data Única
@@ -2095,90 +2224,26 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                             className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
                               calendarMode === 'range'
                                 ? 'bg-teal-600 text-white shadow-xs'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900'
+                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
                             }`}
                           >
                             Intervalo
                           </button>
                         </div>
                         <span className="text-[10px] font-extrabold text-teal-600 dark:text-teal-400">
-                          {dateScope === 'today' ? 'Dia Vigente (Padrão)' : 'Data Filtrada'}
+                          {dateScope === 'today'
+                            ? 'Hoje (Dia Vigente)'
+                            : customStartDate === customEndDate
+                            ? formatDatePtBr(customStartDate)
+                            : `${formatDatePtBr(customStartDate).slice(0, 5)} a ${formatDatePtBr(customEndDate).slice(0, 5)}`}
                         </span>
                       </div>
 
-                      {/* Atalhos Rápidos */}
-                      <div className="flex flex-wrap gap-1">
-                        <button
-                          type="button"
-                          onClick={() => {
-                            setDateScope('today');
-                            setCustomStartDate(todayStr);
-                            setCustomEndDate(todayStr);
-                            setCalendarMode('single');
-                          }}
-                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer border ${
-                            dateScope === 'today'
-                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          Hoje (Dia Vigente)
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const y = new Date();
-                            y.setDate(y.getDate() - 1);
-                            const yStr = y.toISOString().split('T')[0];
-                            setDateScope('custom');
-                            setCustomStartDate(yStr);
-                            setCustomEndDate(yStr);
-                            setCalendarMode('single');
-                          }}
-                          className={`px-2 py-1 rounded-md text-[10px] font-bold transition-all cursor-pointer border ${
-                            dateScope === 'custom' && customStartDate === customEndDate && customStartDate !== todayStr
-                              ? 'bg-teal-600 text-white border-teal-600 shadow-xs'
-                              : 'bg-white dark:bg-slate-900 border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100'
-                          }`}
-                        >
-                          Ontem
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const t = new Date();
-                            t.setDate(t.getDate() + 1);
-                            const tStr = t.toISOString().split('T')[0];
-                            setDateScope('custom');
-                            setCustomStartDate(tStr);
-                            setCustomEndDate(tStr);
-                            setCalendarMode('single');
-                          }}
-                          className="px-2 py-1 rounded-md text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
-                        >
-                          Amanhã
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            const d7 = new Date();
-                            d7.setDate(d7.getDate() + 7);
-                            setDateScope('custom');
-                            setCustomStartDate(todayStr);
-                            setCustomEndDate(d7.toISOString().split('T')[0]);
-                            setCalendarMode('range');
-                          }}
-                          className="px-2 py-1 rounded-md text-[10px] font-bold bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-slate-700 dark:text-slate-300 hover:bg-slate-100 cursor-pointer"
-                        >
-                          Próximos 7 Dias
-                        </button>
-                      </div>
-
-                      {/* Inputs do Calendário */}
+                      {/* Campos para Digitar a Data Única ou Intervalo */}
                       {calendarMode === 'single' ? (
                         <div className="space-y-1">
                           <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
-                            Data Específica
+                            Digitar Data
                           </label>
                           <input
                             type="date"
@@ -2187,6 +2252,10 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                               const val = e.target.value;
                               setCustomStartDate(val);
                               setCustomEndDate(val);
+                              if (val) {
+                                const [y, m] = val.split('-').map(Number);
+                                if (y && m) setCalendarViewDate(new Date(y, m - 1, 1));
+                              }
                               if (val === todayStr) {
                                 setDateScope('today');
                               } else {
@@ -2206,7 +2275,12 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                               type="date"
                               value={customStartDate}
                               onChange={(e) => {
-                                setCustomStartDate(e.target.value);
+                                const val = e.target.value;
+                                setCustomStartDate(val);
+                                if (val) {
+                                  const [y, m] = val.split('-').map(Number);
+                                  if (y && m) setCalendarViewDate(new Date(y, m - 1, 1));
+                                }
                                 setDateScope('custom');
                               }}
                               className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
@@ -2229,6 +2303,80 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           </div>
                         </div>
                       )}
+
+                      {/* Calendário Interativo para Selecionar Data ou Intervalo Diretamente */}
+                      <div className="p-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80 shadow-xs space-y-2">
+                        {/* Header de Navegação do Mês */}
+                        <div className="flex items-center justify-between px-1">
+                          <button
+                            type="button"
+                            onClick={() => setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() - 1, 1))}
+                            className="p-1 rounded-md text-slate-500 hover:text-teal-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Mês Anterior"
+                          >
+                            <ChevronLeft className="w-3.5 h-3.5" />
+                          </button>
+                          <span className="text-xs font-black text-slate-800 dark:text-slate-200">
+                            {CALENDAR_MONTHS[calendarViewDate.getMonth()]} {calendarViewDate.getFullYear()}
+                          </span>
+                          <button
+                            type="button"
+                            onClick={() => setCalendarViewDate((prev) => new Date(prev.getFullYear(), prev.getMonth() + 1, 1))}
+                            className="p-1 rounded-md text-slate-500 hover:text-teal-600 hover:bg-slate-100 dark:hover:bg-slate-800 transition-colors cursor-pointer"
+                            title="Próximo Mês"
+                          >
+                            <ChevronRight className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+
+                        {/* Cabeçalho dos Dias da Semana */}
+                        <div className="grid grid-cols-7 gap-1 text-center">
+                          {CALENDAR_WEEK_DAYS.map((w, idx) => (
+                            <span key={idx} className="text-[9.5px] font-extrabold text-slate-400 dark:text-slate-500 uppercase">
+                              {w.slice(0, 1)}
+                            </span>
+                          ))}
+                        </div>
+
+                        {/* Grade de Dias */}
+                        <div className="grid grid-cols-7 gap-1 text-center">
+                          {calendarDays.map((item, idx) => {
+                            const isSelectedStart = item.dateStr === customStartDate;
+                            const isSelectedEnd = item.dateStr === customEndDate;
+                            const isInRange =
+                              calendarMode === 'range' &&
+                              customStartDate &&
+                              customEndDate &&
+                              item.dateStr >= customStartDate &&
+                              item.dateStr <= customEndDate;
+                            const isToday = item.dateStr === todayStr;
+
+                            let btnClasses = 'text-slate-700 dark:text-slate-300 hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:text-teal-600';
+                            if (!item.isCurrentMonth) {
+                              btnClasses = 'text-slate-300 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800';
+                            }
+                            if (isSelectedStart || isSelectedEnd) {
+                              btnClasses = 'bg-teal-600 text-white font-black shadow-xs hover:bg-teal-500';
+                            } else if (isInRange) {
+                              btnClasses = 'bg-teal-100 dark:bg-teal-950/70 text-teal-900 dark:text-teal-200 font-bold';
+                            }
+
+                            return (
+                              <button
+                                key={idx}
+                                type="button"
+                                onClick={() => handleCalendarDayClick(item.dateStr)}
+                                className={`h-6 text-[10.5px] rounded-md transition-all flex items-center justify-center relative cursor-pointer ${btnClasses} ${
+                                  isToday && !isSelectedStart && !isSelectedEnd ? 'ring-1 ring-teal-500 font-bold' : ''
+                                }`}
+                                title={formatDatePtBr(item.dateStr)}
+                              >
+                                {item.day}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
                     </div>
                   )}
                 </div>

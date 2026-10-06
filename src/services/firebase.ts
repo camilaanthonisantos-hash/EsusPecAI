@@ -1148,3 +1148,101 @@ export async function updateQueueItemStatusInFirestore(
 export async function deleteQueueItemFromFirestore(itemId: string): Promise<void> {
   await apiDbDelete('reception_queue', itemId);
 }
+
+// Fresh snapshot fetchers to guarantee queue operations always start from the latest state
+export async function fetchLatestQueueFromFirestore(): Promise<ReceptionQueueItem[]> {
+  try {
+    const list = await apiDbGet<ReceptionQueueItem[]>('reception_queue');
+    if (list && Array.isArray(list)) {
+      return list
+        .filter((q) => !isMockQueueItem(q))
+        .sort((a, b) => {
+          const orderA = a.orderIndex !== undefined ? a.orderIndex : (Number(a.timestamp) || 0);
+          const orderB = b.orderIndex !== undefined ? b.orderIndex : (Number(b.timestamp) || 0);
+          return orderA - orderB;
+        });
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar fila atualizada:', err);
+  }
+  return [];
+}
+
+export async function fetchLatestAppointmentsFromFirestore(): Promise<Appointment[]> {
+  try {
+    const list = await apiDbGet<Appointment[]>('appointments');
+    if (list && Array.isArray(list)) {
+      return list
+        .filter((a) => !isMockAppointment(a))
+        .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+    }
+  } catch (err) {
+    console.warn('Erro ao carregar agendamentos atualizados:', err);
+  }
+  return [];
+}
+
+// Attendance Locking: Prevents concurrent attendance by multiple professionals on the same patient
+export async function acquirePatientAttendanceLock(
+  queueItemId: string,
+  professionalId: string,
+  professionalName: string
+): Promise<{ success: boolean; lockedBy?: string; queueItem?: ReceptionQueueItem }> {
+  try {
+    const latestQueue = await fetchLatestQueueFromFirestore();
+    const item = latestQueue.find((q) => q.id === queueItemId || q.appointmentId === queueItemId);
+
+    if (!item) {
+      return { success: false, lockedBy: 'Item não encontrado na fila' };
+    }
+
+    // If currently in consultation by another professional
+    const isCurrentlyAttended = item.status === 'in_consultation' || item.status === 'in_service';
+    const attendedByAnother =
+      isCurrentlyAttended &&
+      item.currentAttendingProfessionalId &&
+      item.currentAttendingProfessionalId !== professionalId;
+
+    if (attendedByAnother) {
+      return {
+        success: false,
+        lockedBy: item.currentAttendingProfessionalName || item.professionalName || 'outro profissional',
+        queueItem: item,
+      };
+    }
+
+    // Acquire lock and set to in_service
+    const updated: ReceptionQueueItem = {
+      ...item,
+      status: 'in_service',
+      currentAttendingProfessionalId: professionalId,
+      currentAttendingProfessionalName: professionalName,
+      attendingStartedAt: Date.now(),
+      attendedAt: item.attendedAt || Date.now(),
+      version: (item.version || 0) + 1,
+      updatedAt: Date.now(),
+    };
+
+    await saveQueueItemToFirestore(updated);
+    return { success: true, queueItem: updated };
+  } catch (err) {
+    console.warn('Erro ao adquirir trava de atendimento:', err);
+    return { success: false, lockedBy: 'Erro de conexão' };
+  }
+}
+
+export async function releasePatientAttendanceLock(
+  queueItemId: string,
+  newStatus: QueueItemStatus = 'completed',
+  extraFields?: Partial<ReceptionQueueItem>
+): Promise<void> {
+  try {
+    await updateQueueItemStatusInFirestore(queueItemId, newStatus, {
+      ...(newStatus === 'completed' ? { completedAt: Date.now() } : {}),
+      ...(extraFields || {}),
+      updatedAt: Date.now(),
+    });
+  } catch (err) {
+    console.warn('Erro ao liberar trava de atendimento:', err);
+  }
+}

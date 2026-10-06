@@ -270,10 +270,11 @@ export function generateWhatsAppReminderLink(appointment: Appointment, professio
     `Olá *${appointment.patientName || 'Paciente'}*!\n\n` +
     `Seu atendimento está confirmado com os seguintes dados:\n` +
     `📅 *Data:* ${dateFormatted}\n` +
-    `⏰ *Horário:* ${appointment.startTime || ''} às ${appointment.endTime || ''}\n` +
+    `⏰ *Horário:* ${appointment.startTime || ''}${appointment.endTime ? ` às ${appointment.endTime}` : ''}\n` +
     `👨‍⚕️ *Profissional:* ${professionalDisplay}\n` +
     `📋 *Serviço:* ${appointment.serviceName || 'Consulta'}\n` +
     `📍 *Local:* Atendimento e-SUS PEC / Unidade de Saúde\n\n` +
+    `⚠️ *Importante:* Por favor, chegue ao local com pelo menos 1 hora de antecedência ao horário da consulta munido de documento com foto e Cartão SUS.\n\n` +
     `Em caso de dúvidas ou necessidade de reagendamento, favor nos avisar com antecedência. Tenha um ótimo dia!`
   );
 
