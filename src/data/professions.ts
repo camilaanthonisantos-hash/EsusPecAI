@@ -309,11 +309,13 @@ export function getProfessionalProfessionTitle(
   fallbackProfessionId?: string
 ): string {
   const rawId = (prof?.profession || fallbackProfessionId || '').toLowerCase().trim();
+  const cleanedId = rawId.replace(/^_+|_+$/g, '');
   const gender = (prof?.gender || '').toLowerCase().trim();
   const isFemale = gender === 'f' || gender.startsWith('fem') || gender === 'mulher';
 
   const mapFemale: Record<string, string> = {
     medico: 'Médica',
+    medico_saude_mental: 'Médica de Saúde Mental',
     enfermeiro: 'Enfermeira',
     psicologo: 'Psicóloga',
     psicopedagogo: 'Psicopedagoga',
@@ -335,6 +337,7 @@ export function getProfessionalProfessionTitle(
 
   const mapMaleOrDefault: Record<string, string> = {
     medico: 'Médico',
+    medico_saude_mental: 'Médico de Saúde Mental',
     enfermeiro: 'Enfermeiro',
     psicologo: 'Psicólogo',
     psicopedagogo: 'Psicopedagogo',
@@ -354,19 +357,28 @@ export function getProfessionalProfessionTitle(
     administrativo: 'Recepcionista / Administrativo',
   };
 
-  if (isFemale && mapFemale[rawId]) {
-    return mapFemale[rawId];
+  if (isFemale && mapFemale[cleanedId]) {
+    return mapFemale[cleanedId];
   }
-  if (mapMaleOrDefault[rawId]) {
-    return mapMaleOrDefault[rawId];
+  if (mapMaleOrDefault[cleanedId]) {
+    return mapMaleOrDefault[cleanedId];
   }
 
-  if (rawId && PROFESSIONS[rawId as ProfessionId]?.name) {
-    return PROFESSIONS[rawId as ProfessionId].name;
+  if (cleanedId && PROFESSIONS[cleanedId as ProfessionId]?.name) {
+    return PROFESSIONS[cleanedId as ProfessionId].name;
+  }
+
+  if (cleanedId && cleanedId.includes('_')) {
+    return cleanedId
+      .replace(/_+/g, ' ')
+      .trim()
+      .split(' ')
+      .map((w) => w.charAt(0).toUpperCase() + w.slice(1).toLowerCase())
+      .join(' ');
   }
 
   if (prof?.profession) {
-    return prof.profession;
+    return prof.profession.replace(/_+/g, ' ').trim();
   }
 
   return 'Profissional de Saúde';

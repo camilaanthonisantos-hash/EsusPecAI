@@ -237,6 +237,25 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [newModelDescInput, setNewModelDescInput] = useState('');
   const [newModelTargetRole, setNewModelTargetRole] = useState<'primary' | 'fallback' | 'catalog_only'>('primary');
 
+  // Testing API key state
+  const [isTestingKey, setIsTestingKey] = useState(false);
+  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
+  const [isTestingGroqKey, setIsTestingGroqKey] = useState(false);
+  const [groqTestResult, setGroqTestResult] = useState<{ success: boolean; message: string } | null>(null);
+
+  // Model Dropdown state
+  const [modelSearchQuery, setModelSearchQuery] = useState('');
+  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
+
+  // State for in-app deletion confirmation (replacing window.confirm which is blocked in iframes)
+  const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
+    type: 'user' | 'patient' | 'consultation';
+    id: string;
+    title: string;
+    description: string;
+    targetName: string;
+  } | null>(null);
+
   // Keep in sync with systemSettings
   useEffect(() => {
     if (systemSettings.sectionsConfig) {
@@ -432,15 +451,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
     );
   };
 
-  // Testing API key state
-  const [isTestingKey, setIsTestingKey] = useState(false);
-  const [testResult, setTestResult] = useState<{ success: boolean; message: string } | null>(null);
-  const [isTestingGroqKey, setIsTestingGroqKey] = useState(false);
-  const [groqTestResult, setGroqTestResult] = useState<{ success: boolean; message: string } | null>(null);
-
-  // Model Dropdown state
-  const [modelSearchQuery, setModelSearchQuery] = useState('');
-  const [isModelDropdownOpen, setIsModelDropdownOpen] = useState(false);
   const allModelsCatalog = useMemo(() => {
     const map = new Map<string, ModelOption>();
     for (const m of AVAILABLE_MODELS) {
@@ -1220,15 +1230,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       );
     }
   };
-
-  // State for in-app deletion confirmation (replacing window.confirm which is blocked in iframes)
-  const [confirmDeleteModal, setConfirmDeleteModal] = useState<{
-    type: 'user' | 'patient' | 'consultation';
-    id: string;
-    title: string;
-    description: string;
-    targetName: string;
-  } | null>(null);
 
   const handleDeleteUserClick = (targetUser: User) => {
     if (!isAdmin) {

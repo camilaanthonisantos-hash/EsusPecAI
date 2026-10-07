@@ -619,7 +619,8 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
                             (p) =>
                               (app.professionalId && p.id === app.professionalId) ||
                               (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
-                          )
+                          ),
+                          currentUser
                         )}
                         target="_blank"
                         rel="noopener noreferrer"

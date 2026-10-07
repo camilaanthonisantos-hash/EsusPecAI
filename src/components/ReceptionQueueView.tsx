@@ -59,6 +59,23 @@ import { SpecularButton } from './SpecularButton';
 import { CallPatientModal } from './CallPatientModal';
 import { PublicQueueQrCodeModal } from './PublicQueueQrCodeModal';
 
+const CALENDAR_MONTHS = [
+  'Janeiro',
+  'Fevereiro',
+  'Março',
+  'Abril',
+  'Maio',
+  'Junho',
+  'Julho',
+  'Agosto',
+  'Setembro',
+  'Outubro',
+  'Novembro',
+  'Dezembro',
+];
+
+const CALENDAR_WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
+
 // Helper: calcula o tempo restante amigável até a data e hora da consulta
 function formatRemainingTime(scheduledDateStr?: string, scheduledTimeStr?: string, timestamp?: number): string {
   if (!scheduledDateStr && !timestamp) return 'pouco tempo';
@@ -232,7 +249,500 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const isAdmin = Boolean(currentUser && isUserAdmin(currentUser));
   const isAdministrative = currentUser?.profession === 'administrativo';
 
-  // Unify callbacks with aliases if provided
+  // Helper date
+  const todayStr = useMemo(() => getTodayDateString(), []);
+
+  // 1. ALL STATE HOOKS (Top of Component)
+  const [activeCallingItem, setActiveCallingItem] = useState<ReceptionQueueItem | null>(null);
+  const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
+  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
+  const [editingDateTimeItem, setEditingDateTimeItem] = useState<ReceptionQueueItem | null>(null);
+  const [editDate, setEditDate] = useState<string>('');
+  const [editTime, setEditTime] = useState<string>('');
+  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
+  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
+  const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
+  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState<boolean>(false);
+  const [viewMode, setViewMode] = useState<'by_professional' | 'list'>('by_professional');
+  const [dateScope, setDateScope] = useState<'today' | 'custom' | 'all'>('today');
+  const [customStartDate, setCustomStartDate] = useState<string>(() => getTodayDateString());
+  const [customEndDate, setCustomEndDate] = useState<string>(() => getTodayDateString());
+  const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
+  const [calendarMode, setCalendarMode] = useState<'single' | 'range'>('single');
+  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date());
+  const [selectedStatuses, setSelectedStatuses] = useState<('active' | 'completed' | 'cancelled')[]>(['active']);
+  const [onlyMine, setOnlyMine] = useState<boolean>(false);
+  const [selectedProfId, setSelectedProfId] = useState<string>('all');
+  const [searchQuery, setSearchQuery] = useState<string>('');
+  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
+  const [showAbandonedGroupIds, setShowAbandonedGroupIds] = useState<Set<string>>(new Set());
+
+  // 2. EFFECT HOOKS
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (!target?.closest('.queue-actions-dropdown-container')) {
+        setOpenDropdownId(null);
+      }
+      if (!target?.closest('.queue-filter-dropdown-container')) {
+        setIsFilterDropdownOpen(false);
+      }
+    };
+    if (openDropdownId || isFilterDropdownOpen) {
+      document.addEventListener('click', handleClickOutside);
+      return () => document.removeEventListener('click', handleClickOutside);
+    }
+  }, [openDropdownId, isFilterDropdownOpen]);
+
+  // 3. MEMOIZED VALUES
+  const calendarDays = useMemo(() => {
+    const year = calendarViewDate.getFullYear();
+    const month = calendarViewDate.getMonth();
+    const firstDayIndex = new Date(year, month, 1).getDay();
+    const daysInMonth = new Date(year, month + 1, 0).getDate();
+
+    const days: { day: number; dateStr: string; isCurrentMonth: boolean }[] = [];
+
+    // Previous month padding
+    const prevMonthDays = new Date(year, month, 0).getDate();
+    for (let i = firstDayIndex - 1; i >= 0; i--) {
+      const d = prevMonthDays - i;
+      const prevM = month === 0 ? 11 : month - 1;
+      const prevY = month === 0 ? year - 1 : year;
+      const dateStr = `${prevY}-${String(prevM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: false });
+    }
+
+    // Current month days
+    for (let d = 1; d <= daysInMonth; d++) {
+      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: true });
+    }
+
+    // Next month padding to complete 7-day rows
+    const totalSlots = Math.ceil(days.length / 7) * 7;
+    const remaining = totalSlots - days.length;
+    for (let d = 1; d <= remaining; d++) {
+      const nextM = month === 11 ? 0 : month + 1;
+      const nextY = month === 11 ? year + 1 : year;
+      const dateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+      days.push({ day: d, dateStr, isCurrentMonth: false });
+    }
+
+    return days;
+  }, [calendarViewDate]);
+
+  // Filter strictly clinical professionals (exclude administrative profiles who don't attend patients)
+  const clinicalProfessionals = useMemo(() => {
+    return (professionals || []).filter((p) => p && p.profession !== 'administrativo');
+  }, [professionals]);
+
+  // Helper to determine accurate ordering priority (orderIndex takes precedence, followed by timestamp)
+  const getItemOrderValue = (item: ReceptionQueueItem): number => {
+    if (typeof item.orderIndex === 'number') {
+      return item.orderIndex;
+    }
+    return Number(item.timestamp) || 0;
+  };
+
+  // Helper: verifica se um item da fila está dentro do escopo de data selecionado
+  const isItemInDateScope = (item: ReceptionQueueItem): boolean => {
+    const itemDate = item.scheduledDate || (item.timestamp && !isNaN(new Date(item.timestamp).getTime()) ? new Date(item.timestamp).toISOString().split('T')[0] : '');
+    if (dateScope === 'today') {
+      return itemDate === todayStr;
+    }
+    if (dateScope === 'custom') {
+      if (!customStartDate && !customEndDate) return true;
+      if (customStartDate && customEndDate) {
+        const start = customStartDate <= customEndDate ? customStartDate : customEndDate;
+        const end = customStartDate <= customEndDate ? customEndDate : customStartDate;
+        return itemDate >= start && itemDate <= end;
+      }
+      if (customStartDate) return itemDate >= customStartDate;
+      if (customEndDate) return itemDate <= customEndDate;
+      return true;
+    }
+    return true; // 'all'
+  };
+
+  // Unified list of all queue items + scheduled appointments
+  const mergedAllQueueItems = useMemo(() => {
+    // Default fallback clinical professional from real registered users
+    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id) || clinicalProfessionals[0];
+    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
+    const defaultProfId = defaultProf?.id || '';
+    const defaultProfession = defaultProf?.profession || 'enfermeiro';
+
+    // Filter and normalize queue items to guarantee all properties exist
+    const validQueueItems = (queueItems || [])
+      .filter((q) => q && q.id)
+      .filter((q) => {
+        // Discard any legacy mock items associated with "Profissional da Unidade" or mock "Cidadão"
+        const pName = (q.professionalName || '').trim().toLowerCase();
+        const pId = (q.professionalId || '').trim().toLowerCase();
+        const patName = (q.patientName || '').trim().toLowerCase();
+        if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || !patName) return false;
+        if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') return false;
+
+        // Discard any queue item directed to an administrative user
+        const matchedProf = (professionals || []).find((p) => (q.professionalId && p.id === q.professionalId) || (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim()));
+        if (matchedProf?.profession === 'administrativo' || q.professionalProfession === 'administrativo') return false;
+
+        return true;
+      })
+      .map((q) => {
+        const matchedProf = clinicalProfessionals.find(
+          (p) =>
+            (q.professionalId && p.id === q.professionalId) ||
+            (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+        );
+        const pNameClean = (q.professionalName || '').trim().toLowerCase();
+        const finalProfName = matchedProf?.name || (pNameClean === 'profissional da unidade' || !q.professionalName ? defaultProfName : q.professionalName);
+        const finalProfId = matchedProf?.id || (pNameClean === 'profissional da unidade' || !q.professionalId ? defaultProfId : q.professionalId);
+        const finalProfession = matchedProf?.profession || q.professionalProfession || defaultProfession;
+
+        return {
+          ...q,
+          patientName: q.patientName,
+          professionalId: finalProfId,
+          professionalName: finalProfName,
+          professionalProfession: finalProfession,
+          scheduledDate: q.scheduledDate || (q.timestamp && !isNaN(new Date(q.timestamp).getTime()) ? new Date(q.timestamp).toISOString().split('T')[0] : todayStr),
+          scheduledTime: q.scheduledTime || '08:00',
+        };
+      });
+
+    const list: ReceptionQueueItem[] = [...validQueueItems];
+    const existingAppointmentIds = new Set(
+      validQueueItems.map((q) => q.appointmentId || q.id).filter(Boolean)
+    );
+
+    if (appointments && appointments.length > 0) {
+      for (const app of appointments) {
+        if (!app.patientName && !app.date) continue;
+        if (app.id && app.id.startsWith('ord_pix')) continue;
+        if (existingAppointmentIds.has(app.id)) continue;
+
+        const appPName = (app.professionalName || '').trim().toLowerCase();
+        const appPId = (app.professionalId || '').trim().toLowerCase();
+        const appPatName = (app.patientName || '').trim().toLowerCase();
+        if (appPatName === 'cidadão' || appPatName === 'cidadao' || appPatName === 'paciente agendado' || !appPatName) continue;
+        if (appPName === 'profissional da unidade' || appPId === 'profissional da unidade' || appPId === 'user-profissional-da-unidade') continue;
+
+        // Discard any appointment assigned to administrative staff
+        const matchedProf = (professionals || []).find(
+          (p) =>
+            (app.professionalId && p.id === app.professionalId) ||
+            (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
+        );
+        if (matchedProf?.profession === 'administrativo' || app.professionalProfession === 'administrativo') continue;
+
+        let mappedStatus: QueueItemStatus = 'waiting';
+        if (app.status === 'em_atendimento') {
+          mappedStatus = 'in_consultation';
+        } else if (app.status === 'finalizado') {
+          mappedStatus = 'completed';
+        } else if (app.status === 'cancelado') {
+          mappedStatus = 'cancelled';
+        }
+
+        let itemTimestamp = app.timestamp;
+        if (!itemTimestamp && app.date) {
+          const timeStr = app.startTime || '08:00';
+          const d = new Date(`${app.date}T${timeStr}:00`);
+          itemTimestamp = isNaN(d.getTime()) ? (app.createdAt || Date.now()) : d.getTime();
+        }
+        if (!itemTimestamp) {
+          itemTimestamp = app.createdAt || Date.now();
+        }
+
+        const formattedDate = formatQueueDateTime(app.date, app.startTime || '08:00');
+
+        const resolvedProfId = matchedProf?.id || (appPName === 'profissional da unidade' ? defaultProfId : app.professionalId) || defaultProfId;
+        const resolvedProfName = matchedProf?.name || (appPName === 'profissional da unidade' ? defaultProfName : app.professionalName) || defaultProfName;
+        const resolvedProfession = matchedProf?.profession || app.professionalProfession || defaultProfession;
+
+        const queueItemFromAppointment: ReceptionQueueItem = {
+          id: app.id,
+          patientId: app.patientId || `pat-${app.id}`,
+          patientName: app.patientName,
+          patientCpf: app.patientCpf,
+          patientCns: app.patientCns,
+          patientBirthDate: app.patientBirthDate,
+          patientPhone: app.patientPhone,
+          professionalId: resolvedProfId,
+          professionalName: resolvedProfName,
+          professionalProfession: resolvedProfession,
+          scheduledDate: app.date,
+          scheduledTime: app.startTime || '08:00',
+          timestamp: itemTimestamp,
+          formattedDateTime: formattedDate,
+          status: mappedStatus,
+          origin: 'agendamento',
+          priorityCategory: 'padrao',
+          appointmentId: app.id,
+          notes: app.serviceName ? `Serviço: ${app.serviceName}${app.notes ? ` • ${app.notes}` : ''}` : app.notes,
+          createdAt: app.createdAt || Date.now(),
+          updatedAt: app.updatedAt || Date.now(),
+        };
+
+        list.push(queueItemFromAppointment);
+      }
+    }
+
+    return list;
+  }, [queueItems, appointments, clinicalProfessionals, professionals, currentUser, todayStr]);
+
+  // Per-professional calling rank calculation
+  const profRankingMap = useMemo(() => {
+    const scopeList = mergedAllQueueItems.filter(isItemInDateScope);
+    const grouped = new Map<string, ReceptionQueueItem[]>();
+    for (const item of scopeList) {
+      const profKey = item.professionalId || item.professionalName || 'geral';
+      if (!grouped.has(profKey)) {
+        grouped.set(profKey, []);
+      }
+      grouped.get(profKey)!.push(item);
+    }
+
+    const rankMap = new Map<
+      string,
+      {
+        profOrder: number;
+        profWaitingOrder: number | null;
+        profTotal: number;
+        profWaitingTotal: number;
+      }
+    >();
+
+    grouped.forEach((profItems) => {
+      profItems.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+
+      let waitingCounter = 0;
+      const waitingTotal = profItems.filter(
+        (i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service'
+      ).length;
+
+      profItems.forEach((item, index) => {
+        const isWaiting = item.status === 'waiting' || item.status === 'calling';
+        if (isWaiting) {
+          waitingCounter++;
+        }
+        rankMap.set(item.id, {
+          profOrder: index + 1,
+          profWaitingOrder: isWaiting ? waitingCounter : null,
+          profTotal: profItems.length,
+          profWaitingTotal: waitingTotal,
+        });
+      });
+    });
+
+    return rankMap;
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
+
+  // Filter items based on active UI filters
+  const filteredItems = useMemo(() => {
+    let list = mergedAllQueueItems.filter(isItemInDateScope);
+
+    // 2. Status multiselection filtering
+    if (selectedStatuses.length > 0) {
+      list = list.filter((i) => {
+        const isActive = i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service';
+        const isCompleted = i.status === 'completed';
+        const isCancelled = i.status === 'cancelled' || i.status === 'abandoned';
+
+        return (
+          (selectedStatuses.includes('active') && isActive) ||
+          (selectedStatuses.includes('completed') && isCompleted) ||
+          (selectedStatuses.includes('cancelled') && isCancelled)
+        );
+      });
+    }
+
+    // 3. Filter by "only mine"
+    if (onlyMine && currentUser) {
+      list = list.filter((i) => i.professionalId === currentUser.id);
+    }
+
+    // 4. Filter by selected professional
+    if (selectedProfId !== 'all') {
+      list = list.filter((i) => i.professionalId === selectedProfId);
+    }
+
+    // 5. Filter by search query
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      list = list.filter((i) => {
+        return (
+          i.patientName.toLowerCase().includes(q) ||
+          i.patientCpf?.includes(q) ||
+          i.patientCns?.includes(q) ||
+          i.patientPhone?.includes(q) ||
+          i.notes?.toLowerCase().includes(q) ||
+          i.professionalName.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    // Sort: group primarily by professional name and then by custom orderIndex/timestamp
+    list.sort((a, b) => {
+      const profCompare = (a.professionalName || '').localeCompare(b.professionalName || '');
+      if (profCompare !== 0 && selectedProfId === 'all') {
+        return profCompare;
+      }
+      return getItemOrderValue(a) - getItemOrderValue(b);
+    });
+
+    return list;
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
+
+  // Group filtered items by professional for structured individual queues
+  const groupedByProf = useMemo(() => {
+    let baseList = mergedAllQueueItems.filter(isItemInDateScope);
+
+    if (onlyMine && currentUser) {
+      baseList = baseList.filter((i) => i.professionalId === currentUser.id);
+    }
+
+    if (selectedProfId !== 'all') {
+      baseList = baseList.filter((i) => i.professionalId === selectedProfId);
+    }
+
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase().trim();
+      baseList = baseList.filter((i) => {
+        return (
+          i.patientName.toLowerCase().includes(q) ||
+          i.patientCpf?.includes(q) ||
+          i.patientCns?.includes(q) ||
+          i.patientPhone?.includes(q) ||
+          i.notes?.toLowerCase().includes(q) ||
+          i.professionalName.toLowerCase().includes(q)
+        );
+      });
+    }
+
+    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id && p.profession !== 'administrativo') || clinicalProfessionals[0];
+    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
+    const defaultProfession = defaultProf?.profession || 'enfermeiro';
+
+    const map = new Map<string, ReceptionQueueItem[]>();
+    for (const item of baseList) {
+      const patName = (item.patientName || '').trim().toLowerCase();
+      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || !patName) continue;
+
+      const pName = (item.professionalName || '').trim().toLowerCase();
+      const pId = (item.professionalId || '').trim().toLowerCase();
+      if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') continue;
+
+      const rawProf = (professionals || []).find(
+        (p) =>
+          (item.professionalId && p.id === item.professionalId) ||
+          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
+      );
+      if (rawProf?.profession === 'administrativo' || item.professionalProfession === 'administrativo' || rawProf?.name.toLowerCase().includes('nangley')) {
+        continue;
+      }
+
+      const matchedProf = clinicalProfessionals.find(
+        (p) =>
+          (item.professionalId && p.id === item.professionalId) ||
+          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      );
+
+      if (!matchedProf && !defaultProf) continue;
+
+      const key = matchedProf?.id || defaultProf?.id || 'geral';
+      if (!map.has(key)) {
+        map.set(key, []);
+      }
+      map.get(key)!.push(item);
+    }
+
+    const groups: {
+      professionalId: string;
+      professionalName: string;
+      professionalProfession: string;
+      items: ReceptionQueueItem[];
+      waitingCount: number;
+      completedCount: number;
+      abandonedCount: number;
+      callingCount: number;
+      firstWaitingItem: ReceptionQueueItem | null;
+    }[] = [];
+
+    map.forEach((items, key) => {
+      items.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+      const firstItem = items[0];
+      const profUser = clinicalProfessionals.find(
+        (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      );
+      if (profUser?.profession === 'administrativo' || profUser?.name.toLowerCase().includes('nangley')) return;
+
+      const groupName = profUser?.name || (firstItem?.professionalName && firstItem.professionalName.toLowerCase().trim() !== 'profissional da unidade' ? firstItem.professionalName : defaultProfName);
+      if (groupName.toLowerCase().trim() === 'profissional da unidade') return;
+
+      const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service');
+      const completedItems = items.filter((i) => i.status === 'completed');
+      const abandonedItems = items.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
+
+      groups.push({
+        professionalId: profUser?.id || key,
+        professionalName: groupName,
+        professionalProfession: profUser?.profession || firstItem?.professionalProfession || defaultProfession,
+        items,
+        waitingCount: waitingItems.length,
+        completedCount: completedItems.length,
+        abandonedCount: abandonedItems.length,
+        callingCount: items.filter((i) => i.status === 'calling').length,
+        firstWaitingItem: waitingItems[0] || null,
+      });
+    });
+
+    groups.sort((a, b) => {
+      if (currentUser) {
+        if (a.professionalId === currentUser.id) return -1;
+        if (b.professionalId === currentUser.id) return 1;
+      }
+      return a.professionalName.localeCompare(b.professionalName);
+    });
+
+    return groups;
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
+
+  // Today's total count
+  const countTodayTotal = useMemo(() => {
+    return mergedAllQueueItems.filter((i) => {
+      const itemDate = i.scheduledDate || (i.timestamp ? new Date(i.timestamp).toISOString().split('T')[0] : '');
+      return itemDate === todayStr;
+    }).length;
+  }, [mergedAllQueueItems, todayStr]);
+
+  // Active scope items for dynamic counts
+  const scopeItems = useMemo(() => {
+    return mergedAllQueueItems.filter(isItemInDateScope);
+  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
+
+  const countScopeTotal = scopeItems.length;
+  const countAllTotal = mergedAllQueueItems.length;
+
+  const countActive = useMemo(() => {
+    return scopeItems.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service').length;
+  }, [scopeItems]);
+
+  const countCompleted = useMemo(() => {
+    return scopeItems.filter((i) => i.status === 'completed').length;
+  }, [scopeItems]);
+
+  const countCancelled = useMemo(() => {
+    return scopeItems.filter((i) => i.status === 'cancelled' || i.status === 'abandoned').length;
+  }, [scopeItems]);
+
+  const callingCount = useMemo(() => {
+    return scopeItems.filter((i) => i.status === 'calling').length;
+  }, [scopeItems]);
+
+  // 4. HANDLERS AND HELPER FUNCTIONS
   const handleCall = (item: ReceptionQueueItem) => {
     const isAssigned = Boolean(currentUser && currentUser.id === item.professionalId);
     if (!isAssigned && !isAdmin) {
@@ -372,25 +882,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   };
 
-  // Active call modal target
-  const [activeCallingItem, setActiveCallingItem] = useState<ReceptionQueueItem | null>(null);
-
-  // QR Code Modal for Mobile / TV Waiting Room Link
-  const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
-
-  // Dropdown menu state for queue card actions
-  const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
-
-  // Edit Date & Time state for queue items
-  const [editingDateTimeItem, setEditingDateTimeItem] = useState<ReceptionQueueItem | null>(null);
-  const [editDate, setEditDate] = useState<string>('');
-  const [editTime, setEditTime] = useState<string>('');
-
   const handleOpenEditDateTime = (item: ReceptionQueueItem, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
     setEditingDateTimeItem(item);
     setEditDate(item.scheduledDate || getTodayDateString());
     setEditTime(item.scheduledTime || '08:00');
+  };
+
+  const formatDatePtBr = (dateStr?: string): string => {
+    if (!dateStr) return '';
+    const parts = dateStr.split('-');
+    if (parts.length === 3) {
+      return `${parts[2]}/${parts[1]}/${parts[0]}`;
+    }
+    return dateStr;
   };
 
   const handleSaveDateTime = () => {
@@ -428,19 +933,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     setEditingDateTimeItem(null);
   };
 
-  // Drag and drop / repositioning state
-  const [draggedItemId, setDraggedItemId] = useState<string | null>(null);
-  const [dragOverItemId, setDragOverItemId] = useState<string | null>(null);
-  const [dragPosition, setDragPosition] = useState<'before' | 'after' | null>(null);
-
-  // Helper to determine accurate ordering priority (orderIndex takes precedence, followed by timestamp)
-  const getItemOrderValue = (item: ReceptionQueueItem): number => {
-    if (typeof item.orderIndex === 'number') {
-      return item.orderIndex;
-    }
-    return Number(item.timestamp) || 0;
-  };
-
   // Drag & Drop reorder execution for any professional's queue
   const handleReorderItem = (
     sourceItemId: string,
@@ -455,7 +947,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
     const targetProfKey = targetItem.professionalId || targetItem.professionalName || 'geral';
 
-    // Get active scope items belonging to the target professional's queue
     const profGroupItems = mergedAllQueueItems
       .filter((i) => {
         const pKey = i.professionalId || i.professionalName || 'geral';
@@ -463,16 +954,12 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       })
       .sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
 
-    // Remove sourceItem from the group if already present
     const filteredGroup = profGroupItems.filter((i) => i.id !== sourceItemId);
-
-    // Locate target index
     const targetIdx = filteredGroup.findIndex((i) => i.id === targetItemId);
     if (targetIdx === -1) return;
 
     const insertIdx = position === 'before' ? targetIdx : targetIdx + 1;
 
-    // Ensure professional alignment if dragged into another professional
     const updatedSourceItem: ReceptionQueueItem = {
       ...sourceItem,
       professionalId: targetItem.professionalId,
@@ -483,7 +970,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
     filteredGroup.splice(insertIdx, 0, updatedSourceItem);
 
-    // Re-index orderIndex with spacing of 10 for deterministic sorting
     const reorderedResults = filteredGroup.map((item, index) => ({
       ...item,
       orderIndex: (index + 1) * 10,
@@ -503,7 +989,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   };
 
-  // Quick move buttons helper (Subir, Descer, Mover ao Topo, Ao Final)
   const handleQuickMove = (item: ReceptionQueueItem, direction: 'top' | 'up' | 'down' | 'bottom') => {
     const profKey = item.professionalId || item.professionalName || 'geral';
     const profGroupItems = mergedAllQueueItems
@@ -547,81 +1032,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   };
 
-  // Filter Dropdown / Popover state
-  const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState<boolean>(false);
-
-  // View layout mode: 'by_professional' (Default, distinct queues per professional) or 'list' (Flat list)
-  const [viewMode, setViewMode] = useState<'by_professional' | 'list'>('by_professional');
-
-  useEffect(() => {
-    const handleClickOutside = (e: MouseEvent) => {
-      const target = e.target as HTMLElement | null;
-      if (!target?.closest('.queue-actions-dropdown-container')) {
-        setOpenDropdownId(null);
-      }
-      if (!target?.closest('.queue-filter-dropdown-container')) {
-        setIsFilterDropdownOpen(false);
-      }
-    };
-    if (openDropdownId || isFilterDropdownOpen) {
-      document.addEventListener('click', handleClickOutside);
-      return () => document.removeEventListener('click', handleClickOutside);
-    }
-  }, [openDropdownId, isFilterDropdownOpen]);
-
-  // Filters state
-  // dateScope: 'today' (Dia Vigente - Padrão) | 'custom' (Data ou Intervalo Personalizado) | 'all' (Todas as datas)
-  const [dateScope, setDateScope] = useState<'today' | 'custom' | 'all'>('today');
-  const [customStartDate, setCustomStartDate] = useState<string>(() => getTodayDateString());
-  const [customEndDate, setCustomEndDate] = useState<string>(() => getTodayDateString());
-  const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
-  const [calendarMode, setCalendarMode] = useState<'single' | 'range'>('single');
-  const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date());
-
-  const CALENDAR_MONTHS = [
-    'Janeiro', 'Fevereiro', 'Março', 'Abril', 'Maio', 'Junho',
-    'Julho', 'Agosto', 'Setembro', 'Outubro', 'Novembro', 'Dezembro'
-  ];
-  const CALENDAR_WEEK_DAYS = ['Dom', 'Seg', 'Ter', 'Qua', 'Qui', 'Sex', 'Sáb'];
-
-  // Calendar grid computation for interactive date/range selection
-  const calendarDays = useMemo(() => {
-    const year = calendarViewDate.getFullYear();
-    const month = calendarViewDate.getMonth();
-    const firstDayIndex = new Date(year, month, 1).getDay();
-    const daysInMonth = new Date(year, month + 1, 0).getDate();
-
-    const days: { day: number; dateStr: string; isCurrentMonth: boolean }[] = [];
-
-    // Previous month padding
-    const prevMonthDays = new Date(year, month, 0).getDate();
-    for (let i = firstDayIndex - 1; i >= 0; i--) {
-      const d = prevMonthDays - i;
-      const prevM = month === 0 ? 11 : month - 1;
-      const prevY = month === 0 ? year - 1 : year;
-      const dateStr = `${prevY}-${String(prevM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      days.push({ day: d, dateStr, isCurrentMonth: false });
-    }
-
-    // Current month days
-    for (let d = 1; d <= daysInMonth; d++) {
-      const dateStr = `${year}-${String(month + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      days.push({ day: d, dateStr, isCurrentMonth: true });
-    }
-
-    // Next month padding to complete 7-day rows
-    const totalSlots = Math.ceil(days.length / 7) * 7;
-    const remaining = totalSlots - days.length;
-    for (let d = 1; d <= remaining; d++) {
-      const nextM = month === 11 ? 0 : month + 1;
-      const nextY = month === 11 ? year + 1 : year;
-      const dateStr = `${nextY}-${String(nextM + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
-      days.push({ day: d, dateStr, isCurrentMonth: false });
-    }
-
-    return days;
-  }, [calendarViewDate]);
-
   const handleCalendarDayClick = (dateStr: string) => {
     if (calendarMode === 'single') {
       setCustomStartDate(dateStr);
@@ -632,9 +1042,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         setDateScope('custom');
       }
     } else {
-      // Range mode selection
       if (customStartDate && customEndDate && customStartDate !== customEndDate) {
-        // Reset and start new range selection
         setCustomStartDate(dateStr);
         setCustomEndDate(dateStr);
         setDateScope('custom');
@@ -654,18 +1062,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   };
 
-  // selectedStatuses: multiselection of status categories ('active' | 'completed' | 'cancelled')
-  // Default: ['active'] (which combined with dateScope 'today' shows today's active queue)
-  const [selectedStatuses, setSelectedStatuses] = useState<('active' | 'completed' | 'cancelled')[]>(['active']);
-
-  // Meus atendimentos - padrão desmarcado (false) conforme solicitado
-  const [onlyMine, setOnlyMine] = useState<boolean>(false);
-  const [selectedProfId, setSelectedProfId] = useState<string>('all');
-  const [searchQuery, setSearchQuery] = useState<string>('');
-
-  // Controle de grupos de profissionais expandidos/recolhidos (ocultos por padrão)
-  const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
-
   const toggleGroupExpand = (groupId: string) => {
     setExpandedGroupIds((prev) => {
       const next = new Set(prev);
@@ -677,9 +1073,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       return next;
     });
   };
-
-  // Controle de exibição de pacientes desistentes por profissional (ocultos por padrão)
-  const [showAbandonedGroupIds, setShowAbandonedGroupIds] = useState<Set<string>>(new Set());
 
   const toggleShowAbandoned = (profId: string, e?: React.MouseEvent) => {
     if (e) e.stopPropagation();
@@ -694,7 +1087,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
   };
 
-  // Manchester risk badge helper
   const renderRiskBadge = (risk?: RiskClassification) => {
     if (!risk) return null;
     const map: Record<RiskClassification, { label: string; bg: string; text: string; dot: string; border: string }> = {
@@ -746,430 +1138,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       </span>
     );
   };
-
-  // Helper date
-  const todayStr = getTodayDateString();
-
-  // Filter strictly clinical professionals (exclude administrative profiles who don't attend patients)
-  const clinicalProfessionals = useMemo(() => {
-    return (professionals || []).filter((p) => p && p.profession !== 'administrativo');
-  }, [professionals]);
-
-  // Unified list of all queue items + scheduled appointments
-  const mergedAllQueueItems = useMemo(() => {
-    // Default fallback clinical professional from real registered users
-    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id) || clinicalProfessionals[0];
-    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
-    const defaultProfId = defaultProf?.id || '';
-    const defaultProfession = defaultProf?.profession || 'enfermeiro';
-
-    // Filter and normalize queue items to guarantee all properties exist
-    const validQueueItems = (queueItems || [])
-      .filter((q) => q && q.id)
-      .filter((q) => {
-        // Discard any legacy mock items associated with "Profissional da Unidade" or mock "Cidadão"
-        const pName = (q.professionalName || '').trim().toLowerCase();
-        const pId = (q.professionalId || '').trim().toLowerCase();
-        const patName = (q.patientName || '').trim().toLowerCase();
-        if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || !patName) return false;
-        if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') return false;
-
-        // Discard any queue item directed to an administrative user
-        const matchedProf = (professionals || []).find((p) => (q.professionalId && p.id === q.professionalId) || (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim()));
-        if (matchedProf?.profession === 'administrativo' || q.professionalProfession === 'administrativo') return false;
-
-        return true;
-      })
-      .map((q) => {
-        const matchedProf = clinicalProfessionals.find(
-          (p) =>
-            (q.professionalId && p.id === q.professionalId) ||
-            (q.professionalName && p.name.toLowerCase().trim() === q.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
-        );
-        const pNameClean = (q.professionalName || '').trim().toLowerCase();
-        const finalProfName = matchedProf?.name || (pNameClean === 'profissional da unidade' || !q.professionalName ? defaultProfName : q.professionalName);
-        const finalProfId = matchedProf?.id || (pNameClean === 'profissional da unidade' || !q.professionalId ? defaultProfId : q.professionalId);
-        const finalProfession = matchedProf?.profession || q.professionalProfession || defaultProfession;
-
-        return {
-          ...q,
-          patientName: q.patientName,
-          professionalId: finalProfId,
-          professionalName: finalProfName,
-          professionalProfession: finalProfession,
-          scheduledDate: q.scheduledDate || (q.timestamp && !isNaN(new Date(q.timestamp).getTime()) ? new Date(q.timestamp).toISOString().split('T')[0] : todayStr),
-          scheduledTime: q.scheduledTime || '08:00',
-        };
-      });
-
-    const list: ReceptionQueueItem[] = [...validQueueItems];
-    const existingAppointmentIds = new Set(
-      validQueueItems.map((q) => q.appointmentId || q.id).filter(Boolean)
-    );
-
-    if (appointments && appointments.length > 0) {
-      for (const app of appointments) {
-        if (!app.patientName && !app.date) continue;
-        if (app.id && app.id.startsWith('ord_pix')) continue;
-        if (existingAppointmentIds.has(app.id)) continue;
-
-        const appPName = (app.professionalName || '').trim().toLowerCase();
-        const appPId = (app.professionalId || '').trim().toLowerCase();
-        const appPatName = (app.patientName || '').trim().toLowerCase();
-        if (appPatName === 'cidadão' || appPatName === 'cidadao' || appPatName === 'paciente agendado' || !appPatName) continue;
-        if (appPName === 'profissional da unidade' || appPId === 'profissional da unidade' || appPId === 'user-profissional-da-unidade') continue;
-
-        // Discard any appointment assigned to administrative staff
-        const matchedProf = (professionals || []).find(
-          (p) =>
-            (app.professionalId && p.id === app.professionalId) ||
-            (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
-        );
-        if (matchedProf?.profession === 'administrativo' || app.professionalProfession === 'administrativo') continue;
-
-        let mappedStatus: QueueItemStatus = 'waiting';
-        if (app.status === 'em_atendimento') {
-          mappedStatus = 'in_consultation';
-        } else if (app.status === 'finalizado') {
-          mappedStatus = 'completed';
-        } else if (app.status === 'cancelado') {
-          mappedStatus = 'cancelled';
-        }
-
-        let itemTimestamp = app.timestamp;
-        if (!itemTimestamp && app.date) {
-          const timeStr = app.startTime || '08:00';
-          const d = new Date(`${app.date}T${timeStr}:00`);
-          itemTimestamp = isNaN(d.getTime()) ? (app.createdAt || Date.now()) : d.getTime();
-        }
-        if (!itemTimestamp) {
-          itemTimestamp = app.createdAt || Date.now();
-        }
-
-        const formattedDate = formatQueueDateTime(app.date, app.startTime || '08:00');
-
-        const resolvedProfId = matchedProf?.id || (appPName === 'profissional da unidade' ? defaultProfId : app.professionalId) || defaultProfId;
-        const resolvedProfName = matchedProf?.name || (appPName === 'profissional da unidade' ? defaultProfName : app.professionalName) || defaultProfName;
-        const resolvedProfession = matchedProf?.profession || app.professionalProfession || defaultProfession;
-
-        const queueItemFromAppointment: ReceptionQueueItem = {
-          id: app.id,
-          patientId: app.patientId || `pat-${app.id}`,
-          patientName: app.patientName,
-          patientCpf: app.patientCpf,
-          patientCns: app.patientCns,
-          patientBirthDate: app.patientBirthDate,
-          patientPhone: app.patientPhone,
-          professionalId: resolvedProfId,
-          professionalName: resolvedProfName,
-          professionalProfession: resolvedProfession,
-          scheduledDate: app.date,
-          scheduledTime: app.startTime || '08:00',
-          timestamp: itemTimestamp,
-          formattedDateTime: formattedDate,
-          status: mappedStatus,
-          origin: 'agendamento',
-          priorityCategory: 'padrao',
-          appointmentId: app.id,
-          notes: app.serviceName ? `Serviço: ${app.serviceName}${app.notes ? ` • ${app.notes}` : ''}` : app.notes,
-          createdAt: app.createdAt || Date.now(),
-          updatedAt: app.updatedAt || Date.now(),
-        };
-
-        list.push(queueItemFromAppointment);
-      }
-    }
-
-    return list;
-  }, [queueItems, appointments, clinicalProfessionals, professionals, currentUser, todayStr]);
-
-  // Helper: verifica se um item da fila está dentro do escopo de data selecionado
-  const isItemInDateScope = (item: ReceptionQueueItem): boolean => {
-    const itemDate = item.scheduledDate || (item.timestamp && !isNaN(new Date(item.timestamp).getTime()) ? new Date(item.timestamp).toISOString().split('T')[0] : '');
-    if (dateScope === 'today') {
-      return itemDate === todayStr;
-    }
-    if (dateScope === 'custom') {
-      if (!customStartDate && !customEndDate) return true;
-      if (customStartDate && customEndDate) {
-        const start = customStartDate <= customEndDate ? customStartDate : customEndDate;
-        const end = customStartDate <= customEndDate ? customEndDate : customStartDate;
-        return itemDate >= start && itemDate <= end;
-      }
-      if (customStartDate) return itemDate >= customStartDate;
-      if (customEndDate) return itemDate <= customEndDate;
-      return true;
-    }
-    return true; // 'all'
-  };
-
-  const formatDatePtBr = (dateStr?: string): string => {
-    if (!dateStr) return '';
-    const parts = dateStr.split('-');
-    if (parts.length === 3) {
-      return `${parts[2]}/${parts[1]}/${parts[0]}`;
-    }
-    return dateStr;
-  };
-
-  // Per-professional calling rank calculation
-  // Each professional maintains their own chronological order of calling
-  const profRankingMap = useMemo(() => {
-    // Filter by date scope so positions reflect the current scope (e.g. today's order or custom date)
-    const scopeList = mergedAllQueueItems.filter(isItemInDateScope);
-
-    // Group items by professional ID / name
-    const grouped = new Map<string, ReceptionQueueItem[]>();
-    for (const item of scopeList) {
-      const profKey = item.professionalId || item.professionalName || 'geral';
-      if (!grouped.has(profKey)) {
-        grouped.set(profKey, []);
-      }
-      grouped.get(profKey)!.push(item);
-    }
-
-    const rankMap = new Map<
-      string,
-      {
-        profOrder: number;
-        profWaitingOrder: number | null;
-        profTotal: number;
-        profWaitingTotal: number;
-      }
-    >();
-
-    grouped.forEach((profItems) => {
-      // Sort using custom orderIndex if defined, otherwise chronologically by timestamp
-      profItems.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
-
-      let waitingCounter = 0;
-      const waitingTotal = profItems.filter(
-        (i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service'
-      ).length;
-
-      profItems.forEach((item, index) => {
-        const isWaiting = item.status === 'waiting' || item.status === 'calling';
-        if (isWaiting) {
-          waitingCounter++;
-        }
-        rankMap.set(item.id, {
-          profOrder: index + 1,
-          profWaitingOrder: isWaiting ? waitingCounter : null,
-          profTotal: profItems.length,
-          profWaitingTotal: waitingTotal,
-        });
-      });
-    });
-
-    return rankMap;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
-
-  // Filter items based on active UI filters
-  const filteredItems = useMemo(() => {
-    let list = mergedAllQueueItems.filter(isItemInDateScope);
-
-    // 2. Status multiselection filtering
-    if (selectedStatuses.length > 0) {
-      list = list.filter((i) => {
-        const isActive = i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service';
-        const isCompleted = i.status === 'completed';
-        const isCancelled = i.status === 'cancelled' || i.status === 'abandoned';
-
-        return (
-          (selectedStatuses.includes('active') && isActive) ||
-          (selectedStatuses.includes('completed') && isCompleted) ||
-          (selectedStatuses.includes('cancelled') && isCancelled)
-        );
-      });
-    }
-
-    // 3. Filter by "only mine"
-    if (onlyMine && currentUser) {
-      list = list.filter((i) => i.professionalId === currentUser.id);
-    }
-
-    // 4. Filter by selected professional
-    if (selectedProfId !== 'all') {
-      list = list.filter((i) => i.professionalId === selectedProfId);
-    }
-
-    // 5. Filter by search query
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      list = list.filter((i) => {
-        return (
-          i.patientName.toLowerCase().includes(q) ||
-          i.patientCpf?.includes(q) ||
-          i.patientCns?.includes(q) ||
-          i.patientPhone?.includes(q) ||
-          i.notes?.toLowerCase().includes(q) ||
-          i.professionalName.toLowerCase().includes(q)
-        );
-      });
-    }
-
-    // Sort: group primarily by professional name and then by custom orderIndex/timestamp
-    list.sort((a, b) => {
-      const profCompare = (a.professionalName || '').localeCompare(b.professionalName || '');
-      if (profCompare !== 0 && selectedProfId === 'all') {
-        return profCompare;
-      }
-      return getItemOrderValue(a) - getItemOrderValue(b);
-    });
-
-    return list;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
-
-  // Group filtered items by professional for structured individual queues
-  const groupedByProf = useMemo(() => {
-    let baseList = mergedAllQueueItems.filter(isItemInDateScope);
-
-    if (onlyMine && currentUser) {
-      baseList = baseList.filter((i) => i.professionalId === currentUser.id);
-    }
-
-    if (selectedProfId !== 'all') {
-      baseList = baseList.filter((i) => i.professionalId === selectedProfId);
-    }
-
-    if (searchQuery.trim()) {
-      const q = searchQuery.toLowerCase().trim();
-      baseList = baseList.filter((i) => {
-        return (
-          i.patientName.toLowerCase().includes(q) ||
-          i.patientCpf?.includes(q) ||
-          i.patientCns?.includes(q) ||
-          i.patientPhone?.includes(q) ||
-          i.notes?.toLowerCase().includes(q) ||
-          i.professionalName.toLowerCase().includes(q)
-        );
-      });
-    }
-
-    const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id && p.profession !== 'administrativo') || clinicalProfessionals[0];
-    const defaultProfName = defaultProf?.name || 'Profissional Responsável';
-    const defaultProfId = defaultProf?.id || 'geral';
-    const defaultProfession = defaultProf?.profession || 'enfermeiro';
-
-    const map = new Map<string, ReceptionQueueItem[]>();
-    for (const item of baseList) {
-      const patName = (item.patientName || '').trim().toLowerCase();
-      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || !patName) continue;
-
-      const pName = (item.professionalName || '').trim().toLowerCase();
-      const pId = (item.professionalId || '').trim().toLowerCase();
-      if (pName === 'profissional da unidade' || pId === 'profissional da unidade' || pId === 'user-profissional-da-unidade') continue;
-
-      // Check if item was assigned to an administrative user - if so, ignore as admin does not attend patients
-      const rawProf = (professionals || []).find(
-        (p) =>
-          (item.professionalId && p.id === item.professionalId) ||
-          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
-      );
-      if (rawProf?.profession === 'administrativo' || item.professionalProfession === 'administrativo' || rawProf?.name.toLowerCase().includes('nangley')) {
-        continue;
-      }
-
-      // Find matching clinical professional
-      const matchedProf = clinicalProfessionals.find(
-        (p) =>
-          (item.professionalId && p.id === item.professionalId) ||
-          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
-      );
-
-      if (!matchedProf && !defaultProf) continue;
-
-      const key = matchedProf?.id || defaultProf?.id || 'geral';
-      if (!map.has(key)) {
-        map.set(key, []);
-      }
-      map.get(key)!.push(item);
-    }
-
-    const groups: {
-      professionalId: string;
-      professionalName: string;
-      professionalProfession: string;
-      items: ReceptionQueueItem[];
-      waitingCount: number;
-      completedCount: number;
-      abandonedCount: number;
-      callingCount: number;
-      firstWaitingItem: ReceptionQueueItem | null;
-    }[] = [];
-
-    map.forEach((items, key) => {
-      items.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
-      const firstItem = items[0];
-      const profUser = clinicalProfessionals.find(
-        (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
-      );
-      if (profUser?.profession === 'administrativo' || profUser?.name.toLowerCase().includes('nangley')) return; // Strictly ignore administrative staff from queue groups
-
-      const groupName = profUser?.name || (firstItem?.professionalName && firstItem.professionalName.toLowerCase().trim() !== 'profissional da unidade' ? firstItem.professionalName : defaultProfName);
-      if (groupName.toLowerCase().trim() === 'profissional da unidade') return;
-
-      const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service');
-      const completedItems = items.filter((i) => i.status === 'completed');
-      const abandonedItems = items.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
-
-      groups.push({
-        professionalId: profUser?.id || key,
-        professionalName: groupName,
-        professionalProfession: profUser?.profession || firstItem?.professionalProfession || defaultProfession,
-        items,
-        waitingCount: waitingItems.length,
-        completedCount: completedItems.length,
-        abandonedCount: abandonedItems.length,
-        callingCount: items.filter((i) => i.status === 'calling').length,
-        firstWaitingItem: waitingItems[0] || null,
-      });
-    });
-
-    groups.sort((a, b) => {
-      if (currentUser) {
-        if (a.professionalId === currentUser.id) return -1;
-        if (b.professionalId === currentUser.id) return 1;
-      }
-      return a.professionalName.localeCompare(b.professionalName);
-    });
-
-    return groups;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
-
-  // Today's total count
-  const countTodayTotal = useMemo(() => {
-    return mergedAllQueueItems.filter((i) => {
-      const itemDate = i.scheduledDate || (i.timestamp ? new Date(i.timestamp).toISOString().split('T')[0] : '');
-      return itemDate === todayStr;
-    }).length;
-  }, [mergedAllQueueItems, todayStr]);
-
-  // Active scope items for dynamic counts
-  const scopeItems = useMemo(() => {
-    return mergedAllQueueItems.filter(isItemInDateScope);
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
-
-  const countScopeTotal = scopeItems.length;
-
-  // All dates total count
-  const countAllTotal = mergedAllQueueItems.length;
-
-  const countActive = useMemo(() => {
-    return scopeItems.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service').length;
-  }, [scopeItems]);
-
-  const countCompleted = useMemo(() => {
-    return scopeItems.filter((i) => i.status === 'completed').length;
-  }, [scopeItems]);
-
-  const countCancelled = useMemo(() => {
-    return scopeItems.filter((i) => i.status === 'cancelled' || i.status === 'abandoned').length;
-  }, [scopeItems]);
-
-  const callingCount = useMemo(() => {
-    return scopeItems.filter((i) => i.status === 'calling').length;
-  }, [scopeItems]);
 
   // Handlers for filter pill clicks
   const handleSelectTodayScope = () => {
@@ -1471,12 +1439,16 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                       const article = getProfessionalArticle(matchedProf, item.professionalName);
                       const profTitle = getProfessionalProfessionTitle(matchedProf, item.professionalProfession);
 
+                      const senderName = currentUser?.name || matchedProf?.name || item.professionalName || 'Profissional';
+                      const senderTitle = getProfessionalProfessionTitle(currentUser, currentUser?.profession) || 'Profissional de Saúde';
+                      const signature = `\n\nAtenciosamente,\n${senderName} (${senderTitle} - CAPS)`;
+
                       let message = '';
                       if (isAbandonedOrCancelled) {
-                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta com ${article} *${profName}* (*${profTitle}*) do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.`;
+                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta com ${article} *${profName}* (*${profTitle}*) do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.${signature}`;
                       } else {
                         const remainingTime = formatRemainingTime(item.scheduledDate, item.scheduledTime, item.timestamp);
-                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}. Por favor, chegue pelo menos 1 hora antes da hora da consulta.`;
+                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}. Por favor, chegue pelo menos 1 hora antes da hora da consulta.${signature}`;
                       }
 
                       if (phone) {

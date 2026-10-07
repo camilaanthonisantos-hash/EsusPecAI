@@ -246,7 +246,11 @@ export function generateGoogleCalendarUrl(appointment: Appointment): string {
 /**
  * Generates WhatsApp reminder link for patients
  */
-export function generateWhatsAppReminderLink(appointment: Appointment, professionalObj?: User): string {
+export function generateWhatsAppReminderLink(
+  appointment: Appointment,
+  professionalObj?: User,
+  currentUser?: User | null
+): string {
   const cleanPhone = (appointment.patientPhone || '').replace(/\D/g, '');
   let dateFormatted = appointment.date || 'Hoje';
   try {
@@ -265,6 +269,10 @@ export function generateWhatsAppReminderLink(appointment: Appointment, professio
     ? `*${appointment.professionalName}* (*${profTitle}*)`
     : `*Profissional* (*${profTitle}*)`;
 
+  const senderUser = currentUser || professionalObj;
+  const senderName = senderUser?.name || appointment.professionalName || 'Profissional';
+  const senderTitle = getProfessionalProfessionTitle(senderUser, senderUser?.profession || appointment.professionalProfession) || 'Profissional de Saúde';
+
   const message = encodeURIComponent(
     `🏥 *Lembrete de Agendamento - e-SUS PEC Multiprofissional*\n\n` +
     `Olá *${appointment.patientName || 'Paciente'}*!\n\n` +
@@ -275,7 +283,8 @@ export function generateWhatsAppReminderLink(appointment: Appointment, professio
     `📋 *Serviço:* ${appointment.serviceName || 'Consulta'}\n` +
     `📍 *Local:* Atendimento e-SUS PEC / Unidade de Saúde\n\n` +
     `⚠️ *Importante:* Por favor, chegue ao local com pelo menos 1 hora de antecedência ao horário da consulta munido de documento com foto e Cartão SUS.\n\n` +
-    `Em caso de dúvidas ou necessidade de reagendamento, favor nos avisar com antecedência. Tenha um ótimo dia!`
+    `Em caso de dúvidas ou necessidade de reagendamento, favor nos avisar com antecedência.\n\n` +
+    `Atenciosamente,\n${senderName} (${senderTitle} - CAPS)`
   );
 
   return cleanPhone
