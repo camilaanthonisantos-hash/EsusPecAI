@@ -39,6 +39,7 @@ import {
   Pencil,
   Lock,
   X,
+  Printer,
 } from 'lucide-react';
 import {
   ReceptionQueueItem,
@@ -58,6 +59,7 @@ import {
 import { SpecularButton } from './SpecularButton';
 import { CallPatientModal } from './CallPatientModal';
 import { PublicQueueQrCodeModal } from './PublicQueueQrCodeModal';
+import { openProfessionalQueueInNewTab } from '../utils/printReceptionQueue';
 
 const CALENDAR_MONTHS = [
   'Janeiro',
@@ -816,6 +818,77 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     } else if (onUpdateQueueItemStatus) {
       onUpdateQueueItemStatus(item.id, 'cancelled');
     }
+  };
+
+  const handlePrintProfessionalQueue = (group: {
+    professionalId: string;
+    professionalName: string;
+    items: ReceptionQueueItem[];
+    waitingCount: number;
+    completedCount: number;
+    abandonedCount: number;
+  }) => {
+    const profObj = professionals.find((p) => p.id === group.professionalId);
+    const dateLabel =
+      dateScope === 'today'
+        ? `Hoje - ${formatBrazilianDate(todayStr)}`
+        : dateScope === 'custom'
+        ? customStartDate === customEndDate
+          ? formatBrazilianDate(customStartDate)
+          : `${formatBrazilianDate(customStartDate)} a ${formatBrazilianDate(customEndDate)}`
+        : 'Todas as Datas';
+
+    openProfessionalQueueInNewTab(
+      {
+        professionalId: group.professionalId,
+        professionalName: group.professionalName,
+        professionalProfession: profObj?.profession,
+        items: group.items,
+        waitingCount: group.waitingCount,
+        completedCount: group.completedCount,
+        abandonedCount: group.abandonedCount,
+      },
+      dateLabel,
+      currentUser
+    );
+
+    onShowToast?.('info', `Abrindo impressão A4 da fila de ${group.professionalName}...`, 'Imprimir Fila');
+  };
+
+  const handlePrintAllQueue = () => {
+    const dateLabel =
+      dateScope === 'today'
+        ? `Hoje - ${formatBrazilianDate(todayStr)}`
+        : dateScope === 'custom'
+        ? customStartDate === customEndDate
+          ? formatBrazilianDate(customStartDate)
+          : `${formatBrazilianDate(customStartDate)} a ${formatBrazilianDate(customEndDate)}`
+        : 'Todas as Datas';
+
+    const profName =
+      selectedProfId !== 'all'
+        ? professionals.find((p) => p.id === selectedProfId)?.name || 'Profissional Selecionado'
+        : 'Todos os Profissionais da Unidade';
+    const profRole =
+      selectedProfId !== 'all'
+        ? professionals.find((p) => p.id === selectedProfId)?.profession
+        : 'Recepção / Triagem Geral';
+
+    openProfessionalQueueInNewTab(
+      {
+        professionalId: selectedProfId !== 'all' ? selectedProfId : 'geral',
+        professionalName: profName,
+        professionalProfession: profRole,
+        items: filteredItems,
+        waitingCount: filteredItems.filter((i) => i.status === 'waiting' || i.status === 'calling').length,
+        completedCount: filteredItems.filter((i) => i.status === 'completed').length,
+        abandonedCount: filteredItems.filter((i) => i.status === 'abandoned' || i.status === 'cancelled').length,
+      },
+      dateLabel,
+      currentUser
+    );
+
+    onShowToast?.('info', 'Abrindo impressão A4 da fila de atendimento geral...', 'Imprimir Fila');
   };
 
   const handleOpenTimeline = (item: ReceptionQueueItem) => {
@@ -1996,6 +2069,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
             <span className="hidden md:inline">QR Code</span>
           </SpecularButton>
 
+          {/* Imprimir Fila Geral A4 */}
+          <SpecularButton
+            type="button"
+            id="print-general-queue-header-btn"
+            onClick={handlePrintAllQueue}
+            size="sm"
+            radius={14}
+            className="px-3 py-2.5 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-750 text-slate-700 dark:text-slate-200 font-bold text-xs sm:text-sm border-slate-300 dark:border-slate-700 shadow-xs flex items-center gap-1.5 cursor-pointer"
+            title="Imprimir relatório A4 com a fila de atendimento atual"
+          >
+            <Printer className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+            <span className="hidden md:inline">Imprimir Fila</span>
+          </SpecularButton>
+
           {onRefreshQueue && (
             <SpecularButton
               type="button"
@@ -2633,8 +2720,23 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     </div>
                   </div>
 
-                  {/* Lado Direito: Indicador de Expansão / Quantidade */}
-                  <div className="flex items-center justify-between sm:justify-end gap-3 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                  {/* Lado Direito: Ações (Imprimir Fila do Profissional + Indicador de Expansão) */}
+                  <div className="flex items-center justify-between sm:justify-end gap-2.5 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-800/80">
+                    {/* Botão de Impressão da Fila do Profissional */}
+                    <button
+                      type="button"
+                      id={`print-queue-btn-${group.professionalId}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handlePrintProfessionalQueue(group);
+                      }}
+                      className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-800/95 hover:bg-slate-700 text-teal-200 hover:text-white border border-indigo-400/40 hover:border-teal-400 text-xs font-bold transition-all shadow-md cursor-pointer select-none"
+                      title={`Imprimir folha A4 com a fila de atendimento de ${group.professionalName}`}
+                    >
+                      <Printer className="w-3.5 h-3.5 text-teal-300" />
+                      <span className="hidden sm:inline">Imprimir Fila</span>
+                    </button>
+
                     <div className="flex items-center gap-2 px-3.5 py-2 rounded-xl bg-slate-800/95 group-hover:bg-slate-750 border border-indigo-400/40 text-teal-300 text-xs font-extrabold transition-all shadow-md">
                       <span>{isExpanded ? 'Recolher Fila' : 'Expandir Fila'}</span>
                       <span className="px-2 py-0.5 rounded-md bg-teal-500/30 text-teal-100 font-mono text-xs font-black">
