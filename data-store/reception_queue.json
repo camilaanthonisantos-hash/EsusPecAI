@@ -1,1 +1,33 @@
-[]
+[
+  {
+    "id": "queue-1791575126897-7v3a",
+    "origin": "pacientes",
+    "status": "waiting",
+    "version": 7,
+    "createdAt": 1791575126897,
+    "createdBy": "user-admin-jerime",
+    "patientId": "pat-1788627055279-yni2",
+    "timestamp": 1791802800000,
+    "updatedAt": 1791633780622,
+    "isPregnant": false,
+    "patientCns": "702 6047 8282 5647",
+    "patientCpf": "113.375.622-03",
+    "patientName": "Ravir Rego Soares",
+    "patientPhone": "91985958042",
+    "notifications": {
+      "hasReplied": false,
+      "reminderSent": true,
+      "reminderSentAt": 1791633780622,
+      "lastEventDispatched": "appointment_reminder"
+    },
+    "patientGender": "Masculino",
+    "scheduledDate": "2026-10-12",
+    "scheduledTime": "08:00",
+    "professionalId": "user-admin-jerime",
+    "patientBirthDate": "1989-11-08",
+    "priorityCategory": "padrao",
+    "professionalName": "Jerime Rêgo",
+    "formattedDateTime": "12/10/26 [Segunda-feira] às 08:00",
+    "professionalProfession": "enfermeiro"
+  }
+]

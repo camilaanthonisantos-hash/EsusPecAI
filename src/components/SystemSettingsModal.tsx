@@ -53,6 +53,8 @@ import {
   Layers,
   Workflow,
   ListOrdered,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   User,
@@ -91,6 +93,7 @@ import {
   DEFAULT_WORKPLACE_PRESETS,
   parseProfessionalRegister,
   formatProfessionalRegister,
+  getProfessionalProfessionTitle,
 } from '../data/professions';
 import { isProfessionalAvailableForBooking } from '../services/calendar';
 import { resetUserSubscriptionAndPixForTesting } from '../services/firebase';
@@ -195,7 +198,7 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
     systemSettings.n8nPixWebhookUrl || ''
   );
   const [n8nAppointmentWebhookUrl, setN8nAppointmentWebhookUrl] = useState(
-    systemSettings.n8nAppointmentWebhookUrl || ''
+    systemSettings.n8nAppointmentWebhookUrl || 'https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete'
   );
   const [n8nSubscriptionWebhookUrl, setN8nSubscriptionWebhookUrl] = useState(
     systemSettings.n8nSubscriptionWebhookUrl || ''
@@ -215,6 +218,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [evolutionInstanceName, setEvolutionInstanceName] = useState(
     systemSettings.evolutionInstanceName || 'Typebot_curso_tec'
   );
+  const [showEvolutionApiKey, setShowEvolutionApiKey] = useState(false);
+  const [copiedCallbackUrl, setCopiedCallbackUrl] = useState(false);
+  const [copiedVarsExpr, setCopiedVarsExpr] = useState(false);
+  const [copiedWebhookReplyUrl, setCopiedWebhookReplyUrl] = useState(false);
   const [dailyReminderHour, setDailyReminderHour] = useState(systemSettings.dailyReminderHour ?? 9);
   const [reminder30MinutesEnabled, setReminder30MinutesEnabled] = useState(systemSettings.reminder30MinutesEnabled !== false);
   const [reminder10MinutesEnabled, setReminder10MinutesEnabled] = useState(systemSettings.reminder10MinutesEnabled !== false);
@@ -991,10 +998,70 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
     setWhatsAppTestResult(null);
 
     try {
+      const callbackUrl = `${window.location.origin}/api/appointments/button-action-callback`;
+      const testMsg = `Olá, Paciente Teste! Lembramos que sua consulta de Lembrete PEC-CAPS está agendada para hoje às 14:30 com ${currentUser.name || 'Profissional de Saúde'}.\n\nPara confirmar sua presença, clique no botão abaixo ou responda a esta mensagem.\n\nAtenciosamente,`;
+
+      const fullName = (currentUser?.name || '').trim();
+      const nameParts = fullName ? fullName.split(/\s+/).filter(Boolean) : [];
+      const firstName = nameParts.length > 0 ? nameParts[0] : '';
+      const lastName = nameParts.length > 1 ? nameParts[nameParts.length - 1] : firstName;
+      const professionTitle = currentUser
+        ? getProfessionalProfessionTitle(currentUser, currentUser.profession) || currentUser.profession
+        : '';
+      const unitLotacao = currentUser?.workplace || defaultUnitName || 'Unidade de Atendimento e-SUS PEC';
+
+      const enrichedSenderUser = currentUser
+        ? {
+            id: currentUser.id,
+            name: currentUser.name,
+            firstName,
+            lastName,
+            primeiroNome: firstName,
+            ultimoNome: lastName,
+            primeiroEUltimoNome: firstName && lastName && firstName !== lastName ? `${firstName} ${lastName}` : firstName,
+            profession: currentUser.profession,
+            professionTitle,
+            especialidade: currentUser.specialty || professionTitle,
+            profissao: professionTitle,
+            workplace: unitLotacao,
+            unidadeLotacao: unitLotacao,
+            unidade: unitLotacao,
+          }
+        : undefined;
+
       const testPayload = {
-        event: 'appointment_confirmed',
+        event: 'appointment_reminder',
+        webhookUrl: n8nAppointmentWebhookUrl.trim(),
+        evolutionApiUrl: evolutionApiUrl.trim(),
+        evolutionApiKey: evolutionApiKey.trim(),
+        evolutionInstanceName: evolutionInstanceName.trim(),
+        callback_url: callbackUrl,
+        button_action_callback: callbackUrl,
+        pec_api_url: window.location.origin,
+        pec_callback_route: '/api/appointments/button-action-callback',
+        replyWebhookUrl: callbackUrl,
+        messageText: testMsg,
+        senderUser: enrichedSenderUser,
+        perfil_interacao: 'automatica',
+        interaction_type: 'automatic',
+        interaction_mode: 'automated_template',
+        origem_mensagem: 'template_pre_construido',
+        descricao_perfil: 'Mensagem de teste automática disparada via template pré-construído',
+        is_automatic: true,
+        is_automated: true,
+        is_human: false,
+        is_humanized: false,
+        is_manual: false,
+        message_type: 'template',
+        sender_type: 'system',
+        whatsappEnabled: true,
         payload: {
-          event: 'appointment_confirmed',
+          event: 'appointment_reminder',
+          perfil_interacao: 'automatica',
+          interaction_type: 'automatic',
+          origem_mensagem: 'template_pre_construido',
+          is_automatic: true,
+          is_human: false,
           timestamp: Date.now(),
           appointmentId: `teste-${Date.now()}`,
           patient: {
@@ -1009,21 +1076,22 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
             startTime: '14:30',
             timeFormatted: '14:30',
             professionalName: currentUser.name || 'Profissional de Saúde',
-            serviceName: 'Consulta Teste de Notificação',
+            serviceName: 'Consulta Lembrete PEC-CAPS',
             servicePrice: 0,
             servicePriceFormatted: 'R$ 0,00',
-            location: defaultUnitName || 'Unidade Básica de Saúde',
+            location: defaultUnitName || 'Unidade Básica de Saúde / CAPS',
             status: 'agendado',
           },
           buttons: [
+            { id: 'btn_confirmar_teste', label: '✅ Confirmar Presença', action: 'confirm' },
             { id: 'btn_cancelar_teste', label: '❌ Cancelar', action: 'cancel' },
             { id: 'btn_reagendar_teste', label: '🔄 Reagendar', action: 'reschedule' },
-            { id: 'btn_duvidas_teste', label: '❓ Dúvidas', action: 'help' },
           ],
-          suggestedMessage: 'Teste de integração WhatsApp (Evo API / n8n) realizado com sucesso!',
+          messageText: testMsg,
+          suggestedMessage: testMsg,
+          senderUser: enrichedSenderUser,
+          usuarioLogado: enrichedSenderUser,
         },
-        webhookUrl: n8nAppointmentWebhookUrl.trim(),
-        whatsappEnabled: true,
       };
 
       const res = await fetch('/api/appointments/notify-event', {
@@ -3335,13 +3403,13 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                         </div>
                         <div>
                           <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 flex items-center gap-2">
-                            <span>2. Webhook n8n: Notificações & Lembretes WhatsApp</span>
+                            <span>2. Webhook n8n: Lembrete de Consulta & WhatsApp</span>
                             <span className="px-2 py-0.5 rounded-full bg-emerald-100 dark:bg-emerald-950 text-emerald-700 dark:text-emerald-300 text-[10px] font-bold">
-                              Evolution API
+                              Fluxo PEC-CAPS
                             </span>
                           </h4>
                           <p className="text-xs text-slate-500 dark:text-slate-400">
-                            Disparado em agendamentos, confirmações com botões interativos e lembretes com antecedência.
+                            Disparado para encaminhar os dados do agendamento, do paciente, os parâmetros da Evolution API e a rota de confirmação ao fluxo do n8n.
                           </p>
                         </div>
                       </div>
@@ -3360,33 +3428,50 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                       </label>
                     </div>
 
-                    <div className="space-y-3">
-                      <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
-                        URL do Webhook n8n para Disparo de Mensagens WhatsApp
-                      </label>
-                      <div className="flex flex-col sm:flex-row gap-3">
-                        <input
-                          type="url"
-                          id="webhook-whatsapp-url-input"
-                          value={n8nAppointmentWebhookUrl}
-                          onChange={(e) => setN8nAppointmentWebhookUrl(e.target.value)}
-                          placeholder="https://seu-n8n.com/webhook/agendamentos-eventos"
-                          className="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
-                        />
-                        <button
-                          type="button"
-                          id="test-whatsapp-webhook-btn"
-                          disabled={isTestingWhatsAppNotif || !n8nAppointmentWebhookUrl.trim()}
-                          onClick={handleTestWhatsAppWebhook}
-                          className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
-                        >
-                          {isTestingWhatsAppNotif ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Send className="w-3.5 h-3.5" />
+                    <div className="space-y-4">
+                      {/* Campo Principal: URL do Webhook do Fluxo n8n */}
+                      <div className="space-y-2">
+                        <div className="flex items-center justify-between">
+                          <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
+                            URL do Webhook do Fluxo n8n (Lembrete de Consultas para Pacientes)
+                          </label>
+                          {n8nAppointmentWebhookUrl !== 'https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete' && (
+                            <button
+                              type="button"
+                              onClick={() => setN8nAppointmentWebhookUrl('https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete')}
+                              className="text-[10px] text-emerald-600 dark:text-emerald-400 hover:underline font-bold cursor-pointer"
+                            >
+                              Restaurar URL Padrão (/pec-caps-lembrete)
+                            </button>
                           )}
-                          <span>{isTestingWhatsAppNotif ? 'Enviando...' : 'Testar Disparo'}</span>
-                        </button>
+                        </div>
+                        <div className="flex flex-col sm:flex-row gap-3">
+                          <input
+                            type="url"
+                            id="webhook-whatsapp-url-input"
+                            value={n8nAppointmentWebhookUrl}
+                            onChange={(e) => setN8nAppointmentWebhookUrl(e.target.value)}
+                            placeholder="https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete"
+                            className="flex-1 px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
+                          />
+                          <button
+                            type="button"
+                            id="test-whatsapp-webhook-btn"
+                            disabled={isTestingWhatsAppNotif || !n8nAppointmentWebhookUrl.trim()}
+                            onClick={handleTestWhatsAppWebhook}
+                            className="px-4 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold shadow-md shadow-emerald-600/20 transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 whitespace-nowrap"
+                          >
+                            {isTestingWhatsAppNotif ? (
+                              <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <Send className="w-3.5 h-3.5" />
+                            )}
+                            <span>{isTestingWhatsAppNotif ? 'Enviando...' : 'Testar Disparo'}</span>
+                          </button>
+                        </div>
+                        <p className="text-[10px] text-slate-500 dark:text-slate-400">
+                          Fluxo alvo do n8n que receberá o payload com os dados da consulta, dados da instância Evolution e o endpoint de retorno para confirmação.
+                        </p>
                       </div>
 
                       {whatsAppTestResult && (
@@ -3408,27 +3493,126 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                         </div>
                       )}
 
-                      {/* Evolution API Direct Parameters */}
+                      {/* Card de Destaque: Endpoint de Retorno do PEC-CAPS para o Agente n8n */}
+                      <div className="p-4 rounded-2xl bg-gradient-to-br from-indigo-50/80 via-white to-blue-50/80 dark:from-indigo-950/30 dark:via-slate-900 dark:to-blue-950/30 border border-indigo-200/90 dark:border-indigo-900/60 space-y-3">
+                        <div className="flex items-center justify-between gap-2">
+                          <h5 className="text-xs font-bold text-indigo-950 dark:text-indigo-200 flex items-center gap-2">
+                            <Webhook className="w-4 h-4 text-indigo-600 dark:text-indigo-400" />
+                            <span>Endpoint de Retorno do PEC-CAPS (Confirmação, Cancelamento & Botões)</span>
+                          </h5>
+                          <span className="px-2 py-0.5 rounded-full bg-indigo-100 dark:bg-indigo-900/60 text-indigo-800 dark:text-indigo-200 text-[10px] font-bold">
+                            Resposta ao seu Agente n8n
+                          </span>
+                        </div>
+
+                        <p className="text-[11px] text-slate-700 dark:text-slate-300 leading-relaxed">
+                          Respondendo à dúvida do seu agente: <strong>Sim!</strong> A rota oficial do PEC-CAPS para receber a confirmação do paciente é <code className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-200 px-1 py-0.5 rounded font-mono font-bold">/api/appointments/button-action-callback</code>. Você pode utilizar a variável base <code className="bg-indigo-100 dark:bg-indigo-900/50 text-indigo-800 dark:text-indigo-200 px-1 py-0.5 rounded font-mono font-bold">$vars.PEC_API_URL</code> ou a URL completa direta:
+                        </p>
+
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5 pt-1">
+                          {/* Opção 1: Expressão com Variável n8n */}
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-indigo-200/80 dark:border-indigo-800/60 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">Expressão Recomendada (com $vars)</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const expr = "$vars.PEC_API_URL + '/api/appointments/button-action-callback'";
+                                  navigator.clipboard.writeText(expr);
+                                  setCopiedVarsExpr(true);
+                                  setTimeout(() => setCopiedVarsExpr(false), 2000);
+                                  onShowToast('success', 'Expressão copiada com sucesso!', 'Copiado');
+                                }}
+                                className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedVarsExpr ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                <span>{copiedVarsExpr ? 'Copiado!' : 'Copiar'}</span>
+                              </button>
+                            </div>
+                            <div className="font-mono text-[11px] text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/40 p-2 rounded-lg break-all select-all">
+                              $vars.PEC_API_URL + '/api/appointments/button-action-callback'
+                            </div>
+                          </div>
+
+                          {/* Opção 2: URL Completa desta Aplicação */}
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-indigo-200/80 dark:border-indigo-800/60 space-y-1.5">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-slate-500 uppercase">URL Completa desta Instância</span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const fullUrl = `${window.location.origin}/api/appointments/button-action-callback`;
+                                  navigator.clipboard.writeText(fullUrl);
+                                  setCopiedCallbackUrl(true);
+                                  setTimeout(() => setCopiedCallbackUrl(false), 2000);
+                                  onShowToast('success', 'URL completa copiada com sucesso!', 'Copiado');
+                                }}
+                                className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 hover:text-indigo-700 flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedCallbackUrl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                <span>{copiedCallbackUrl ? 'Copiado!' : 'Copiar'}</span>
+                              </button>
+                            </div>
+                            <div className="font-mono text-[11px] text-indigo-900 dark:text-indigo-200 bg-indigo-50/50 dark:bg-indigo-950/40 p-2 rounded-lg break-all select-all">
+                              {typeof window !== 'undefined' ? `${window.location.origin}/api/appointments/button-action-callback` : '/api/appointments/button-action-callback'}
+                            </div>
+                          </div>
+
+                          {/* Opção 3: Webhook Receptora de Respostas de Texto (CRM WhatsApp) */}
+                          <div className="p-3 rounded-xl bg-white dark:bg-slate-950 border border-emerald-200/80 dark:border-emerald-800/60 space-y-1.5 md:col-span-2">
+                            <div className="flex items-center justify-between">
+                              <span className="text-[10px] font-bold text-emerald-700 dark:text-emerald-400 uppercase">
+                                Webhook de Respostas de Texto do Paciente (CRM WhatsApp - inbound)
+                              </span>
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  const fullUrl = `${window.location.origin}/api/webhooks/whatsapp`;
+                                  navigator.clipboard.writeText(fullUrl);
+                                  setCopiedWebhookReplyUrl(true);
+                                  setTimeout(() => setCopiedWebhookReplyUrl(false), 2000);
+                                  onShowToast('success', 'URL do Webhook de respostas copiada!', 'Copiado');
+                                }}
+                                className="text-[10px] font-bold text-emerald-600 dark:text-emerald-400 hover:text-emerald-700 flex items-center gap-1 cursor-pointer"
+                              >
+                                {copiedWebhookReplyUrl ? <Check className="w-3 h-3 text-emerald-600" /> : <Copy className="w-3 h-3" />}
+                                <span>{copiedWebhookReplyUrl ? 'Copiado!' : 'Copiar URL do Webhook'}</span>
+                              </button>
+                            </div>
+                            <div className="font-mono text-[11px] text-emerald-900 dark:text-emerald-200 bg-emerald-50/50 dark:bg-emerald-950/40 p-2 rounded-lg break-all select-all">
+                              {typeof window !== 'undefined' ? `${window.location.origin}/api/webhooks/whatsapp` : '/api/webhooks/whatsapp'}
+                            </div>
+                            <p className="text-[10px] text-slate-500 dark:text-slate-400 pt-0.5">
+                              Quando o paciente envia mensagens de texto livres no WhatsApp, configure o n8n para enviar um <code>POST</code> com <code>{`{ phone, message, appointmentId, senderName }`}</code> para esta URL para gravar no CRM do agendamento.
+                            </p>
+                          </div>
+                        </div>
+
+                        <div className="p-2.5 rounded-xl bg-white/70 dark:bg-slate-900/70 border border-indigo-100 dark:border-indigo-950 text-[10px] text-slate-600 dark:text-slate-400 space-y-1">
+                          <span className="font-bold text-slate-700 dark:text-slate-300 block">
+                            Envio Automático no Body de Cada Disparo:
+                          </span>
+                          <p>
+                            Ao disparar o lembrete, o PEC-CAPS já anexa automaticamente no corpo (JSON) os campos <code className="font-mono text-indigo-700 dark:text-indigo-300">callback_url</code>, <code className="font-mono text-indigo-700 dark:text-indigo-300">button_action_callback</code>, <code className="font-mono text-indigo-700 dark:text-indigo-300">replyWebhookUrl</code> e <code className="font-mono text-indigo-700 dark:text-indigo-300">pec_api_url</code> para os nós do n8n utilizarem diretamente.
+                          </p>
+                        </div>
+                      </div>
+
+                      {/* Parâmetros da Instância Evolution API (Cadastrados para o Fluxo do n8n) */}
                       <div className="p-4 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
                         <div className="flex items-center justify-between">
                           <h5 className="text-xs font-bold text-slate-800 dark:text-slate-200 flex items-center gap-2">
                             <Smartphone className="w-4 h-4 text-emerald-600" />
-                            <span>Parâmetros Diretos Evolution API (Gateway WhatsApp)</span>
+                            <span>Parâmetros da Instância Evolution API (Cadastrados para o Fluxo do n8n)</span>
                           </h5>
-                          <button
-                            type="button"
-                            disabled={isTestingEvolution || !evolutionApiUrl.trim()}
-                            onClick={handleTestEvolutionApi}
-                            className="px-3 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-[11px] font-bold transition-all flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
-                          >
-                            {isTestingEvolution ? (
-                              <RefreshCw className="w-3 h-3 animate-spin" />
-                            ) : (
-                              <Radio className="w-3 h-3 text-emerald-600" />
-                            )}
-                            <span>Testar Conexão Direta</span>
-                          </button>
+                          <span className="text-[10px] text-slate-400 font-medium">
+                            Enviados no corpo do webhook ao n8n
+                          </span>
                         </div>
+
+                        <p className="text-[11px] text-slate-500 dark:text-slate-400">
+                          Cadastre abaixo a URL, chave e nome da sua instância da Evolution API. Estes dados são repassados ao n8n para que o fluxo execute os disparos via WhatsApp.
+                        </p>
 
                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
                           <div>
@@ -3440,19 +3624,29 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                               value={evolutionApiUrl}
                               onChange={(e) => setEvolutionApiUrl(e.target.value)}
                               placeholder="https://evolutionapi24.mentoriajrs.com"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                           </div>
                           <div>
-                            <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400 block mb-1">
-                              API Key / Global Key
-                            </label>
+                            <div className="flex items-center justify-between mb-1">
+                              <label className="text-[10px] font-bold text-slate-600 dark:text-slate-400">
+                                API Key / Global Key
+                              </label>
+                              <button
+                                type="button"
+                                onClick={() => setShowEvolutionApiKey(!showEvolutionApiKey)}
+                                className="text-[10px] text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 flex items-center gap-0.5 cursor-pointer"
+                              >
+                                {showEvolutionApiKey ? <EyeOff className="w-3 h-3" /> : <Eye className="w-3 h-3" />}
+                                <span>{showEvolutionApiKey ? 'Ocultar' : 'Ver'}</span>
+                              </button>
+                            </div>
                             <input
-                              type="password"
+                              type={showEvolutionApiKey ? 'text' : 'password'}
                               value={evolutionApiKey}
                               onChange={(e) => setEvolutionApiKey(e.target.value)}
-                              placeholder="010F49F5..."
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100"
+                              placeholder="010F49F506A0-42AC-BE0F-B9AAAC4F5EAC"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                           </div>
                           <div>
@@ -3464,35 +3658,30 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                               value={evolutionInstanceName}
                               onChange={(e) => setEvolutionInstanceName(e.target.value)}
                               placeholder="Typebot_curso_tec"
-                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100"
+                              className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-emerald-500 outline-none"
                             />
                           </div>
                         </div>
-
-                        {evolutionTestResult && (
-                          <div
-                            className={`p-3 rounded-xl text-xs flex items-center justify-between ${
-                              evolutionTestResult.success
-                                ? 'bg-emerald-50 dark:bg-emerald-950/40 text-emerald-800 dark:text-emerald-200 border border-emerald-300 dark:border-emerald-800'
-                                : 'bg-rose-50 dark:bg-rose-950/40 text-rose-800 dark:text-rose-200 border border-rose-300 dark:border-rose-800'
-                            }`}
-                          >
-                            <div className="flex items-center gap-2">
-                              {evolutionTestResult.success ? (
-                                <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600 shrink-0" />
-                              ) : (
-                                <AlertTriangle className="w-3.5 h-3.5 text-rose-600 shrink-0" />
-                              )}
-                              <span>{evolutionTestResult.message}</span>
-                            </div>
-                            {evolutionTestResult.state && (
-                              <span className="px-2 py-0.5 rounded-md bg-emerald-100 dark:bg-emerald-900 text-[10px] font-bold uppercase">
-                                {evolutionTestResult.state}
-                              </span>
-                            )}
-                          </div>
-                        )}
                       </div>
+
+                      {/* Documentação Visual da Estrutura do Payload Enviado ao n8n */}
+                      <details className="p-3.5 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs group">
+                        <summary className="font-bold text-slate-800 dark:text-slate-200 cursor-pointer flex items-center justify-between">
+                          <span>📦 Ver Estrutura Completa do Payload Enviado ao n8n</span>
+                          <span className="text-emerald-600 text-[11px] group-open:rotate-180 transition-transform">▼</span>
+                        </summary>
+                        <div className="mt-3 space-y-2 text-[11px] text-slate-600 dark:text-slate-400">
+                          <p>O PEC-CAPS envia no corpo do webhook para <code className="font-mono text-emerald-700 dark:text-emerald-300">{n8nAppointmentWebhookUrl}</code> os seguintes campos:</p>
+                          <ul className="list-disc pl-4 space-y-1 font-mono text-[10px]">
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">pec_api_url:</strong> URL base da aplicação (ex: {typeof window !== 'undefined' ? window.location.origin : 'https://...'})</li>
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">callback_url:</strong> Rota completa para retorno dos botões (/api/appointments/button-action-callback)</li>
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">instance:</strong> Dados da instância Evolution (name: "{evolutionInstanceName}", apiUrl: "{evolutionApiUrl}", apiKey: "...")</li>
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">appointment:</strong> Dados da consulta (id, data, horário, profissional, serviço, local)</li>
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">patient:</strong> Dados do paciente (nome, telefone formatado)</li>
+                            <li><strong className="font-sans text-slate-700 dark:text-slate-300">messageText:</strong> Texto formatado com o carimbo e assinatura do profissional logado</li>
+                          </ul>
+                        </div>
+                      </details>
                     </div>
                   </div>
 

@@ -244,47 +244,189 @@ export function generateGoogleCalendarUrl(appointment: Appointment): string {
 }
 
 /**
+ * Formats official carimbo stamp with name, profession, council registration and CBO
+ */
+export function formatOfficialStamp(
+  user?: User | null,
+  fallbackName?: string,
+  fallbackProfession?: string
+): string {
+  if (!user && !fallbackName) return 'Equipe de Saúde e-SUS PEC';
+  const name = user?.name || fallbackName || 'Profissional';
+  const title = getProfessionalProfessionTitle(user, user?.profession || fallbackProfession) || 'Profissional de Saúde';
+
+  // Extrai registro de classe oficial
+  const council = user?.councilBody || (user?.professionalRegister ? user.professionalRegister.split(' ')[0] : '');
+  const number =
+    user?.councilNumber ||
+    (user?.professionalRegister ? user.professionalRegister.split(' ')[1] : user?.professionalRegister) ||
+    '';
+  const uf = user?.councilUf ? `/${user.councilUf}` : '';
+  const regStr = number ? ` | ${council ? `${council} ` : ''}${number}${uf}` : (user?.professionalRegister ? ` | ${user.professionalRegister}` : '');
+  const cboStr = (user?.cboCode || user?.cbo) ? ` | CBO: ${user?.cboCode || user?.cbo}` : '';
+
+  return `${name} - ${title}${regStr}${cboStr}`;
+}
+
+/**
+ * Determines appropriate greeting according to current time of day
+ */
+export function getGreetingForCurrentTime(now: Date = new Date()): string {
+  const hour = now.getHours();
+  if (hour >= 12 && hour < 18) {
+    return 'Boa tarde';
+  } else if (hour >= 18 || hour < 5) {
+    return 'Boa noite';
+  }
+  return 'Bom dia';
+}
+
+/**
+ * Parses appointment date and formats to [dd/mm/aa] and [dia da semana]
+ */
+export function formatAppointmentDateAndWeekday(dateStr?: string, startTimeStr?: string) {
+  if (!dateStr) {
+    return {
+      dateShort: 'Hoje',
+      weekday: '',
+      appointmentDate: null as Date | null,
+    };
+  }
+
+  let y = 0, m = 0, d = 0;
+  if (dateStr.includes('-')) {
+    const parts = dateStr.split('-');
+    y = parseInt(parts[0], 10);
+    m = parseInt(parts[1], 10);
+    d = parseInt(parts[2], 10);
+  } else if (dateStr.includes('/')) {
+    const parts = dateStr.split('/');
+    d = parseInt(parts[0], 10);
+    m = parseInt(parts[1], 10);
+    y = parseInt(parts[2], 10);
+    if (y < 100) y += 2000;
+  }
+
+  const [hStr, minStr] = (startTimeStr || '08:00').split(':');
+  const h = parseInt(hStr || '8', 10);
+  const min = parseInt(minStr || '0', 10);
+
+  const appointmentDate = (y && m && d) ? new Date(y, m - 1, d, h, min) : null;
+  const dd = String(d).padStart(2, '0');
+  const mm = String(m).padStart(2, '0');
+  const aa = String(y).slice(-2);
+  const dateShort = `${dd}/${mm}/${aa}`;
+
+  let weekday = '';
+  if (appointmentDate) {
+    weekday = appointmentDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+  }
+
+  return { dateShort, weekday, appointmentDate };
+}
+
+/**
+ * Formats the remaining time until the appointment in days, months, hours, and minutes
+ * e.g., "14 dias e 14 horas", "10 horas", "1 mês e 5 dias", "45 minutos"
+ */
+export function formatRemainingTimeToAppointment(targetDate: Date | null, fromDate: Date = new Date()): string {
+  if (!targetDate) return 'pouco tempo';
+  const diffMs = targetDate.getTime() - fromDate.getTime();
+  if (diffMs <= 0) {
+    return 'menos de 1 minuto';
+  }
+
+  const totalMinutes = Math.floor(diffMs / (1000 * 60));
+  const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+  const totalDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+  const months = Math.floor(totalDays / 30);
+  const remDays = totalDays % 30;
+  const remHours = totalHours % 24;
+  const remMinutes = totalMinutes % 60;
+
+  if (months > 0) {
+    const mStr = months === 1 ? '1 mês' : `${months} meses`;
+    if (remDays > 0) {
+      const dStr = remDays === 1 ? '1 dia' : `${remDays} dias`;
+      return `${mStr} e ${dStr}`;
+    }
+    return mStr;
+  }
+
+  if (totalDays > 0) {
+    const dStr = totalDays === 1 ? '1 dia' : `${totalDays} dias`;
+    if (remHours > 0) {
+      const hStr = remHours === 1 ? '1 hora' : `${remHours} horas`;
+      return `${dStr} e ${hStr}`;
+    }
+    return dStr;
+  }
+
+  if (totalHours > 0) {
+    const hStr = totalHours === 1 ? '1 hora' : `${totalHours} horas`;
+    if (remMinutes > 0) {
+      const minStr = remMinutes === 1 ? '1 minuto' : `${remMinutes} minutos`;
+      return `${hStr} e ${minStr}`;
+    }
+    return hStr;
+  }
+
+  if (totalMinutes > 0) {
+    return totalMinutes === 1 ? '1 minuto' : `${totalMinutes} minutos`;
+  }
+
+  return 'menos de 1 minuto';
+}
+
+/**
+ * Builds standard plain text WhatsApp reminder message conforming to official template:
+ * "[Bom dia ou Boa tarde ou boa noite] [Nome da paciente], não deixe de comparecer na sua consulta com [Nome do profissional] ([profissão]) no dia [dd/mm/aa] - [dia da semana] às [hh:mm], restando [tempo restante].
+ *
+ * Atenciosamente,"
+ */
+export function buildWhatsAppReminderMessageText(
+  appointment: Appointment,
+  professionalObj?: User,
+  _currentUser?: User | null,
+  _unitName?: string
+): string {
+  const greeting = getGreetingForCurrentTime();
+  const patientName = appointment.patientName || 'Paciente';
+
+  const { dateShort, weekday, appointmentDate } = formatAppointmentDateAndWeekday(
+    appointment.date,
+    appointment.startTime
+  );
+
+  const profTitle = getProfessionalProfessionTitle(
+    professionalObj,
+    appointment.professionalProfession
+  ) || 'Profissional de Saúde';
+  const professionalName =
+    appointment.professionalName || professionalObj?.name || 'Profissional';
+
+  const startTime = appointment.startTime || '08:00';
+  const remainingTime = formatRemainingTimeToAppointment(appointmentDate);
+
+  return (
+    `*${greeting}* *${patientName}*, não deixe de comparecer na sua consulta com *${professionalName}* (*${profTitle}*) no dia *${dateShort}* - *${weekday}* às *${startTime}*, restando *${remainingTime}*.\n\n` +
+    `Atenciosamente,`
+  );
+}
+
+/**
  * Generates WhatsApp reminder link for patients
  */
 export function generateWhatsAppReminderLink(
   appointment: Appointment,
   professionalObj?: User,
-  currentUser?: User | null
+  currentUser?: User | null,
+  unitName?: string
 ): string {
   const cleanPhone = (appointment.patientPhone || '').replace(/\D/g, '');
-  let dateFormatted = appointment.date || 'Hoje';
-  try {
-    dateFormatted = new Date(`${appointment.date}T00:00:00`).toLocaleDateString('pt-BR', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    });
-  } catch {
-    // fallback
-  }
-
-  const profTitle = getProfessionalProfessionTitle(professionalObj, appointment.professionalProfession);
-  const professionalDisplay = appointment.professionalName
-    ? `*${appointment.professionalName}* (*${profTitle}*)`
-    : `*Profissional* (*${profTitle}*)`;
-
-  const senderUser = currentUser || professionalObj;
-  const senderName = senderUser?.name || appointment.professionalName || 'Profissional';
-  const senderTitle = getProfessionalProfessionTitle(senderUser, senderUser?.profession || appointment.professionalProfession) || 'Profissional de Saúde';
-
   const message = encodeURIComponent(
-    `🏥 *Lembrete de Agendamento - e-SUS PEC Multiprofissional*\n\n` +
-    `Olá *${appointment.patientName || 'Paciente'}*!\n\n` +
-    `Seu atendimento está confirmado com os seguintes dados:\n` +
-    `📅 *Data:* ${dateFormatted}\n` +
-    `⏰ *Horário:* ${appointment.startTime || ''}${appointment.endTime ? ` às ${appointment.endTime}` : ''}\n` +
-    `👨‍⚕️ *Profissional:* ${professionalDisplay}\n` +
-    `📋 *Serviço:* ${appointment.serviceName || 'Consulta'}\n` +
-    `📍 *Local:* Atendimento e-SUS PEC / Unidade de Saúde\n\n` +
-    `⚠️ *Importante:* Por favor, chegue ao local com pelo menos 1 hora de antecedência ao horário da consulta munido de documento com foto e Cartão SUS.\n\n` +
-    `Em caso de dúvidas ou necessidade de reagendamento, favor nos avisar com antecedência.\n\n` +
-    `Atenciosamente,\n${senderName} (${senderTitle} - CAPS)`
+    buildWhatsAppReminderMessageText(appointment, professionalObj, currentUser, unitName)
   );
 
   return cleanPhone

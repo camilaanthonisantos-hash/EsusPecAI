@@ -28,10 +28,11 @@ import {
   Users,
   Lock,
 } from 'lucide-react';
-import { User, Appointment, AppointmentStatus, Patient, ProfessionId } from '../types';
+import { User, Appointment, AppointmentStatus, Patient, ProfessionId, SystemSettings } from '../types';
 import {
   PROFESSIONS,
   isUserAdmin,
+  DEFAULT_SYSTEM_SETTINGS,
 } from '../data/professions';
 import { updateAppointmentStatusInFirestore, deleteAppointmentFromFirestore } from '../services/firebase';
 import {
@@ -40,12 +41,14 @@ import {
   isProfessionalAvailableForBooking,
 } from '../services/calendar';
 import { SpecularButton } from './SpecularButton';
+import { WhatsAppChatModal } from './WhatsAppChatModal';
 
 interface AppointmentsManagementViewProps {
   currentUser: User | null;
   professionals: User[];
   appointments: Appointment[];
   patients: Patient[];
+  systemSettings?: SystemSettings;
   onOpenScheduleSettings: (targetUser?: User, initialTab?: 'schedule' | 'services' | 'calendar_sync') => void;
   onOpenPublicPortal: (userId?: string) => void;
   onStartConsultationForPatient: (appointment: Appointment) => void;
@@ -53,6 +56,7 @@ interface AppointmentsManagementViewProps {
   onAddUser?: (user: User) => Promise<void> | void;
   onDeleteAppointment?: (appointmentId: string) => Promise<void> | void;
   onUpdateAppointmentStatus?: (appointmentId: string, status: AppointmentStatus) => Promise<void> | void;
+  onAppointmentUpdated?: (updatedAppt: Appointment) => void;
 }
 
 export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProps> = ({
@@ -60,6 +64,7 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
   professionals,
   appointments,
   patients,
+  systemSettings = DEFAULT_SYSTEM_SETTINGS,
   onOpenScheduleSettings,
   onOpenPublicPortal,
   onStartConsultationForPatient,
@@ -67,8 +72,13 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
   onAddUser,
   onDeleteAppointment,
   onUpdateAppointmentStatus,
+  onAppointmentUpdated,
 }) => {
   const isAdmin = Boolean(currentUser && isUserAdmin(currentUser));
+
+  // WhatsApp CRM chat modal state
+  const [selectedChatAppointment, setSelectedChatAppointment] = useState<Appointment | null>(null);
+  const [hoveredApptId, setHoveredApptId] = useState<string | null>(null);
 
   // Deletion modal state
   const [appointmentToDelete, setAppointmentToDelete] = useState<Appointment | null>(null);
@@ -444,8 +454,18 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
             </select>
           </div>
 
-          <div className="ml-auto text-[11px] text-slate-500 font-medium">
-            Exibindo <strong>{filteredAppointments.length}</strong> agendamento{filteredAppointments.length !== 1 ? 's' : ''}
+          <div className="ml-auto text-[11px] text-slate-500 font-medium flex items-center gap-2.5">
+            <span
+              className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 border border-emerald-200 dark:border-emerald-800 text-[10px] font-extrabold shadow-xs"
+              title="Sincronização em tempo real via WebSockets (Supabase Realtime) ativa sem polling"
+            >
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 animate-ping" />
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-500 -ml-3" />
+              <span>CRM Realtime Ativo</span>
+            </span>
+            <span>
+              Exibindo <strong>{filteredAppointments.length}</strong> agendamento{filteredAppointments.length !== 1 ? 's' : ''}
+            </span>
           </div>
         </div>
       </div>
@@ -611,26 +631,109 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
                         <CalendarIcon className="w-4 h-4" />
                       </a>
 
-                      {/* WhatsApp Reminder Link */}
-                      <a
-                        href={generateWhatsAppReminderLink(
-                          app,
-                          professionals.find(
-                            (p) =>
-                              (app.professionalId && p.id === app.professionalId) ||
-                              (app.professionalName && p.name.toLowerCase().trim() === app.professionalName.toLowerCase().trim())
-                          ),
-                          currentUser
-                        )}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        id={`btn-whatsapp-link-${app.id}`}
-                        onClick={(e) => handleWhatsAppClick(e, app)}
-                        className="p-2 rounded-xl text-emerald-600 hover:bg-emerald-50 dark:hover:bg-emerald-950/60 transition-colors cursor-pointer"
-                        title="Enviar lembrete pelo WhatsApp"
+                      {/* WhatsApp CRM Interactive Button with Animated Status and Hover Info */}
+                      <div
+                        className="relative inline-block"
+                        onMouseEnter={() => setHoveredApptId(app.id)}
+                        onMouseLeave={() => setHoveredApptId((prev) => (prev === app.id ? null : prev))}
                       >
-                        <Phone className="w-4 h-4" />
-                      </a>
+                        <button
+                          type="button"
+                          id={`btn-whatsapp-crm-${app.id}`}
+                          onClick={() => setSelectedChatAppointment(app)}
+                          className={`p-2 rounded-xl transition-all duration-300 cursor-pointer relative ${
+                            app.notifications?.hasReplied
+                              ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-600 dark:text-blue-300 ring-2 ring-blue-500 animate-pulse shadow-md shadow-blue-500/25'
+                              : app.notifications?.reminderSent
+                              ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-600 dark:text-rose-300 ring-2 ring-rose-500 animate-pulse shadow-md shadow-rose-500/25'
+                              : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-600 dark:text-emerald-400 ring-2 ring-emerald-500/40 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 animate-pulse'
+                          }`}
+                          title="Abrir CRM WhatsApp e Histórico de Mensagens"
+                        >
+                          <Phone className="w-4 h-4" />
+                          <span
+                            className={`absolute -top-1 -right-1 w-2.5 h-2.5 rounded-full ring-2 ring-white dark:ring-slate-900 ${
+                              app.notifications?.hasReplied
+                                ? 'bg-blue-600'
+                                : app.notifications?.reminderSent
+                                ? 'bg-rose-600'
+                                : 'bg-emerald-500'
+                            }`}
+                          />
+                        </button>
+
+                        {/* Tooltip Card no Hover com a última mensagem respondida, data, hora e minutos */}
+                        {hoveredApptId === app.id && (
+                          <div className="absolute right-0 bottom-full mb-2 z-50 w-64 sm:w-72 p-3 rounded-2xl bg-slate-900 dark:bg-slate-950 text-white shadow-2xl border border-slate-700 text-xs pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+                            <div className="flex items-center gap-1.5 font-bold mb-1.5 pb-1 border-b border-slate-800">
+                              <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                              <span>Status WhatsApp</span>
+                              {app.notifications?.hasReplied ? (
+                                <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-blue-600 font-bold">
+                                  Respondido
+                                </span>
+                              ) : app.notifications?.reminderSent ? (
+                                <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-rose-600 font-bold">
+                                  Aguardando Resposta
+                                </span>
+                              ) : (
+                                <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-emerald-600 font-bold">
+                                  Não Enviado
+                                </span>
+                              )}
+                            </div>
+
+                            {app.notifications?.hasReplied && app.notifications.lastPatientReply ? (
+                              <div className="space-y-1">
+                                <p className="text-[10px] text-slate-400 font-semibold">Última mensagem respondida:</p>
+                                <p className="text-slate-100 font-medium italic bg-slate-800/80 p-2 rounded-xl text-[11px] line-clamp-3">
+                                  "{app.notifications.lastPatientReply.message}"
+                                </p>
+                                <p className="text-[10px] text-blue-300 font-semibold pt-0.5 flex items-center gap-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>
+                                    {new Date(app.notifications.lastPatientReply.repliedAt).toLocaleString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      year: 'numeric',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                </p>
+                              </div>
+                            ) : app.notifications?.reminderSent ? (
+                              <div className="space-y-1">
+                                <p className="text-slate-300">
+                                  Lembrete enviado ao webhook do n8n. Aguardando retorno do paciente.
+                                </p>
+                                {app.notifications.reminderSentAt && (
+                                  <p className="text-[10px] text-slate-400 flex items-center gap-1 pt-1">
+                                    <Clock className="w-3 h-3" />
+                                    <span>
+                                      Enviado em:{' '}
+                                      {new Date(app.notifications.reminderSentAt).toLocaleString('pt-BR', {
+                                        day: '2-digit',
+                                        month: '2-digit',
+                                        hour: '2-digit',
+                                        minute: '2-digit',
+                                      })}
+                                    </span>
+                                  </p>
+                                )}
+                              </div>
+                            ) : (
+                              <p className="text-slate-300">
+                                Nenhum lembrete enviado ainda. Clique para abrir o CRM e disparar.
+                              </p>
+                            )}
+
+                            <p className="text-[9px] text-slate-400 mt-2 border-t border-slate-800 pt-1 text-center">
+                              Clique no botão para abrir o histórico e responder
+                            </p>
+                          </div>
+                        )}
+                      </div>
 
                       {/* BOTÃO ATENDER: Professional or Admin */}
                       {app.status === 'agendado' && (
@@ -805,6 +908,24 @@ export const AppointmentsManagementView: React.FC<AppointmentsManagementViewProp
           </div>
         )}
       </AnimatePresence>
+
+      {/* WhatsApp CRM Chat Modal */}
+      {selectedChatAppointment && (
+        <WhatsAppChatModal
+          isOpen={Boolean(selectedChatAppointment)}
+          onClose={() => setSelectedChatAppointment(null)}
+          appointment={selectedChatAppointment}
+          currentUser={currentUser}
+          systemSettings={systemSettings}
+          onShowToast={onShowToast}
+          onAppointmentUpdated={(updatedAppt) => {
+            setSelectedChatAppointment(updatedAppt);
+            if (onAppointmentUpdated) {
+              onAppointmentUpdated(updatedAppt);
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

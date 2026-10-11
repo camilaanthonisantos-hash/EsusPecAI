@@ -286,6 +286,36 @@ async function syncAllToSupabase() {
     }
   }
 
+  // 9. MENSAGENS CRM WHATSAPP
+  const messages = readStore('whatsapp_messages');
+  report.whatsapp_messages = { total: messages.length, success: 0, errors: 0 };
+  console.log(`[9/9] Sincronizando ${messages.length} mensagens do CRM WhatsApp...`);
+  for (const m of messages) {
+    if (!m || !m.id) continue;
+    const payload = {
+      id: String(m.id),
+      appointment_id: m.appointmentId || null,
+      patient_id: m.patientId || null,
+      patient_phone: m.patientPhone || '',
+      patient_name: m.patientName || null,
+      direction: m.direction || 'outbound',
+      sender_type: m.senderType || 'system',
+      sender_name: m.senderName || null,
+      message_text: m.messageText || '',
+      message_type: m.messageType || 'text',
+      status: m.status || 'sent',
+      created_at: Number(m.createdAt || Date.now()),
+      raw_payload: m.rawPayload || null,
+    };
+    const { error } = await supabase.from('whatsapp_messages').upsert(payload);
+    if (!error) {
+      report.whatsapp_messages.success++;
+    } else {
+      report.whatsapp_messages.errors++;
+      console.warn(` - Erro na mensagem ${m.id}:`, error.message);
+    }
+  }
+
   console.log('\n====================================================');
   console.log('RESUMO DA MIGRAÇÃO PARA O SUPABASE:');
   console.log('====================================================');

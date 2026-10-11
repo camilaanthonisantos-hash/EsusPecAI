@@ -16,17 +16,21 @@ import {
   User,
   Trash2,
   UserCheck,
+  MessageSquare,
 } from 'lucide-react';
-import { Patient, Consultation, User as UserModel } from '../types';
+import { Patient, Consultation, User as UserModel, SystemSettings } from '../types';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
-import { isUserAdmin } from '../data/professions';
+import { isUserAdmin, DEFAULT_SYSTEM_SETTINGS } from '../data/professions';
 import { SpecularButton } from './SpecularButton';
+import { WhatsAppChatModal } from './WhatsAppChatModal';
 
 
 interface PatientsListViewProps {
   patients: Patient[];
   consultations: Consultation[];
   currentUser: UserModel;
+  systemSettings?: SystemSettings;
+  onShowToast?: (type: 'success' | 'error' | 'info', message: string, title?: string) => void;
   onSelectPatient: (patient: Patient) => void;
   onOpenNewPatientModal: () => void;
   onEditPatient: (patient: Patient) => void;
@@ -39,6 +43,8 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
   patients,
   consultations,
   currentUser,
+  systemSettings,
+  onShowToast,
   onSelectPatient,
   onOpenNewPatientModal,
   onEditPatient,
@@ -48,6 +54,7 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
+  const [selectedChatPatient, setSelectedChatPatient] = useState<Patient | null>(null);
   const isAdmin = isUserAdmin(currentUser);
 
   const filteredPatients = patients.filter((p) => {
@@ -263,6 +270,20 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
                       </SpecularButton>
                     )}
 
+                    {/* CRM WhatsApp Humanizado */}
+                    <SpecularButton
+                      type="button"
+                      id={`patient-btn-crm-${patient.id}`}
+                      onClick={() => setSelectedChatPatient(patient)}
+                      size="sm"
+                      radius={12}
+                      className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-500 text-white shadow-xs border-emerald-500/40 font-bold"
+                      title="Abrir CRM de Interação Humanizada"
+                    >
+                      <MessageSquare className="w-3.5 h-3.5" />
+                      <span>CRM</span>
+                    </SpecularButton>
+
                     <SpecularButton
                       type="button"
                       id={`patient-btn-add-fila-${patient.id}`}
@@ -369,6 +390,19 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
           </div>
         )}
       </AnimatePresence>
+
+      {/* Modal de CRM WhatsApp para o Paciente */}
+      {selectedChatPatient && (
+        <WhatsAppChatModal
+          isOpen={Boolean(selectedChatPatient)}
+          onClose={() => setSelectedChatPatient(null)}
+          patient={selectedChatPatient}
+          currentUser={currentUser}
+          systemSettings={systemSettings || DEFAULT_SYSTEM_SETTINGS}
+          onShowToast={onShowToast || (() => {})}
+          hideAutomaticReminder={true}
+        />
+      )}
     </div>
   );
 };

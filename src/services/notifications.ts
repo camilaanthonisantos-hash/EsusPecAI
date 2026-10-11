@@ -190,15 +190,56 @@ export function buildNotificationPayload(
     }
 
     case 'reminder_daily': {
+      const now = new Date();
+      const hour = now.getHours();
+      let greeting = 'Bom dia';
+      if (hour >= 12 && hour < 18) {
+        greeting = 'Boa tarde';
+      } else if (hour >= 18 || hour < 5) {
+        greeting = 'Boa noite';
+      }
+
+      let dateShort = dateFormatted;
+      let weekday = '';
+      let remainingText = 'em breve';
+      if (rawDate) {
+        try {
+          const parts = rawDate.split('-');
+          if (parts.length === 3) {
+            const [hStr, minStr] = startTime.split(':');
+            const dObj = new Date(
+              parseInt(parts[0], 10),
+              parseInt(parts[1], 10) - 1,
+              parseInt(parts[2], 10),
+              parseInt(hStr || '8', 10),
+              parseInt(minStr || '0', 10)
+            );
+            dateShort = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`;
+            weekday = dObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+
+            const diffMs = dObj.getTime() - now.getTime();
+            if (diffMs > 0) {
+              const totalDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+              const totalHours = Math.floor(diffMs / (1000 * 60 * 60));
+              const remHours = totalHours % 24;
+              if (totalDays > 0) {
+                remainingText = remHours > 0 ? `${totalDays} dias e ${remHours} horas` : `${totalDays} dias`;
+              } else if (totalHours > 0) {
+                remainingText = `${totalHours} horas`;
+              }
+            }
+          }
+        } catch {
+          // fallback
+        }
+      }
+
+      const profTitle = appointment?.professionalProfession || 'Profissional de Saúde';
+      const profDisplay = `*${professionalName}* (*${profTitle}*)`;
+
       suggestedMessage =
-        `🔔 *Lembrete de Consulta*\n\n` +
-        `Olá, *${patientName}*! Lembramos que você possui um agendamento:\n\n` +
-        `🗓️ *Data:* ${dateFormatted} às *${startTime}*\n` +
-        `👨‍⚕️ *Profissional:* ${professionalName}\n` +
-        `🩺 *Serviço:* ${serviceName}\n` +
-        `📍 *Local:* ${unitName}\n\n` +
-        `⚠️ *Importante:* Por favor, chegue com pelo menos 1 hora de antecedência ao horário da consulta munido de documento oficial com foto e Cartão SUS.\n\n` +
-        `Por favor, confirme se comparecerá utilizando os botões abaixo:`;
+        `*${greeting}* *${patientName}*, não deixe de comparecer na sua consulta com ${profDisplay} no dia *${dateShort}* - *${weekday}* às *${startTime}*, restando *${remainingText}*.\n\n` +
+        `Atenciosamente,`;
       break;
     }
 
@@ -301,14 +342,44 @@ export async function dispatchAppointmentNotification(
   });
 
   try {
+    const callbackUrl = typeof window !== 'undefined' ? `${window.location.origin}/api/appointments/button-action-callback` : '/api/appointments/button-action-callback';
+    const pecApiUrl = typeof window !== 'undefined' ? window.location.origin : '';
+
     // 1. Dispatch to server-side notification router
     const response = await fetch('/api/appointments/notify-event', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         event,
-        payload,
-        webhookUrl: settings?.n8nAppointmentWebhookUrl,
+        payload: {
+          ...payload,
+          perfil_interacao: 'automatica',
+          interaction_type: 'automatic',
+          origem_mensagem: 'template_pre_construido',
+          is_automatic: true,
+          is_human: false,
+        },
+        perfil_interacao: 'automatica',
+        interaction_type: 'automatic',
+        interaction_mode: 'automated_template',
+        origem_mensagem: 'template_pre_construido',
+        descricao_perfil: 'Mensagem automática disparada via template pré-construído',
+        is_automatic: true,
+        is_automated: true,
+        is_human: false,
+        is_humanized: false,
+        is_manual: false,
+        message_type: 'template',
+        sender_type: 'system',
+        webhookUrl: settings?.n8nAppointmentWebhookUrl || 'https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete',
+        evolutionApiUrl: settings?.evolutionApiUrl,
+        evolutionApiKey: settings?.evolutionApiKey,
+        evolutionInstanceName: settings?.evolutionInstanceName,
+        callback_url: callbackUrl,
+        button_action_callback: callbackUrl,
+        pec_api_url: pecApiUrl,
+        pec_callback_route: '/api/appointments/button-action-callback',
+        replyWebhookUrl: callbackUrl,
         whatsappEnabled: settings?.whatsappNotificationsEnabled !== false,
       }),
     });

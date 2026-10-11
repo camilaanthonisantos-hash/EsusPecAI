@@ -121,6 +121,8 @@ import {
   releasePatientAttendanceLock,
   cleanupExpiredSubscriptions,
 } from './services/firebase';
+import { subscribeToWhatsAppMessagesRealtime, mapRawDbMessageToWhatsAppMessage } from './services/supabase';
+import { playWhatsAppMessageChime } from './utils/callAudioUtils';
 import { calculateChronologicalAge, formatQueueDateTime } from './utils/dateCalculator';
 import { isUserSubscriptionActive, normalizeSubscriptionExpiresAt } from './utils/pixExpiration';
 import { ensureSectionsConfig } from './utils/aiOrchestrationConfig';
@@ -1044,6 +1046,87 @@ export default function App() {
   const dismissToast = useCallback((id: string) => {
     setToasts((prev) => prev.filter((t) => t.id !== id));
   }, []);
+
+  // Sincronização em tempo real do CRM WhatsApp (Supabase Realtime WebSockets - 0ms Latency, Zero Polling)
+  useEffect(() => {
+    const unsub = subscribeToWhatsAppMessagesRealtime((event) => {
+      if (!event.new) return;
+      const msg = event.message || mapRawDbMessageToWhatsAppMessage(event.new);
+
+      // Apenas mensagens recebidas (inbound) ou com status de resposta do paciente
+      if (msg.direction === 'inbound' || msg.status === 'replied') {
+        const cleanMsgPhone = (msg.patientPhone || '').replace(/\D/g, '');
+        const targetApptId = msg.appointmentId ? String(msg.appointmentId).trim() : '';
+
+        setAppointments((prev) => {
+          let updatedAppt: Appointment | null = null;
+          const next = prev.map((a) => {
+            const idMatch = Boolean(
+              targetApptId &&
+              (a.id === targetApptId ||
+                a.id.replace(/^queue_/, '') === targetApptId ||
+                `queue_${a.id}` === targetApptId ||
+                `queue-${a.id}` === targetApptId)
+            );
+
+            let phoneMatch = false;
+            if (!idMatch && a.patientPhone && cleanMsgPhone) {
+              const cleanApptPhone = a.patientPhone.replace(/\D/g, '');
+              phoneMatch =
+                cleanApptPhone.endsWith(cleanMsgPhone.slice(-8)) ||
+                cleanMsgPhone.endsWith(cleanApptPhone.slice(-8));
+            }
+
+            if (idMatch || phoneMatch) {
+              const notif = a.notifications || {};
+              const modified: Appointment = {
+                ...a,
+                notifications: {
+                  ...notif,
+                  reminderSent: true,
+                  hasReplied: true,
+                  lastPatientReply: {
+                    message: msg.messageText || '',
+                    repliedAt: msg.createdAt || Date.now(),
+                    senderName: msg.senderName || a.patientName || 'Paciente',
+                  },
+                },
+                updatedAt: Date.now(),
+              };
+              updatedAppt = modified;
+              return modified;
+            }
+            return a;
+          });
+
+          if (updatedAppt) {
+            saveAppointmentToFirestore(updatedAppt).catch(() => {});
+          }
+          return next;
+        });
+
+        // Alerta sonoro agradável e discreto (Web Audio)
+        playWhatsAppMessageChime();
+
+        // Notificação informativa na tela
+        const patName = msg.patientName || 'Paciente';
+        const snippet = msg.messageText
+          ? msg.messageText.length > 55
+            ? `${msg.messageText.slice(0, 55)}...`
+            : msg.messageText
+          : 'Mensagem recebida';
+        showToast(
+          'info',
+          `"${snippet}" • ${patName}`,
+          '💬 Resposta WhatsApp (CRM)'
+        );
+      }
+    });
+
+    return () => {
+      unsub();
+    };
+  }, [showToast]);
 
   // Save / Edit Patient Handler (Accessible by all users)
   const handleSavePatient = (savedPatient: Patient) => {
@@ -3642,6 +3725,8 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                 patients={patients}
                 consultations={consultations}
                 currentUser={currentUser}
+                systemSettings={systemSettings}
+                onShowToast={showToast}
                 onSelectPatient={(pat) => {
                   verifyAccessOrOpenPaywall(() => setSelectedPatient(pat));
                 }}
@@ -3706,6 +3791,10 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                 });
               }}
               onShowToast={showToast}
+              systemSettings={systemSettings}
+              onAppointmentUpdated={(updatedAppt) => {
+                setAppointments((prev) => prev.map((a) => (a.id === updatedAppt.id ? updatedAppt : a)));
+              }}
             />
           </section>
         ) : activeTab === 'appointments' ? (
@@ -3716,6 +3805,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               professionals={users}
               appointments={appointments}
               patients={patients}
+              systemSettings={systemSettings}
               onAddUser={handleAddUser}
               onOpenScheduleSettings={(target, tab) => {
                 setScheduleSettingsTargetUser(target || currentUser);
@@ -3730,6 +3820,9 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               onShowToast={showToast}
               onDeleteAppointment={handleDeleteAppointment}
               onUpdateAppointmentStatus={handleUpdateAppointmentStatus}
+              onAppointmentUpdated={(updatedAppt) => {
+                setAppointments((prev) => prev.map((a) => (a.id === updatedAppt.id ? updatedAppt : a)));
+              }}
             />
           </section>
         ) : (

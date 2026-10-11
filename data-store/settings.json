@@ -1,5 +1,5 @@
 {
-  "evolutionApiKey": "",
+  "evolutionApiKey": "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC",
   "reminder10MinutesEnabled": true,
   "n8nSubscriptionWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-subscription-events",
   "groqApiKey": "",
@@ -16,7 +16,7 @@
   "allowUserSelfRegister": true,
   "updatedAt": 1790647349750,
   "geminiApiKey": "",
-  "n8nAppointmentWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-appointment-events",
+  "n8nAppointmentWebhookUrl": "https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete",
   "n8nPixWebhookUrl": "https://n8n.mentoriajrs.com/webhook/gerar_pix_pec_jrs",
   "defaultCiapCode": "-69",
   "dailyReminderHour": 9,

@@ -2734,12 +2734,23 @@ app.post("/api/appointments/notify-event", async (req, res) => {
 
     console.log(`[Notification Engine] Processando evento "${event}" para agendamento ${apptId || "N/A"}`);
 
-    // Update appointment notification metadata in server store if appointment exists
+    // Update appointment or queue notification metadata in server store
+    let matchedPatientName = "";
+    let matchedPatientPhone = "";
+    let matchedPatientId = null;
+
     if (apptId) {
       const appointments: any[] = readStoreData("appointments", []);
-      const idx = appointments.findIndex((a) => a && a.id === apptId);
+      const idx = appointments.findIndex((a) => a && (
+        a.id === apptId ||
+        a.id === apptId.replace(/^queue_/, "") ||
+        a.id === apptId.replace(/^queue-/, "")
+      ));
       if (idx >= 0) {
         const currentAppt = appointments[idx];
+        matchedPatientName = currentAppt.patientName || "";
+        matchedPatientPhone = currentAppt.patientPhone || "";
+        matchedPatientId = currentAppt.patientId || null;
         const notif = currentAppt.notifications || {};
         const todayStr = new Date().toISOString().split("T")[0];
 
@@ -2749,21 +2760,60 @@ app.post("/api/appointments/notify-event", async (req, res) => {
         } else if (event === "appointment_confirmed") {
           notif.confirmedSent = true;
           notif.confirmedSentAt = Date.now();
-        } else if (event === "reminder_daily" || event === "daily_reminder_sent") {
+        } else if (event === "reminder_daily" || event === "daily_reminder_sent" || event === "appointment_reminder" || event === "reminder_now") {
           notif.lastDailyReminderDate = body.date || todayStr;
           notif.dailyReminderSentCount = (notif.dailyReminderSentCount || 0) + 1;
+          notif.reminderSent = true;
+          notif.reminderSentAt = Date.now();
+          notif.hasReplied = false; // Aguardando nova resposta do paciente
         } else if (event === "reminder_30m" || event === "reminder_30m_sent") {
           notif.reminder30Sent = true;
           notif.reminder30SentAt = Date.now();
+          notif.reminderSent = true;
+          notif.reminderSentAt = Date.now();
         } else if (event === "reminder_10m" || event === "reminder_10m_sent") {
           notif.reminder10Sent = true;
           notif.reminder10SentAt = Date.now();
+          notif.reminderSent = true;
+          notif.reminderSentAt = Date.now();
         }
         notif.lastEventDispatched = event;
         appointments[idx] = { ...currentAppt, notifications: notif, updatedAt: Date.now() };
         writeStoreData("appointments", appointments);
+        syncItemToSupabase("appointments", appointments[idx]).catch(() => {});
+      }
+
+      // Check and update reception_queue if this notification is for a queue patient
+      const queueItems: any[] = readStoreData("reception_queue", []);
+      const qIdx = queueItems.findIndex((q) => q && (
+        q.id === apptId ||
+        q.id === apptId.replace(/^queue_/, "") ||
+        q.id === apptId.replace(/^queue-/, "") ||
+        q.id === apptId.replace(/^queue_queue-/, "queue-") ||
+        `queue_${q.id}` === apptId ||
+        `queue-${q.id}` === apptId
+      ));
+      if (qIdx >= 0) {
+        const qItem = queueItems[qIdx];
+        if (!matchedPatientName) matchedPatientName = qItem.patientName || "";
+        if (!matchedPatientPhone) matchedPatientPhone = qItem.patientPhone || "";
+        if (!matchedPatientId) matchedPatientId = qItem.patientId || null;
+        const qNotif = qItem.notifications || {};
+        qNotif.reminderSent = true;
+        qNotif.reminderSentAt = Date.now();
+        qNotif.hasReplied = false;
+        qNotif.lastEventDispatched = event;
+        queueItems[qIdx] = { ...qItem, notifications: qNotif, updatedAt: Date.now() };
+        writeStoreData("reception_queue", queueItems);
+        syncItemToSupabase("reception_queue", queueItems[qIdx]).catch(() => {});
       }
     }
+
+    // Não salva mensagens disparadas pelo CRM no banco de dados (função exclusiva do n8n)
+    const rawMsgText = body.messageText || payload?.suggestedMessage || payload?.messageText || "";
+    const rawPhone = payload?.patient?.phone || body.patientPhone || matchedPatientPhone || "";
+    const cleanPhone = String(rawPhone).replace(/\D/g, "");
+    const fullPhone = cleanPhone ? (cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`) : "";
 
     // If this is an acknowledgment/confirmation from n8n (eventType ends in _sent), acknowledge immediately
     if (typeof event === "string" && (event.endsWith("_sent") || event.startsWith("ack_"))) {
@@ -2780,22 +2830,150 @@ app.post("/api/appointments/notify-event", async (req, res) => {
     let n8nResponseStatus = null;
     let targetWebhook = webhookUrl;
 
+    const settings = readStoreData("settings", {});
     if (!targetWebhook) {
-      const settings = readStoreData("settings", {});
-      targetWebhook = settings.n8nAppointmentWebhookUrl;
+      targetWebhook = settings.n8nAppointmentWebhookUrl || "https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete";
     }
+
+    // Constrói URL e rotas do PEC-CAPS para o fluxo do n8n receber confirmação e botões
+    const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "localhost:3000";
+    const proto = (req.headers["x-forwarded-proto"] as string) || (host.includes("localhost") ? "http" : "https");
+    const pecApiUrl = `${proto}://${host}`;
+    const pecCallbackRoute = "/api/appointments/button-action-callback";
+    const callbackUrl = `${pecApiUrl}${pecCallbackRoute}`;
+    const whatsappReplyUrl = `${pecApiUrl}/api/webhooks/whatsapp`;
+    const replyWebhookUrl = body.replyWebhookUrl || whatsappReplyUrl;
+
+    // Dados cadastrais da instância Evolution API para serem usados no fluxo do n8n
+    const evoUrl = (body.evolutionApiUrl || settings.evolutionApiUrl || "https://evolutionapi24.mentoriajrs.com").trim().replace(/\/+$/, "");
+    const evoKey = (body.evolutionApiKey || settings.evolutionApiKey || "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC").trim();
+    const evoInstance = (body.evolutionInstanceName || settings.evolutionInstanceName || "Typebot_curso_tec").trim();
+    const instanceData = {
+      name: evoInstance,
+      instanceName: evoInstance,
+      apiUrl: evoUrl,
+      apiKey: evoKey,
+      status: "open",
+      serverVersion: "2.4.0-rc2",
+    };
+
+    const rawSender = body.senderUser || payload?.senderUser || null;
+    let enrichedSenderUser: any = null;
+    if (rawSender && typeof rawSender === "object") {
+      const rawName = String(rawSender.name || "").trim();
+      const nameParts = rawName ? rawName.split(/\s+/).filter(Boolean) : [];
+      const firstName = rawSender.firstName || rawSender.primeiroNome || (nameParts.length > 0 ? nameParts[0] : "");
+      const lastName = rawSender.lastName || rawSender.ultimoNome || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : firstName);
+      const firstAndLast = firstName && lastName && firstName !== lastName ? `${firstName} ${lastName}` : (firstName || rawName);
+      const profName = rawSender.professionTitle || rawSender.profissao || rawSender.especialidade || rawSender.profession || "Profissional de Saúde";
+      const unitName = rawSender.unidadeLotacao || rawSender.workplace || rawSender.unidade || settings.defaultUnitName || "Unidade de Atendimento e-SUS PEC";
+
+      enrichedSenderUser = {
+        ...rawSender,
+        id: rawSender.id || null,
+        name: rawName,
+        firstName,
+        lastName,
+        primeiroNome: firstName,
+        ultimoNome: lastName,
+        primeiroEUltimoNome: firstAndLast,
+        profession: rawSender.profession || profName,
+        professionTitle: profName,
+        profissao: profName,
+        especialidade: rawSender.especialidade || profName,
+        workplace: unitName,
+        unidadeLotacao: unitName,
+        unidade: unitName,
+      };
+    }
+
+    // Diferenciação entre mensagens automáticas (templates) e mensagens humanizadas
+    const isHumanized = Boolean(
+      body.isHuman ||
+      body.is_human ||
+      body.perfil_interacao === "humanizada" ||
+      body.perfilInteracao === "humanizada" ||
+      body.interaction_type === "human" ||
+      body.interactionType === "human" ||
+      event === "whatsapp_manual_message" ||
+      event === "crm_human_message"
+    );
+
+    const perfilInteracao = isHumanized ? "humanizada" : "automatica";
+    const interactionType = isHumanized ? "human" : "automatic";
+    const interactionMode = isHumanized ? "humanized_crm" : "automated_template";
+    const origemMensagem = isHumanized ? "interacao_humanizada_crm" : "template_pre_construido";
+    const messageType = isHumanized ? (body.messageType || "text") : (body.messageType || "template");
+    const senderType = isHumanized ? "professional" : "system";
+    const descricaoPerfil = isHumanized
+      ? "Mensagem oriunda de interação humanizada através do CRM"
+      : "Mensagem automática disparada via template pré-construído";
+
+    const finalPayload = {
+      ...payload,
+      event,
+      appointmentId: apptId,
+
+      // Diferenciação Clara de Perfil de Interação (Automática vs Humanizada)
+      perfil_interacao: perfilInteracao,
+      perfilInteracao: perfilInteracao,
+      interaction_type: interactionType,
+      interactionType: interactionType,
+      interaction_mode: interactionMode,
+      tipo_interacao: perfilInteracao,
+      origem_mensagem: origemMensagem,
+      descricao_perfil: descricaoPerfil,
+      is_automatic: !isHumanized,
+      is_automated: !isHumanized,
+      is_human: isHumanized,
+      is_humanized: isHumanized,
+      is_manual: isHumanized,
+      message_type: messageType,
+      sender_type: senderType,
+      channel: "whatsapp",
+
+      // Telefones e Paciente
+      patientPhone: fullPhone || cleanPhone,
+      phone: fullPhone || cleanPhone,
+      patientName: matchedPatientName || payload?.patient?.name || body.patientName || "Paciente",
+      patient: {
+        ...(payload?.patient || {}),
+        name: matchedPatientName || payload?.patient?.name || body.patientName || "Paciente",
+        phone: fullPhone || cleanPhone,
+        id: matchedPatientId || payload?.patient?.id || null,
+      },
+
+      // Endpoint de Retorno do PEC-CAPS para os Botões (resposta à dúvida do agente n8n)
+      pec_api_url: pecApiUrl,
+      pec_callback_route: pecCallbackRoute,
+      callback_url: callbackUrl,
+      button_action_callback: callbackUrl,
+      endpoint_retorno: callbackUrl,
+      // Webhook Receptora de Respostas de Texto do Paciente (CRM WhatsApp)
+      replyWebhookUrl,
+      whatsapp_reply_url: whatsappReplyUrl,
+      // Dados da Instância da Evolution API para conectar no n8n
+      instance: instanceData,
+      evolution: instanceData,
+      senderUser: enrichedSenderUser,
+      usuarioLogado: enrichedSenderUser,
+      // Campos de acesso direto no nível raiz para simplificar qualquer nó do fluxo do n8n
+      primeiro_nome_usuario: enrichedSenderUser?.primeiroNome || "",
+      ultimo_nome_usuario: enrichedSenderUser?.ultimoNome || "",
+      primeiro_e_ultimo_nome_usuario: enrichedSenderUser?.primeiroEUltimoNome || "",
+      profissao_usuario: enrichedSenderUser?.profissao || "",
+      especialidade_usuario: enrichedSenderUser?.especialidade || "",
+      unidade_lotacao_usuario: enrichedSenderUser?.unidadeLotacao || "",
+      messageText: rawMsgText,
+      dispatchedAt: Date.now(),
+    };
 
     if (whatsappEnabled && targetWebhook && typeof targetWebhook === "string" && targetWebhook.startsWith("http")) {
       try {
         const n8nRes = await fetch(targetWebhook, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            ...payload,
-            event,
-            appointmentId: apptId,
-            dispatchedAt: Date.now(),
-          }),
+          body: JSON.stringify(finalPayload),
           signal: AbortSignal.timeout(5000),
         });
         forwardedToN8n = n8nRes.ok;
@@ -2809,9 +2987,15 @@ app.post("/api/appointments/notify-event", async (req, res) => {
       success: true,
       event,
       appointmentId: apptId,
+      perfil_interacao: perfilInteracao,
+      interaction_type: interactionType,
       forwardedToN8n,
       n8nResponseStatus,
       targetWebhook: targetWebhook || null,
+      pec_api_url: pecApiUrl,
+      callback_url: callbackUrl,
+      replyWebhookUrl,
+      instance: instanceData,
       timestamp: Date.now(),
     });
   } catch (error: any) {
@@ -2857,6 +3041,29 @@ app.post("/api/appointments/button-action-callback", async (req, res) => {
       ? appt.date.split("-").reverse().join("/")
       : appt.date;
 
+    // 1. Confirmação de Presença
+    if (rawAction.includes("confirm") || rawAction.includes("sim") || rawAction.includes("presenca") || rawAction === "confirmar") {
+      appt.status = "confirmado";
+      appt.confirmMethod = "whatsapp_button";
+      appt.confirmedAt = Date.now();
+      appt.updatedAt = Date.now();
+      appointments[idx] = appt;
+      writeStoreData("appointments", appointments);
+      syncItemToSupabase("appointments", appt).catch(() => {});
+
+      const confirmMsg = `Perfeito, *${patientFirstName}*! Sua presença foi *confirmada* com sucesso para o dia *${dateFormatted} às ${appt.startTime}* com *${appt.professionalName}*. Estamos aguardando você!`;
+
+      return res.json({
+        success: true,
+        action: "confirmed",
+        appointmentId: appt.id,
+        status: "confirmado",
+        message: confirmMsg,
+        replyMessage: confirmMsg,
+      });
+    }
+
+    // 2. Cancelamento de Agendamento
     if (rawAction.includes("cancel")) {
       appt.status = "cancelado";
       appt.cancelReason = "Cancelado pelo paciente via WhatsApp (Evolution API)";
@@ -3706,6 +3913,26 @@ export const supabaseServer = createSupabaseServerClient(SUPABASE_URL, SUPABASE_
   },
 });
 
+// Canal Realtime para Broadcast Instantâneo de WhatsApp no Servidor
+const crmServerChannel = supabaseServer.channel('crm_whatsapp_channel', {
+  config: { broadcast: { self: true } },
+});
+crmServerChannel.subscribe((status) => {
+  console.log('[Supabase Server Realtime] Canal CRM conectado:', status);
+});
+
+export async function broadcastServerWhatsAppMessage(payload: any) {
+  try {
+    await crmServerChannel.send({
+      type: 'broadcast',
+      event: 'new_message',
+      payload,
+    });
+  } catch (err) {
+    console.debug('[Supabase Server Realtime] Erro ao enviar broadcast:', err);
+  }
+}
+
 // Non-blocking helper to mirror data updates to Supabase PostgreSQL
 async function syncItemToSupabase(collectionName: string, item: any, isDelete = false, deleteId?: string) {
   try {
@@ -3719,6 +3946,7 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
       settings: "system_settings",
       system_settings: "system_settings",
       subscriptions: "subscriptions",
+      whatsapp_messages: "whatsapp_messages",
     };
 
     const targetTable = tableMap[collectionName] || collectionName;
@@ -3817,6 +4045,7 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
         service_price: item.servicePrice || 0,
         status: item.status || "agendado",
         payment_status: item.paymentStatus || "isento",
+        notifications: item.notifications || null,
         created_at: item.createdAt || Date.now(),
       };
     } else if (collectionName === "reception_queue") {
@@ -3849,9 +4078,28 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
         data: item,
         updated_at: Date.now(),
       };
+    } else if (collectionName === "whatsapp_messages") {
+      payload = {
+        id: String(item.id),
+        appointment_id: item.appointmentId || item.appointment_id || null,
+        patient_id: item.patientId || item.patient_id || null,
+        patient_phone: item.patientPhone || item.patient_phone || "",
+        patient_name: item.patientName || item.patient_name || null,
+        direction: item.direction || "outbound",
+        sender_type: item.senderType || "system",
+        sender_name: item.senderName || null,
+        message_text: item.messageText || "",
+        message_type: item.messageType || "text",
+        status: item.status || "sent",
+        created_at: Number(item.createdAt || item.created_at || Date.now()),
+        raw_payload: item.rawPayload || item.raw_payload || null,
+      };
     }
 
     const { error } = await supabaseServer.from(targetTable).upsert(payload);
+    if (!error && collectionName === "whatsapp_messages") {
+      broadcastServerWhatsAppMessage(payload).catch(() => {});
+    }
     if (error) {
       // If table doesn't exist yet, it's non-blocking (user can run setup script or we log status)
       console.debug(`[Supabase Sync Notice] (${targetTable}):`, error.message);
@@ -3922,7 +4170,17 @@ app.get("/api/supabase/status", async (req, res) => {
 app.post("/api/supabase/sync-all", async (req, res) => {
   try {
     const results: Record<string, number> = {};
-    const collections = ["users", "patients", "consultations", "clinical_evolutions", "appointments", "reception_queue", "settings", "subscriptions"];
+    const collections = [
+      "users",
+      "patients",
+      "consultations",
+      "clinical_evolutions",
+      "appointments",
+      "reception_queue",
+      "settings",
+      "subscriptions",
+      "whatsapp_messages",
+    ];
 
     for (const col of collections) {
       const items = readStoreData(col, col === "settings" ? {} : []);
@@ -3948,6 +4206,640 @@ app.post("/api/supabase/sync-all", async (req, res) => {
   } catch (err: any) {
     console.error("[Supabase Sync All Error]:", err);
     res.status(500).json({ success: false, error: err?.message || "Erro na sincronização" });
+  }
+});
+
+// =========================================================================
+// WHATSAPP CRM & WEBHOOK ROUTES (n8n, Evolution API v2.4.0-rc2 & Supabase)
+// =========================================================================
+
+// Webhook Inbound: Receives patient responses from n8n or direct from Evolution API
+app.post("/api/webhooks/whatsapp", async (req, res) => {
+  try {
+    const body = req.body || {};
+    console.log("[WhatsApp Webhook Inbound] Payload recebido:", JSON.stringify(body).slice(0, 300));
+
+    // Handle Evolution API native format or custom n8n payload format
+    let rawPhone = body.phone || body.patientPhone || body.userPhone || body.senderPhone || body.from || "";
+    let rawMessage = body.message || body.messageText || body.text || body.content || "";
+    let senderName = body.senderName || body.patientName || body.name || "";
+    let appointmentId = body.appointmentId || body.apptId || null;
+    let timestamp = Number(body.timestamp || Date.now());
+
+    // If native Evolution API format (messages.upsert)
+    if (body.event === "messages.upsert" && body.data) {
+      const msgData = body.data;
+      const key = msgData.key || {};
+      if (key.fromMe) {
+        return res.json({ success: true, ignored: true, reason: "Mensagem enviada pela própria instância" });
+      }
+      const remoteJid = key.remoteJid || "";
+      rawPhone = remoteJid.replace(/@.*$/, "");
+      const msgObj = msgData.message || {};
+      rawMessage =
+        msgObj.conversation ||
+        msgObj.extendedTextMessage?.text ||
+        msgObj.buttonsResponseMessage?.selectedDisplayText ||
+        msgObj.templateButtonReplyMessage?.selectedDisplayText ||
+        "";
+      senderName = msgData.pushName || senderName;
+    }
+
+    const cleanPhone = String(rawPhone || "").replace(/\D/g, "");
+    const messageText = typeof rawMessage === "string" ? rawMessage.trim() : "";
+
+    if (!messageText) {
+      return res.status(400).json({ success: false, error: "Texto da mensagem ausente ou vazio." });
+    }
+
+    // Find corresponding appointment
+    const appointments: any[] = readStoreData("appointments", []);
+    let targetAppt: any = null;
+    let targetIdx = -1;
+
+    if (appointmentId) {
+      targetIdx = appointments.findIndex((a) => a && a.id === appointmentId);
+      if (targetIdx >= 0) targetAppt = appointments[targetIdx];
+    }
+
+    // If not found by ID, look up by phone in appointments (most recent non-cancelled first)
+    if (!targetAppt && cleanPhone) {
+      const phoneSuffix = cleanPhone.slice(-8);
+      targetIdx = appointments.findIndex((a) => {
+        if (!a || !a.patientPhone) return false;
+        const apptPhoneClean = a.patientPhone.replace(/\D/g, "");
+        return apptPhoneClean.includes(phoneSuffix) && a.status !== "cancelado";
+      });
+      if (targetIdx >= 0) {
+        targetAppt = appointments[targetIdx];
+        appointmentId = targetAppt.id;
+      }
+    }
+
+    // Create inbound message record
+    const inboundMsg = {
+      id: `msg_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+      appointmentId: appointmentId || targetAppt?.id || null,
+      patientId: targetAppt?.patientId || null,
+      patientPhone: cleanPhone || targetAppt?.patientPhone || "",
+      patientName: senderName || targetAppt?.patientName || "Paciente",
+      direction: "inbound",
+      senderType: "patient",
+      senderName: senderName || targetAppt?.patientName || "Paciente",
+      messageText,
+      messageType: "text",
+      status: "replied",
+      createdAt: timestamp,
+      rawPayload: body,
+    };
+
+    // Save to local data store
+    const msgs = readStoreData("whatsapp_messages", []);
+    msgs.unshift(inboundMsg);
+    writeStoreData("whatsapp_messages", msgs);
+
+    // Sync to Supabase
+    syncItemToSupabase("whatsapp_messages", inboundMsg).catch(() => {});
+
+    // Update appointment notifications metadata
+    if (targetIdx >= 0 && targetAppt) {
+      const notif = targetAppt.notifications || {};
+      notif.hasReplied = true;
+      notif.lastPatientReply = {
+        message: messageText,
+        repliedAt: timestamp,
+        senderName: senderName || targetAppt.patientName,
+      };
+      targetAppt.notifications = notif;
+      targetAppt.updatedAt = Date.now();
+      appointments[targetIdx] = targetAppt;
+      writeStoreData("appointments", appointments);
+      syncItemToSupabase("appointments", targetAppt).catch(() => {});
+    }
+
+    return res.json({
+      success: true,
+      message: "Resposta do paciente registrada no CRM com sucesso!",
+      messageId: inboundMsg.id,
+      appointmentId: targetAppt?.id || appointmentId || null,
+      patientPhone: cleanPhone,
+      timestamp,
+    });
+  } catch (err: any) {
+    console.error("[WhatsApp Webhook Error]:", err);
+    res.status(500).json({ success: false, error: err?.message || "Erro ao processar webhook" });
+  }
+});
+
+// GET Evolution API v2.4.0-rc2 Instance Connection Status
+app.get("/api/evolution/instance/status", async (req, res) => {
+  try {
+    const settings = readStoreData("settings", {});
+    const apiUrl = (settings.evolutionApiUrl || "https://evolutionapi24.mentoriajrs.com").trim().replace(/\/+$/, "");
+    const apiKey = (settings.evolutionApiKey || "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC").trim();
+    const instanceName = (settings.evolutionInstanceName || "Typebot_curso_tec").trim();
+
+    const targetUrl = `${apiUrl}/instance/connectionState/${encodeURIComponent(instanceName)}`;
+    const evoRes = await fetch(targetUrl, {
+      method: "GET",
+      headers: { apikey: apiKey, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(8000),
+    });
+
+    const data = await evoRes.json().catch(() => null);
+    const state = data?.instance?.state || data?.state || "close";
+
+    let ownerPhone = null;
+    let profileName = null;
+    if (state === "open") {
+      try {
+        const infoRes = await fetch(`${apiUrl}/instance/fetchInstances?instanceName=${encodeURIComponent(instanceName)}`, {
+          method: "GET",
+          headers: { apikey: apiKey },
+          signal: AbortSignal.timeout(5000),
+        });
+        const infoData = await infoRes.json().catch(() => null);
+        const inst = Array.isArray(infoData) ? infoData[0] : (infoData?.instance || infoData);
+        ownerPhone = inst?.owner || inst?.number || null;
+        profileName = inst?.profileName || null;
+      } catch {
+        // non-blocking
+      }
+    }
+
+    res.json({
+      success: true,
+      instanceName,
+      state,
+      connected: state === "open",
+      ownerPhone,
+      profileName,
+      apiUrl,
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao consultar status da instância" });
+  }
+});
+
+// POST Connect Evolution API v2.4.0-rc2 (Fetch QR Code or create instance)
+app.post("/api/evolution/instance/connect", async (req, res) => {
+  try {
+    const settings = readStoreData("settings", {});
+    const apiUrl = (settings.evolutionApiUrl || "https://evolutionapi24.mentoriajrs.com").trim().replace(/\/+$/, "");
+    const apiKey = (settings.evolutionApiKey || "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC").trim();
+    const instanceName = (settings.evolutionInstanceName || "Typebot_curso_tec").trim();
+
+    const connectUrl = `${apiUrl}/instance/connect/${encodeURIComponent(instanceName)}`;
+    let connectRes = await fetch(connectUrl, {
+      method: "GET",
+      headers: { apikey: apiKey, "Content-Type": "application/json" },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    let connectData = await connectRes.json().catch(() => null);
+
+    // If instance is not found, create it (v2.4.0-rc2)
+    if (connectRes.status === 404 || connectData?.response?.message?.includes("not found")) {
+      const createRes = await fetch(`${apiUrl}/instance/create`, {
+        method: "POST",
+        headers: { apikey: apiKey, "Content-Type": "application/json" },
+        body: JSON.stringify({
+          instanceName,
+          integration: "WHATSAPP-BAILEYS",
+          qrcode: true,
+        }),
+        signal: AbortSignal.timeout(12000),
+      });
+      const createData = await createRes.json().catch(() => null);
+
+      if (createData?.qrcode?.base64 || createData?.base64) {
+        return res.json({
+          success: true,
+          instanceName,
+          base64: createData?.qrcode?.base64 || createData?.base64,
+          code: createData?.qrcode?.code || createData?.code,
+          pairingCode: createData?.pairingCode || null,
+        });
+      }
+
+      connectRes = await fetch(connectUrl, {
+        method: "GET",
+        headers: { apikey: apiKey, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(10000),
+      });
+      connectData = await connectRes.json().catch(() => null);
+    }
+
+    const base64 = connectData?.base64 || connectData?.qrcode?.base64 || null;
+    const code = connectData?.code || connectData?.qrcode?.code || null;
+    const pairingCode = connectData?.pairingCode || null;
+    const state = connectData?.instance?.state || connectData?.state || (base64 ? "connecting" : "unknown");
+
+    res.json({
+      success: true,
+      instanceName,
+      state,
+      base64,
+      code,
+      pairingCode,
+    });
+  } catch (err: any) {
+    console.error("[Evolution Connect Error]:", err);
+    res.status(500).json({ success: false, error: err?.message || "Erro ao conectar instância" });
+  }
+});
+
+// POST Logout Evolution API Instance
+app.post("/api/evolution/instance/logout", async (req, res) => {
+  try {
+    const settings = readStoreData("settings", {});
+    const apiUrl = (settings.evolutionApiUrl || "https://evolutionapi24.mentoriajrs.com").trim().replace(/\/+$/, "");
+    const apiKey = (settings.evolutionApiKey || "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC").trim();
+    const instanceName = (settings.evolutionInstanceName || "Typebot_curso_tec").trim();
+
+    const logoutUrl = `${apiUrl}/instance/logout/${encodeURIComponent(instanceName)}`;
+    const logoutRes = await fetch(logoutUrl, {
+      method: "DELETE",
+      headers: { apikey: apiKey },
+      signal: AbortSignal.timeout(10000),
+    });
+
+    const data = await logoutRes.json().catch(() => null);
+    res.json({ success: true, message: "Instância desconectada com sucesso", data });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao desconectar instância" });
+  }
+});
+
+// GET WhatsApp CRM Messages (sorted by createdAt DESC - most recent first)
+app.get("/api/whatsapp/messages", async (req, res) => {
+  try {
+    const { appointmentId, phone, patientId } = req.query;
+    const cleanPhone = phone ? String(phone).replace(/\D/g, "") : "";
+    const apptId = appointmentId ? String(appointmentId).trim() : "";
+    const patId = patientId ? String(patientId).trim() : "";
+
+    // Prepare ID variations
+    const idVariants: string[] = [];
+    if (apptId) {
+      idVariants.push(apptId);
+      idVariants.push(apptId.replace(/^queue_/, ""));
+      idVariants.push(apptId.replace(/^queue-/, ""));
+      idVariants.push(apptId.replace(/^queue_queue-/, "queue-"));
+      if (!apptId.startsWith("queue_")) idVariants.push(`queue_${apptId}`);
+      if (!apptId.startsWith("queue-")) idVariants.push(`queue-${apptId}`);
+    }
+
+    // Prepare Phone variations
+    const phoneVariants: string[] = [];
+    let last8 = "";
+    if (cleanPhone) {
+      phoneVariants.push(cleanPhone);
+      if (!cleanPhone.startsWith("55")) {
+        phoneVariants.push(`55${cleanPhone}`);
+      } else if (cleanPhone.length >= 12) {
+        phoneVariants.push(cleanPhone.slice(2));
+      }
+      if (cleanPhone.length === 11) {
+        const ddd = cleanPhone.slice(0, 2);
+        const without9 = ddd + cleanPhone.slice(3);
+        phoneVariants.push(without9);
+        phoneVariants.push(`55${without9}`);
+      } else if (cleanPhone.length === 10) {
+        const ddd = cleanPhone.slice(0, 2);
+        const with9 = ddd + "9" + cleanPhone.slice(2);
+        phoneVariants.push(with9);
+        phoneVariants.push(`55${with9}`);
+      } else if (cleanPhone.length === 12 && cleanPhone.startsWith("55")) {
+        const ddd = cleanPhone.slice(2, 4);
+        const with9 = `55${ddd}9${cleanPhone.slice(4)}`;
+        phoneVariants.push(with9);
+      }
+      last8 = cleanPhone.slice(-8);
+    }
+
+    const deduplicateWhatsAppList = (list: any[]) => {
+      if (!Array.isArray(list)) return [];
+      const deduped: any[] = [];
+      for (const item of list) {
+        if (!item) continue;
+        const isDup = deduped.some((existing) => {
+          if (existing.id === item.id) return true;
+          const sameDir = (existing.direction || "") === (item.direction || "");
+          const sameText = String(existing.messageText || "").trim() === String(item.messageText || "").trim();
+          const timeDiff = Math.abs(Number(existing.createdAt || 0) - Number(item.createdAt || 0));
+          return sameDir && sameText && timeDiff < 30000;
+        });
+        if (!isDup) {
+          deduped.push(item);
+        }
+      }
+      return deduped;
+    };
+
+    // 1. Try fetching from Supabase first
+    try {
+      const orConditions: string[] = [];
+      idVariants.forEach((id) => orConditions.push(`appointment_id.eq.${id}`));
+      phoneVariants.forEach((p) => orConditions.push(`patient_phone.eq.${p}`));
+      if (patId) orConditions.push(`patient_id.eq.${patId}`);
+      if (last8 && last8.length >= 8) orConditions.push(`patient_phone.ilike.%${last8}%`);
+
+      let q = supabaseServer.from("whatsapp_messages").select("*").order("created_at", { ascending: false });
+      if (orConditions.length > 0) {
+        q = q.or(orConditions.join(","));
+      }
+      const { data, error } = await q;
+      if (!error && data && Array.isArray(data) && data.length > 0) {
+        const mapped = data.map((r: any) => ({
+          id: r.id,
+          appointmentId: r.appointment_id,
+          patientId: r.patient_id,
+          patientPhone: r.patient_phone,
+          patientName: r.patient_name,
+          direction: r.direction,
+          senderType: r.sender_type,
+          senderName: r.sender_name,
+          messageText: r.message_text,
+          messageType: r.message_type,
+          status: r.status,
+          createdAt: Number(r.created_at || Date.now()),
+          rawPayload: r.raw_payload,
+        }));
+        return res.json({ success: true, messages: deduplicateWhatsAppList(mapped) });
+      }
+    } catch {
+      // fallback to local store
+    }
+
+    // 2. Fallback to local data store
+    const allMsgs = readStoreData("whatsapp_messages", []);
+    let filtered = allMsgs;
+    if (idVariants.length > 0 || last8 || patId) {
+      filtered = filtered.filter((m: any) => {
+        if (patId && String(m.patientId || "") === patId) return true;
+        const mApptId = String(m.appointmentId || "");
+        if (idVariants.some((v) => v === mApptId)) return true;
+        const mPhone = String(m.patientPhone || "").replace(/\D/g, "");
+        if (phoneVariants.some((pv) => pv === mPhone)) return true;
+        if (last8 && last8.length >= 8 && mPhone.includes(last8)) return true;
+        return false;
+      });
+    }
+    filtered.sort((a: any, b: any) => Number(b.createdAt || 0) - Number(a.createdAt || 0));
+
+    res.json({ success: true, messages: deduplicateWhatsAppList(filtered) });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao buscar mensagens" });
+  }
+});
+
+// POST Manual Send WhatsApp CRM Message (Humanized Interaction)
+app.post("/api/whatsapp/messages", async (req, res) => {
+  try {
+    const body = req.body || {};
+    const { appointmentId, patientPhone, patientName, patientId, messageText, senderUser } = body;
+
+    if (!messageText || !messageText.trim()) {
+      return res.status(400).json({ success: false, error: "Texto da mensagem é obrigatório" });
+    }
+
+    const cleanPhone = String(patientPhone || "").replace(/\D/g, "");
+    const fullPhone = cleanPhone ? (cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`) : "";
+
+    // NÃO SALVA NO BANCO DE DADOS: O salvamento é de responsabilidade exclusiva do n8n
+    // Enriquecimento dos dados do usuário logado e instância Evolution API
+    const settings = readStoreData("settings", {});
+    const evoUrl = (settings.evolutionApiUrl || "https://evolutionapi24.mentoriajrs.com").trim().replace(/\/+$/, "");
+    const evoKey = (settings.evolutionApiKey || "010F49F506A0-42AC-BE0F-B9AAAC4F5EAC").trim();
+    const evoInstance = (settings.evolutionInstanceName || "Typebot_curso_tec").trim();
+    const instanceData = {
+      name: evoInstance,
+      instanceName: evoInstance,
+      apiUrl: evoUrl,
+      apiKey: evoKey,
+      status: "open",
+      serverVersion: "2.4.0-rc2",
+    };
+
+    const host = (req.headers["x-forwarded-host"] as string) || req.headers.host || "localhost:3000";
+    const proto = (req.headers["x-forwarded-proto"] as string) || (host.includes("localhost") ? "http" : "https");
+    const pecApiUrl = `${proto}://${host}`;
+    const pecCallbackRoute = "/api/appointments/button-action-callback";
+    const callbackUrl = `${pecApiUrl}${pecCallbackRoute}`;
+    const whatsappReplyUrl = `${pecApiUrl}/api/webhooks/whatsapp`;
+
+    const rawSender = senderUser || null;
+    let enrichedSender: any = null;
+    if (rawSender && typeof rawSender === "object") {
+      const rawName = String(rawSender.name || "").trim();
+      const nameParts = rawName ? rawName.split(/\s+/).filter(Boolean) : [];
+      const firstName = rawSender.firstName || rawSender.primeiroNome || (nameParts.length > 0 ? nameParts[0] : "");
+      const lastName = rawSender.lastName || rawSender.ultimoNome || (nameParts.length > 1 ? nameParts[nameParts.length - 1] : firstName);
+      const firstAndLast = firstName && lastName && firstName !== lastName ? `${firstName} ${lastName}` : (firstName || rawName);
+      const profName = rawSender.professionTitle || rawSender.profissao || rawSender.especialidade || rawSender.profession || "Profissional de Saúde";
+      const unitName = rawSender.unidadeLotacao || rawSender.workplace || rawSender.unidade || settings.defaultUnitName || "Unidade de Atendimento e-SUS PEC";
+
+      enrichedSender = {
+        ...rawSender,
+        id: rawSender.id || null,
+        name: rawName,
+        firstName,
+        lastName,
+        primeiroNome: firstName,
+        ultimoNome: lastName,
+        primeiroEUltimoNome: firstAndLast,
+        profession: rawSender.profession || profName,
+        professionTitle: profName,
+        profissao: profName,
+        especialidade: rawSender.especialidade || profName,
+        workplace: unitName,
+        unidadeLotacao: unitName,
+        unidade: unitName,
+      };
+    }
+
+    // Busca dados do agendamento se fornecido
+    let targetAppt: any = null;
+    if (appointmentId) {
+      const appts: any[] = readStoreData("appointments", []);
+      targetAppt = appts.find((a) => a && a.id === appointmentId) || null;
+      if (!targetAppt) {
+        const queue: any[] = readStoreData("reception_queue", []);
+        targetAppt = queue.find((q) => q && q.id === appointmentId) || null;
+      }
+    }
+
+    const payload = {
+      event: "whatsapp_manual_message",
+      appointmentId: appointmentId || null,
+      appointment: targetAppt ? {
+        id: targetAppt.id,
+        date: targetAppt.date,
+        startTime: targetAppt.startTime,
+        endTime: targetAppt.endTime,
+        serviceName: targetAppt.serviceName,
+        professionalName: targetAppt.professionalName,
+      } : null,
+
+      // Diferenciação Clara de Perfil de Interação (Humanizada pelo CRM)
+      perfil_interacao: "humanizada",
+      perfilInteracao: "humanizada",
+      interaction_type: "human",
+      interactionType: "human",
+      interaction_mode: "humanized_crm",
+      tipo_interacao: "humanizada",
+      origem_mensagem: "interacao_humanizada_crm",
+      descricao_perfil: "Mensagem oriunda de interação humanizada através do CRM",
+      is_automatic: false,
+      is_automated: false,
+      is_human: true,
+      is_humanized: true,
+      is_manual: true,
+      message_type: "text",
+      sender_type: "professional",
+      channel: "whatsapp",
+
+      // Paciente e Telefones
+      patientId: patientId || targetAppt?.patientId || null,
+      patientPhone: fullPhone || cleanPhone,
+      phone: fullPhone || cleanPhone,
+      patientName: patientName || targetAppt?.patientName || "Paciente",
+      patient: {
+        id: patientId || targetAppt?.patientId || null,
+        phone: fullPhone || cleanPhone,
+        name: patientName || targetAppt?.patientName || "Paciente",
+        cpf: targetAppt?.patientCpf || null,
+      },
+
+      messageText: messageText.trim(),
+
+      // Instância da Evolution API
+      instance: instanceData,
+      evolution: instanceData,
+      pec_api_url: pecApiUrl,
+      pec_callback_route: pecCallbackRoute,
+      callback_url: callbackUrl,
+      button_action_callback: callbackUrl,
+      replyWebhookUrl: whatsappReplyUrl,
+      whatsapp_reply_url: whatsappReplyUrl,
+
+      // Usuário Logado
+      senderUser: enrichedSender,
+      usuarioLogado: enrichedSender,
+      primeiro_nome_usuario: enrichedSender?.primeiroNome || "",
+      ultimo_nome_usuario: enrichedSender?.ultimoNome || "",
+      primeiro_e_ultimo_nome_usuario: enrichedSender?.primeiroEUltimoNome || "",
+      profissao_usuario: enrichedSender?.profissao || "",
+      especialidade_usuario: enrichedSender?.especialidade || "",
+      unidade_lotacao_usuario: enrichedSender?.unidadeLotacao || "",
+      dispatchedAt: Date.now(),
+    };
+
+    let forwardedToN8n = false;
+    let n8nResponseStatus = null;
+    const targetWebhook = settings.n8nAppointmentWebhookUrl || "https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete";
+    if (targetWebhook) {
+      try {
+        const n8nRes = await fetch(targetWebhook, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify(payload),
+          signal: AbortSignal.timeout(5000),
+        });
+        forwardedToN8n = n8nRes.ok;
+        n8nResponseStatus = n8nRes.status;
+      } catch (err: any) {
+        console.warn("[CRM Manual Message] Erro ao enviar ao n8n:", err?.message || err);
+      }
+    }
+
+    res.json({
+      success: true,
+      forwardedToN8n,
+      n8nResponseStatus,
+      perfil_interacao: "humanizada",
+      interaction_type: "human",
+      timestamp: Date.now(),
+    });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao disparar mensagem" });
+  }
+});
+
+// DELETE Single WhatsApp Message by ID
+app.delete("/api/whatsapp/messages/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    // Delete from Supabase
+    try {
+      await supabaseServer.from("whatsapp_messages").delete().eq("id", id);
+    } catch {}
+
+    // Delete from local store
+    const msgs = readStoreData("whatsapp_messages", []);
+    const remaining = msgs.filter((m: any) => m.id !== id);
+    writeStoreData("whatsapp_messages", remaining);
+
+    res.json({ success: true, message: "Mensagem excluída com sucesso" });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao excluir mensagem" });
+  }
+});
+
+// DELETE All WhatsApp Messages for conversation
+app.delete("/api/whatsapp/messages/all", async (req, res) => {
+  try {
+    const { appointmentId, phone, patientId } = req.query;
+    const cleanPhone = phone ? String(phone).replace(/\D/g, "") : "";
+    const patId = patientId ? String(patientId).trim() : "";
+
+    // Delete from Supabase
+    try {
+      let q = supabaseServer.from("whatsapp_messages").delete();
+      if (appointmentId) {
+        q = q.eq("appointment_id", String(appointmentId));
+      } else if (cleanPhone) {
+        q = q.eq("patient_phone", cleanPhone);
+      } else if (patId) {
+        q = q.eq("patient_id", patId);
+      }
+      await q;
+    } catch {}
+
+    // Delete from local store
+    const msgs = readStoreData("whatsapp_messages", []);
+    let remaining = msgs;
+    if (appointmentId) {
+      remaining = msgs.filter((m: any) => m.appointmentId !== appointmentId);
+    } else if (cleanPhone) {
+      const phoneSuffix = cleanPhone.slice(-8);
+      remaining = msgs.filter((m: any) => !(m.patientPhone || "").replace(/\D/g, "").includes(phoneSuffix));
+    } else if (patId) {
+      remaining = msgs.filter((m: any) => m.patientId !== patId);
+    }
+    writeStoreData("whatsapp_messages", remaining);
+
+    // Reset appointment notification response state if appointmentId given
+    if (appointmentId) {
+      const appointments = readStoreData("appointments", []);
+      const idx = appointments.findIndex((a: any) => a && a.id === appointmentId);
+      if (idx >= 0) {
+        const notif = appointments[idx].notifications || {};
+        delete notif.hasReplied;
+        delete notif.lastPatientReply;
+        delete notif.reminderSent;
+        delete notif.reminderSentAt;
+        appointments[idx].notifications = notif;
+        writeStoreData("appointments", appointments);
+        syncItemToSupabase("appointments", appointments[idx]).catch(() => {});
+      }
+    }
+
+    res.json({ success: true, message: "Histórico completo excluído com sucesso" });
+  } catch (err: any) {
+    res.status(500).json({ success: false, error: err?.message || "Erro ao limpar histórico" });
   }
 });
 

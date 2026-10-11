@@ -40,6 +40,7 @@ import {
   Lock,
   X,
   Printer,
+  Phone,
 } from 'lucide-react';
 import {
   ReceptionQueueItem,
@@ -48,8 +49,10 @@ import {
   QueueItemStatus,
   RiskClassification,
   Appointment,
+  SystemSettings,
 } from '../types';
-import { PROFESSIONS, isUserAdmin, getProfessionalProfessionTitle } from '../data/professions';
+import { PROFESSIONS, isUserAdmin, getProfessionalProfessionTitle, DEFAULT_SYSTEM_SETTINGS } from '../data/professions';
+import { WhatsAppChatModal } from './WhatsAppChatModal';
 import {
   calculateChronologicalAge,
   formatSimpleAge,
@@ -223,6 +226,8 @@ export interface ReceptionQueueViewProps {
   onOpenPublicCallScreen?: () => void;
   onOpenTimeline?: (patient: Patient) => void;
   onShowToast?: (type: 'success' | 'error' | 'info' | 'warning', message: string, title?: string) => void;
+  systemSettings?: SystemSettings;
+  onAppointmentUpdated?: (updatedAppt: Appointment) => void;
 }
 
 export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
@@ -247,6 +252,8 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   onOpenPublicCallScreen,
   onOpenTimeline,
   onShowToast,
+  systemSettings = DEFAULT_SYSTEM_SETTINGS,
+  onAppointmentUpdated,
 }) => {
   const isAdmin = Boolean(currentUser && isUserAdmin(currentUser));
   const isAdministrative = currentUser?.profession === 'administrativo';
@@ -255,6 +262,8 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const todayStr = useMemo(() => getTodayDateString(), []);
 
   // 1. ALL STATE HOOKS (Top of Component)
+  const [selectedChatAppointment, setSelectedChatAppointment] = useState<Appointment | null>(null);
+  const [hoveredWhatsAppItemId, setHoveredWhatsAppItemId] = useState<string | null>(null);
   const [activeCallingItem, setActiveCallingItem] = useState<ReceptionQueueItem | null>(null);
   const [isQrModalOpen, setIsQrModalOpen] = useState<boolean>(false);
   const [openDropdownId, setOpenDropdownId] = useState<string | null>(null);
@@ -278,6 +287,40 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [expandedGroupIds, setExpandedGroupIds] = useState<Set<string>>(new Set());
   const [showAbandonedGroupIds, setShowAbandonedGroupIds] = useState<Set<string>>(new Set());
+
+  // Helper to resolve or construct Appointment object for WhatsApp CRM modal
+  const getAppointmentForQueueItem = (item: ReceptionQueueItem): Appointment => {
+    const byId = item.appointmentId ? appointments.find((a) => a.id === item.appointmentId) : null;
+    if (byId) return byId;
+
+    const byPatient = appointments.find(
+      (a) => a.patientId === item.patientId && (!item.scheduledDate || a.date === item.scheduledDate)
+    );
+    if (byPatient) return byPatient;
+
+    const resolvedId = item.appointmentId || (String(item.id || '').startsWith('queue') ? item.id : `queue_${item.id}`);
+
+    return {
+      id: resolvedId,
+      patientId: item.patientId,
+      patientName: item.patientName,
+      patientPhone: item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone || '',
+      patientCpf: item.patientCpf,
+      patientBirthDate: item.patientBirthDate,
+      patientGender: item.patientGender,
+      professionalId: item.professionalId,
+      professionalName: item.professionalName,
+      professionalProfession: item.professionalProfession,
+      serviceName: 'Atendimento CAPS / e-SUS PEC',
+      servicePrice: 0,
+      date: item.scheduledDate || todayStr,
+      startTime: item.scheduledTime || '08:00',
+      status: item.status === 'cancelled' || item.status === 'abandoned' ? 'cancelado' : 'agendado',
+      location: systemSettings?.defaultUnitName || 'CAPS / Unidade de Saúde',
+      notifications: (item as any).notifications || {},
+      createdAt: item.timestamp || Date.now(),
+    } as unknown as Appointment;
+  };
 
   // 2. EFFECT HOOKS
   useEffect(() => {
@@ -1489,70 +1532,128 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   <Pencil className="w-3 h-3 text-teal-600 dark:text-teal-400 opacity-60 group-hover/datebtn:opacity-100 group-hover/datebtn:scale-110 transition-all shrink-0 ml-0.5" />
                 </span>
 
-                {/* Ícone de WhatsApp na Linha 2 (consultas ativas não expiradas OU desistências/cancelamentos) */}
-                {showWhatsAppButton && (
-                  <button
-                    type="button"
-                    id={`queue-whatsapp-btn-${item.id}`}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      const phone = item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone;
-                      const patientName = item.patientName || 'Paciente';
-                      const profName = item.professionalName || 'Profissional';
-                      const dateFormatted = formatBrazilianDate(item.scheduledDate, item.timestamp);
-                      const dayOfWeek = getDayOfWeekName(item.scheduledDate, item.timestamp);
-                      const timeFormatted = item.scheduledTime || '08:00';
-                      const greeting = getTimeBasedGreeting();
+                {/* Ícone de WhatsApp na Linha 2 com 3 estados animados, hover card e abertura do CRM Modal */}
+                {showWhatsAppButton && (() => {
+                  const matchingAppt = getAppointmentForQueueItem(item);
+                  const hasReplied = Boolean(matchingAppt.notifications?.hasReplied);
+                  const isReminderSent = Boolean(matchingAppt.notifications?.reminderSent);
 
-                      const matchedProf = professionals.find(
-                        (p) =>
-                          (item.professionalId && p.id === item.professionalId) ||
-                          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim())
-                      );
-                      const article = getProfessionalArticle(matchedProf, item.professionalName);
-                      const profTitle = getProfessionalProfessionTitle(matchedProf, item.professionalProfession);
+                  return (
+                    <div
+                      className="relative inline-block"
+                      onMouseEnter={() => setHoveredWhatsAppItemId(item.id)}
+                      onMouseLeave={() => setHoveredWhatsAppItemId((prev) => (prev === item.id ? null : prev))}
+                    >
+                      <button
+                        type="button"
+                        id={`queue-whatsapp-btn-${item.id}`}
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setSelectedChatAppointment(matchingAppt);
+                        }}
+                        className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-xl border transition-all cursor-pointer shadow-xs relative ${
+                          hasReplied
+                            ? 'bg-blue-100 dark:bg-blue-950/80 text-blue-700 dark:text-blue-300 ring-2 ring-blue-500 animate-pulse border-blue-400 dark:border-blue-700 shadow-md shadow-blue-500/25'
+                            : isReminderSent
+                            ? 'bg-rose-100 dark:bg-rose-950/80 text-rose-700 dark:text-rose-300 ring-2 ring-rose-500 animate-pulse border-rose-400 dark:border-rose-700 shadow-md shadow-rose-500/25'
+                            : 'bg-emerald-50 dark:bg-emerald-950/60 text-emerald-700 dark:text-emerald-300 ring-2 ring-emerald-500/40 border-emerald-300 dark:border-emerald-800 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 animate-pulse'
+                        }`}
+                        title="Abrir CRM WhatsApp e Histórico de Mensagens"
+                      >
+                        <svg
+                          className={`w-3.5 h-3.5 fill-current shrink-0 ${
+                            hasReplied
+                              ? 'text-blue-600 dark:text-blue-400'
+                              : isReminderSent
+                              ? 'text-rose-600 dark:text-rose-400'
+                              : 'text-emerald-600 dark:text-emerald-400'
+                          }`}
+                          viewBox="0 0 24 24"
+                        >
+                          <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
+                        </svg>
+                        <span>WhatsApp</span>
+                        <span
+                          className={`w-2 h-2 rounded-full ${
+                            hasReplied ? 'bg-blue-600' : isReminderSent ? 'bg-rose-600' : 'bg-emerald-500'
+                          }`}
+                        />
+                      </button>
 
-                      const senderName = currentUser?.name || matchedProf?.name || item.professionalName || 'Profissional';
-                      const senderTitle = getProfessionalProfessionTitle(currentUser, currentUser?.profession) || 'Profissional de Saúde';
-                      const signature = `\n\nAtenciosamente,\n${senderName} (${senderTitle} - CAPS)`;
+                      {/* Tooltip Card no Hover com a última mensagem respondida, data, hora e minutos */}
+                      {hoveredWhatsAppItemId === item.id && (
+                        <div className="absolute left-0 bottom-full mb-2 z-50 w-64 sm:w-72 p-3 rounded-2xl bg-slate-900 dark:bg-slate-950 text-white shadow-2xl border border-slate-700 text-xs pointer-events-none animate-in fade-in zoom-in-95 duration-150">
+                          <div className="flex items-center gap-1.5 font-bold mb-1.5 pb-1 border-b border-slate-800">
+                            <Phone className="w-3.5 h-3.5 text-emerald-400" />
+                            <span>Status WhatsApp</span>
+                            {hasReplied ? (
+                              <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-blue-600 font-bold">
+                                Respondido
+                              </span>
+                            ) : isReminderSent ? (
+                              <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-rose-600 font-bold">
+                                Aguardando Resposta
+                              </span>
+                            ) : (
+                              <span className="ml-auto px-1.5 py-0.5 rounded text-[9px] bg-emerald-600 font-bold">
+                                Não Enviado
+                              </span>
+                            )}
+                          </div>
 
-                      let message = '';
-                      if (isAbandonedOrCancelled) {
-                        message = `${greeting} *${patientName}*, foi registrado sua desistência por não comparecimento na consulta com ${article} *${profName}* (*${profTitle}*) do dia *${dateFormatted}* às *${timeFormatted}*. Estamos a disposição para reagendamento.${signature}`;
-                      } else {
-                        const remainingTime = formatRemainingTime(item.scheduledDate, item.scheduledTime, item.timestamp);
-                        message = `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${article} *${profName}* (*${profTitle}*) no dia *${dateFormatted} - ${dayOfWeek}* às *${timeFormatted}*, restando ${remainingTime}. Por favor, chegue pelo menos 1 hora antes da hora da consulta.${signature}`;
-                      }
+                          {hasReplied && matchingAppt.notifications?.lastPatientReply ? (
+                            <div className="space-y-1">
+                              <p className="text-[10px] text-slate-400 font-semibold">Última mensagem respondida:</p>
+                              <p className="text-slate-100 font-medium italic bg-slate-800/80 p-2 rounded-xl text-[11px] line-clamp-3">
+                                "{matchingAppt.notifications.lastPatientReply.message}"
+                              </p>
+                              <p className="text-[10px] text-blue-300 font-semibold pt-0.5 flex items-center gap-1">
+                                <Clock className="w-3 h-3" />
+                                <span>
+                                  {new Date(matchingAppt.notifications.lastPatientReply.repliedAt).toLocaleString('pt-BR', {
+                                    day: '2-digit',
+                                    month: '2-digit',
+                                    year: 'numeric',
+                                    hour: '2-digit',
+                                    minute: '2-digit',
+                                  })}
+                                </span>
+                              </p>
+                            </div>
+                          ) : isReminderSent ? (
+                            <div className="space-y-1">
+                              <p className="text-slate-300">
+                                Lembrete enviado ao webhook do n8n. Aguardando retorno do paciente.
+                              </p>
+                              {matchingAppt.notifications?.reminderSentAt && (
+                                <p className="text-[10px] text-slate-400 flex items-center gap-1 pt-1">
+                                  <Clock className="w-3 h-3" />
+                                  <span>
+                                    Enviado em:{' '}
+                                    {new Date(matchingAppt.notifications.reminderSentAt).toLocaleString('pt-BR', {
+                                      day: '2-digit',
+                                      month: '2-digit',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })}
+                                  </span>
+                                </p>
+                              )}
+                            </div>
+                          ) : (
+                            <p className="text-slate-300">
+                              Nenhum lembrete enviado ainda. Clique para abrir o CRM e disparar.
+                            </p>
+                          )}
 
-                      if (phone) {
-                        const cleanPhone = phone.replace(/\D/g, '');
-                        window.open(`https://api.whatsapp.com/send?phone=55${cleanPhone}&text=${encodeURIComponent(message)}`, '_blank');
-                      } else {
-                        window.open(`https://api.whatsapp.com/send?text=${encodeURIComponent(message)}`, '_blank');
-                        if (onShowToast) {
-                          onShowToast('info', `Mensagem pronta gerada para o WhatsApp de "${patientName}".`, 'WhatsApp');
-                        }
-                      }
-                    }}
-                    className={`inline-flex items-center gap-1.5 text-xs font-semibold px-2.5 py-1 rounded-xl border transition-all cursor-pointer shadow-xs ${
-                      isAbandonedOrCancelled
-                        ? 'text-amber-800 dark:text-amber-200 bg-amber-50 dark:bg-amber-950/50 hover:bg-amber-100 dark:hover:bg-amber-900/60 border-amber-300 dark:border-amber-800'
-                        : 'text-emerald-700 dark:text-emerald-300 bg-emerald-50 dark:bg-emerald-950/50 hover:bg-emerald-100 dark:hover:bg-emerald-900/60 border-emerald-300 dark:border-emerald-800'
-                    }`}
-                    title={
-                      isAbandonedOrCancelled
-                        ? 'Enviar aviso de desistência e reagendamento no WhatsApp'
-                        : (item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone)
-                        ? `Enviar aviso da consulta no WhatsApp (${item.patientPhone || patients.find((p) => p.id === item.patientId)?.phone})`
-                        : 'Enviar aviso da consulta no WhatsApp'
-                    }
-                  >
-                    <svg className={`w-3.5 h-3.5 fill-current shrink-0 ${isAbandonedOrCancelled ? 'text-amber-600 dark:text-amber-400' : 'text-emerald-600 dark:text-emerald-400'}`} viewBox="0 0 24 24">
-                      <path d="M.057 24l1.687-6.163c-1.041-1.804-1.588-3.849-1.587-5.946.003-6.556 5.338-11.891 11.893-11.891 3.181.001 6.167 1.24 8.413 3.488 2.245 2.248 3.481 5.236 3.48 8.414-.003 6.557-5.338 11.892-11.893 11.892-1.99-.001-3.951-.5-5.688-1.448l-6.305 1.654zm6.597-3.807c1.676.995 3.276 1.591 5.392 1.592 5.448 0 9.886-4.434 9.889-9.885.002-5.462-4.415-9.89-9.881-9.892-5.452 0-9.887 4.434-9.889 9.884-.001 2.225.651 3.891 1.746 5.634l-.999 3.648 3.742-.981zm11.387-5.464c-.074-.124-.272-.198-.57-.347-.297-.149-1.758-.868-2.031-.967-.272-.099-.47-.149-.669.149-.198.297-.768.967-.941 1.165-.173.198-.347.223-.644.074-.297-.149-1.255-.462-2.39-1.475-.883-.788-1.48-1.761-1.653-2.059-.173-.297-.018-.458.13-.606.134-.133.297-.347.446-.521.151-.172.2-.296.3-.495.099-.198.05-.372-.025-.521-.075-.148-.669-1.611-.916-2.206-.242-.579-.487-.501-.669-.51l-.57-.01c-.198 0-.52.074-.792.372s-1.04 1.016-1.04 2.479 1.065 2.876 1.213 3.074c.149.198 2.095 3.2 5.076 4.487.709.306 1.263.489 1.694.626.712.226 1.36.194 1.872.118.571-.085 1.758-.719 2.006-1.413.248-.695.248-1.29.173-1.414z" />
-                    </svg>
-                    <span>{isAbandonedOrCancelled ? 'WhatsApp (Reagendamento)' : 'WhatsApp'}</span>
-                  </button>
-                )}
+                          <p className="text-[9px] text-slate-400 mt-2 border-t border-slate-800 pt-1 text-center">
+                            Clique para abrir o CRM e histórico de mensagens
+                          </p>
+                        </div>
+                      )}
+                    </div>
+                  );
+                })()}
               </div>
             </div>
           </div>
@@ -3025,6 +3126,42 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         isOpen={isQrModalOpen}
         onClose={() => setIsQrModalOpen(false)}
       />
+
+      {/* WhatsApp CRM Chat Modal */}
+      {selectedChatAppointment && (
+        <WhatsAppChatModal
+          isOpen={Boolean(selectedChatAppointment)}
+          onClose={() => setSelectedChatAppointment(null)}
+          appointment={selectedChatAppointment}
+          currentUser={currentUser}
+          systemSettings={systemSettings || DEFAULT_SYSTEM_SETTINGS}
+          onShowToast={onShowToast || (() => {})}
+          onAppointmentUpdated={(updatedAppt) => {
+            setSelectedChatAppointment(updatedAppt);
+            if (onAppointmentUpdated) {
+              onAppointmentUpdated(updatedAppt);
+            }
+            if (onUpdateQueueItem) {
+              const targetQueueItem = queueItems.find(
+                (q) =>
+                  q.id === updatedAppt.id ||
+                  q.appointmentId === updatedAppt.id ||
+                  q.id === updatedAppt.id.replace(/^queue_/, '') ||
+                  q.id === updatedAppt.id.replace(/^queue-/, '') ||
+                  `queue_${q.id}` === updatedAppt.id ||
+                  `queue-${q.id}` === updatedAppt.id
+              );
+              if (targetQueueItem) {
+                onUpdateQueueItem({
+                  ...targetQueueItem,
+                  // @ts-ignore
+                  notifications: updatedAppt.notifications,
+                });
+              }
+            }
+          }}
+        />
+      )}
     </div>
   );
 };

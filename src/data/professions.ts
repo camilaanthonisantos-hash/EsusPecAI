@@ -46,7 +46,7 @@ export const DEFAULT_SYSTEM_SETTINGS: SystemSettings = {
   allowUserSelfRegister: true,
   customWorkplaces: [],
   n8nPixWebhookUrl: '',
-  n8nAppointmentWebhookUrl: '',
+  n8nAppointmentWebhookUrl: 'https://n8n.mentoriajrs.com/webhook/pec-caps-lembrete',
   n8nSubscriptionWebhookUrl: '',
   n8nClinicalConsultationWebhookUrl: '',
   whatsappNotificationsEnabled: true,
@@ -357,15 +357,20 @@ export function getProfessionalProfessionTitle(
     administrativo: 'Recepcionista / Administrativo',
   };
 
-  if (isFemale && mapFemale[cleanedId]) {
-    return mapFemale[cleanedId];
+  const normalizedId = cleanedId.normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+  if (isFemale && (mapFemale[cleanedId] || mapFemale[normalizedId])) {
+    return mapFemale[cleanedId] || mapFemale[normalizedId];
   }
-  if (mapMaleOrDefault[cleanedId]) {
-    return mapMaleOrDefault[cleanedId];
+  if (mapMaleOrDefault[cleanedId] || mapMaleOrDefault[normalizedId]) {
+    return mapMaleOrDefault[cleanedId] || mapMaleOrDefault[normalizedId];
   }
 
   if (cleanedId && PROFESSIONS[cleanedId as ProfessionId]?.name) {
     return PROFESSIONS[cleanedId as ProfessionId].name;
+  }
+  if (normalizedId && PROFESSIONS[normalizedId as ProfessionId]?.name) {
+    return PROFESSIONS[normalizedId as ProfessionId].name;
   }
 
   if (cleanedId && cleanedId.includes('_')) {
@@ -379,6 +384,10 @@ export function getProfessionalProfessionTitle(
 
   if (prof?.profession) {
     return prof.profession.replace(/_+/g, ' ').trim();
+  }
+
+  if (fallbackProfessionId && fallbackProfessionId.trim()) {
+    return fallbackProfessionId.replace(/_+/g, ' ').trim();
   }
 
   return 'Profissional de Saúde';

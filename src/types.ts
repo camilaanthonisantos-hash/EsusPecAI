@@ -843,6 +843,14 @@ export interface Appointment {
     pixSentAt?: number;
     confirmedSent?: boolean;
     confirmedSentAt?: number;
+    reminderSent?: boolean;
+    reminderSentAt?: number;
+    hasReplied?: boolean;
+    lastPatientReply?: {
+      message: string;
+      repliedAt: number;
+      senderName?: string;
+    };
     lastDailyReminderDate?: string; // e.g. "2026-09-10"
     dailyReminderSentCount?: number;
     reminder30Sent?: boolean;
@@ -1468,4 +1476,23 @@ export interface EvolutionSummary {
   condutasRealizadas?: EvolutionCondutasSummary;
   faltasEAbandonos?: EvolutionFaltasSummary;
   rawMarkdown: string;
+}
+
+// -------------------------------------------------------------
+// WHATSAPP CRM & WEBHOOK MESSAGE TYPES
+// -------------------------------------------------------------
+export interface WhatsAppMessage {
+  id: string;
+  appointmentId?: string;
+  patientId?: string;
+  patientPhone: string;
+  patientName?: string;
+  direction: 'outbound' | 'inbound';
+  senderType: 'system' | 'patient' | 'professional';
+  senderName?: string;
+  messageText: string;
+  messageType?: 'text' | 'template' | 'button_response';
+  status?: 'sent' | 'delivered' | 'read' | 'replied' | 'pending';
+  createdAt: number;
+  rawPayload?: any;
 }
