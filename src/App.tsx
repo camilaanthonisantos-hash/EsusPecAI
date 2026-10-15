@@ -3794,12 +3794,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                     </div>
                   </div>
 
-                  <div className="flex items-center gap-2 shrink-0 pt-2 md:pt-0 border-t md:border-t-0 border-slate-100 dark:border-slate-800">
-                    <div className="px-3 py-1.5 rounded-xl bg-indigo-50 dark:bg-indigo-950/70 border border-indigo-200 dark:border-indigo-800 text-indigo-900 dark:text-indigo-200 text-xs font-bold flex items-center gap-1.5">
-                      <span className="w-2 h-2 rounded-full bg-indigo-500 animate-pulse" />
-                      <span>Produção Consolidada Mensal</span>
-                    </div>
-                  </div>
+
                 </div>
 
                 {/* Formulário Operacional e Memória Técnica da Atividade Coletiva */}
