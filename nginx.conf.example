@@ -1,0 +1,33 @@
+# ==============================================================
+# Configuração do Nginx para e-SUS PEC AI
+# Domínio: peccapsai.mentoriajrs.com
+# Copie para: /etc/nginx/sites-available/peccapsai.mentoriajrs.com
+# ==============================================================
+
+server {
+    listen 80;
+    listen [::]:80;
+    server_name peccapsai.mentoriajrs.com;
+
+    # Limite máximo de upload (áudios longos e vídeos clínicos de até 300MB)
+    client_max_body_size 350M;
+
+    location / {
+        proxy_pass http://127.0.0.1:3000;
+        proxy_http_version 1.1;
+
+        # Headers necessários para WebSockets e manter contexto HTTP real
+        proxy_set_header Upgrade $http_upgrade;
+        proxy_set_header Connection 'upgrade';
+        proxy_set_header Host $host;
+        proxy_set_header X-Real-IP $remote_addr;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+        proxy_cache_bypass $http_upgrade;
+
+        # Timeouts longos para transcrição de áudios e streaming de IA sem corte
+        proxy_read_timeout 600s;
+        proxy_connect_timeout 600s;
+        proxy_send_timeout 600s;
+    }
+}

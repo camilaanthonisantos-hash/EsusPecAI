@@ -1,0 +1,13 @@
+node_modules/
+build/
+# dist/ incluído para deploy pré-compilado ultra rápido e sem erro de OOM no Portainer
+coverage/
+.DS_Store
+*.log
+.env*
+!.env.example
+cookies*.txt
+.dev.*
+*.local.*
+data-store/*.local.*
+data-store/videos/

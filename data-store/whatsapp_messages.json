@@ -1,0 +1,77 @@
+[
+  {
+    "id": "msg_1791633780623_qctt2",
+    "appointmentId": "queue-1791575126897-7v3a",
+    "patientId": "pat-1788627055279-yni2",
+    "patientPhone": "5591985958042",
+    "patientName": "Ravir Rego Soares",
+    "direction": "outbound",
+    "senderType": "system",
+    "senderName": "Jerime Rego",
+    "messageText": "Lembrete Oficial: Consulta marcada com Dr. Jerime Rego no CAPS para 12/10 às 08:00.",
+    "messageType": "template",
+    "status": "sent",
+    "createdAt": 1791633780623,
+    "rawPayload": {
+      "event": "appointment_reminder",
+      "appointmentId": "queue-1791575126897-7v3a",
+      "patientPhone": "91985958042",
+      "messageText": "Lembrete Oficial: Consulta marcada com Dr. Jerime Rego no CAPS para 12/10 às 08:00.",
+      "senderUser": {
+        "id": "usr-1",
+        "name": "Jerime Rego",
+        "profession": "Médico"
+      }
+    }
+  },
+  {
+    "id": "msg_1791633721228_1u74e",
+    "appointmentId": "queue-1791575126897-7v3a",
+    "patientId": "pat-1788627055279-yni2",
+    "patientPhone": "5591985958042",
+    "patientName": "Ravir Rego Soares",
+    "direction": "outbound",
+    "senderType": "system",
+    "senderName": "Jerime Rego",
+    "messageText": "Lembrete Oficial: Olá Ravir Rego Soares, seu atendimento no PEC-CAPS está confirmado para 12/10 às 08:00.",
+    "messageType": "template",
+    "status": "sent",
+    "createdAt": 1791633721228,
+    "rawPayload": {
+      "event": "appointment_reminder",
+      "appointmentId": "queue-1791575126897-7v3a",
+      "patientPhone": "91985958042",
+      "messageText": "Lembrete Oficial: Olá Ravir Rego Soares, seu atendimento no PEC-CAPS está confirmado para 12/10 às 08:00.",
+      "senderUser": {
+        "id": "usr-1",
+        "name": "Jerime Rego",
+        "profession": "Médico"
+      }
+    }
+  },
+  {
+    "id": "msg_1791633684129_6vh54",
+    "appointmentId": "queue-1791575126897-7v3a",
+    "patientId": "pat-1788627055279-yni2",
+    "patientPhone": "5591985958042",
+    "patientName": "Ravir Rego Soares",
+    "direction": "outbound",
+    "senderType": "system",
+    "senderName": "Jerime Rego",
+    "messageText": "Olá, Ravir Rego Soares! Lembramos que sua consulta está agendada para 12/10/2026 às 08:00 no CAPS.",
+    "messageType": "template",
+    "status": "sent",
+    "createdAt": 1791633684129,
+    "rawPayload": {
+      "event": "appointment_reminder",
+      "appointmentId": "queue-1791575126897-7v3a",
+      "patientPhone": "91985958042",
+      "messageText": "Olá, Ravir Rego Soares! Lembramos que sua consulta está agendada para 12/10/2026 às 08:00 no CAPS.",
+      "senderUser": {
+        "id": "admin-1",
+        "name": "Jerime Rego",
+        "profession": "Médico"
+      }
+    }
+  }
+]
