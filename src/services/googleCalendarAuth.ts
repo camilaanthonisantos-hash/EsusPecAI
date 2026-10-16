@@ -65,7 +65,9 @@ export async function connectAndFetchSecondaryCalendars(
     console.error('Erro no fluxo OAuth do Google Calendar:', err);
     let errorMsg = 'Falha ao autenticar com o Google.';
     if (err.code === 'auth/popup-closed-by-user') {
-      errorMsg = 'A janela de autenticação do Google foi fechada antes de concluir.';
+      errorMsg = 'A janela de autenticação do Google foi fechada antes de ser concluída. Se você fechou a janela ou seu navegador bloqueou o popup, tente novamente ou insira o ID da sua agenda secundária no campo de inserção manual abaixo.';
+    } else if (err.code === 'auth/popup-blocked') {
+      errorMsg = 'A janela popup foi bloqueada pelo seu navegador. Habilite popups para este site ou insira o ID da agenda secundária no campo manual.';
     } else if (err.code === 'auth/cancelled-popup-request') {
       errorMsg = 'Requisição de autenticação cancelada.';
     } else if (

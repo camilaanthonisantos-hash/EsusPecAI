@@ -701,6 +701,8 @@ export async function recordRaasInDb2(params: {
   streetSituation?: boolean;
   substanceUser?: boolean;
   originCode?: string;
+  esfCoverage?: boolean;
+  esfCnesTeam?: string;
   destinationCode?: string;
   customConfig?: { url?: string; key?: string };
 }): Promise<{ success: boolean; message: string; id?: string }> {

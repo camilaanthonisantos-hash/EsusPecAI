@@ -378,70 +378,106 @@ export function generateProfessionalQueueHtml(
             </tr>
           </thead>
           <tbody>
-            ${group.items.length === 0 ? `
-            <tr>
-              <td colspan="8" style="text-align: center; padding: 16px; color: #64748b; font-style: italic;">
-                Nenhum paciente registrado nesta fila de atendimento.
-              </td>
-            </tr>` : group.items.map((item, index) => {
-              const patientName = (item.patientName || 'PACIENTE NÃO IDENTIFICADO').toUpperCase();
-              let ageDisplay = '--';
-              if (item.patientBirthDate) {
-                try {
-                  const calc = calculateChronologicalAge(item.patientBirthDate);
-                  ageDisplay = `${calc.years}A`;
-                } catch {
-                  ageDisplay = '--';
-                }
+            ${(() => {
+              if (group.items.length === 0) {
+                return `
+                <tr>
+                  <td colspan="8" style="text-align: center; padding: 16px; color: #64748b; font-style: italic;">
+                    Nenhum paciente registrado nesta fila de atendimento.
+                  </td>
+                </tr>`;
               }
 
-              const docInfo = [
-                item.patientCns ? `CNS: ${item.patientCns}` : '',
-                item.patientCpf ? `CPF: ${item.patientCpf}` : '',
-              ].filter(Boolean).join('<br/>') || 'Não informado';
+              const parseMinutes = (it: ReceptionQueueItem): number => {
+                const t = it.scheduledTime || '08:00';
+                const parts = t.split(':').map((p) => parseInt(p, 10));
+                return (parts[0] || 0) * 60 + (parts[1] || 0);
+              };
 
-              const phoneFormatted = formatPhoneDisplay(item.patientPhone);
-              const priority = formatPriorityBadge(item);
-              const status = formatStatusBadge(item.status);
-              const scheduledTime = item.scheduledTime || '--:--';
+              const sortedItems = [...group.items].sort((a, b) => {
+                const dateA = a.scheduledDate || '';
+                const dateB = b.scheduledDate || '';
+                if (dateA !== dateB) return dateA.localeCompare(dateB);
+                const minDiff = parseMinutes(a) - parseMinutes(b);
+                if (minDiff !== 0) return minDiff;
+                return (a.timestamp || 0) - (b.timestamp || 0);
+              });
 
-              return `
-              <tr class="page-break-avoid">
-                <td style="text-align: center; font-weight: 900; font-size: 10px; color: #0d9488;">
-                  ${index + 1}º
-                </td>
-                <td style="text-align: center; font-weight: 800; font-family: monospace; font-size: 10px;">
-                  ${escapeHtml(scheduledTime)}
-                </td>
-                <td>
-                  <div style="font-weight: 800; color: #0f172a; font-size: 10px;">
-                    ${escapeHtml(patientName)}
-                  </div>
-                  <div style="font-size: 8.5px; color: #64748b; font-weight: 600;">
-                    Idade: <strong>${escapeHtml(ageDisplay)}</strong>
-                  </div>
-                </td>
-                <td style="font-size: 8.5px; font-weight: 600; color: #334155; line-height: 1.3;">
-                  ${docInfo}
-                </td>
-                <td style="font-size: 9px; font-weight: 700; color: #0369a1;">
-                  ${escapeHtml(phoneFormatted)}
-                </td>
-                <td>
-                  <div style="font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 3px; background: ${priority.bg}; color: ${priority.color}; border: 1px solid ${priority.border}; display: inline-block; line-height: 1.2;">
-                    ${escapeHtml(priority.label)}
-                  </div>
-                </td>
-                <td style="text-align: center;">
-                  <span style="font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 3px; background: ${status.bg}; color: ${status.color}; display: inline-block;">
-                    ${escapeHtml(status.label)}
-                  </span>
-                </td>
-                <td style="text-align: center; border-bottom: 1px solid #cbd5e1;">
-                  <div style="height: 14px; border-bottom: 1px dotted #94a3b8; width: 85%; margin: 0 auto;"></div>
-                </td>
-              </tr>`;
-            }).join('')}
+              const dailyRankMap = new Map<string, number>();
+              return sortedItems.map((item, idx) => {
+                const dateKey = item.scheduledDate || 'sem-data';
+                const dailyRank = (dailyRankMap.get(dateKey) || 0) + 1;
+                dailyRankMap.set(dateKey, dailyRank);
+
+                const prevDateKey = idx > 0 ? (sortedItems[idx - 1].scheduledDate || 'sem-data') : null;
+                const isNewDate = dateKey !== prevDateKey;
+                const formattedDatePt = dateKey !== 'sem-data' ? dateKey.split('-').reverse().join('/') : 'Data não informada';
+
+                const patientName = (item.patientName || 'PACIENTE NÃO IDENTIFICADO').toUpperCase();
+                let ageDisplay = '--';
+                if (item.patientBirthDate) {
+                  try {
+                    const calc = calculateChronologicalAge(item.patientBirthDate);
+                    ageDisplay = `${calc.years}A`;
+                  } catch {
+                    ageDisplay = '--';
+                  }
+                }
+
+                const docInfo = [
+                  item.patientCns ? `CNS: ${item.patientCns}` : '',
+                  item.patientCpf ? `CPF: ${item.patientCpf}` : '',
+                ].filter(Boolean).join('<br/>') || 'Não informado';
+
+                const phoneFormatted = formatPhoneDisplay(item.patientPhone);
+                const priority = formatPriorityBadge(item);
+                const status = formatStatusBadge(item.status);
+                const scheduledTime = item.scheduledTime || '--:--';
+
+                return `
+                ${isNewDate ? `
+                <tr class="page-break-avoid" style="background: #f1f5f9; border-top: 2px solid #cbd5e1; border-bottom: 2px solid #cbd5e1;">
+                  <td colspan="8" style="padding: 6px 12px; font-weight: 900; font-size: 11px; color: #1e293b; letter-spacing: 0.02em;">
+                    📅 ATENDIMENTOS DE: ${escapeHtml(formattedDatePt)} &nbsp;•&nbsp; <span style="color: #0d9488; font-size: 10px;">NUMERAÇÃO DIÁRIA</span>
+                  </td>
+                </tr>` : ''}
+                <tr class="page-break-avoid">
+                  <td style="text-align: center; font-weight: 900; font-size: 10px; color: #0d9488;">
+                    ${dailyRank}º
+                  </td>
+                  <td style="text-align: center; font-weight: 800; font-family: monospace; font-size: 10px;">
+                    ${escapeHtml(scheduledTime)}
+                  </td>
+                  <td>
+                    <div style="font-weight: 800; color: #0f172a; font-size: 10px;">
+                      ${escapeHtml(patientName)}
+                    </div>
+                    <div style="font-size: 8.5px; color: #64748b; font-weight: 600;">
+                      Idade: <strong>${escapeHtml(ageDisplay)}</strong>
+                    </div>
+                  </td>
+                  <td style="font-size: 8.5px; font-weight: 600; color: #334155; line-height: 1.3;">
+                    ${docInfo}
+                  </td>
+                  <td style="font-size: 9px; font-weight: 700; color: #0369a1;">
+                    ${escapeHtml(phoneFormatted)}
+                  </td>
+                  <td>
+                    <div style="font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 3px; background: ${priority.bg}; color: ${priority.color}; border: 1px solid ${priority.border}; display: inline-block; line-height: 1.2;">
+                      ${escapeHtml(priority.label)}
+                    </div>
+                  </td>
+                  <td style="text-align: center;">
+                    <span style="font-size: 8px; font-weight: 800; padding: 2px 4px; border-radius: 3px; background: ${status.bg}; color: ${status.color}; display: inline-block;">
+                      ${escapeHtml(status.label)}
+                    </span>
+                  </td>
+                  <td style="text-align: center; border-bottom: 1px solid #cbd5e1;">
+                    <div style="height: 14px; border-bottom: 1px dotted #94a3b8; width: 85%; margin: 0 auto;"></div>
+                  </td>
+                </tr>`;
+              }).join('');
+            })()}
           </tbody>
         </table>
       </div>

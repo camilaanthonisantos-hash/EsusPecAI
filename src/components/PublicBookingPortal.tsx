@@ -1799,20 +1799,7 @@ export const PublicBookingPortal: React.FC<PublicBookingPortalProps> = ({
                       const isSelected = selectedSlot?.startTime === slot.startTime;
 
                       if (!slot.available) {
-                        return (
-                          <div
-                            key={slot.startTime}
-                            title={slot.reason || 'Horário indisponível'}
-                            className="p-3 rounded-xl bg-slate-100 dark:bg-slate-800/40 border border-slate-200 dark:border-slate-800 text-center opacity-40 cursor-not-allowed select-none"
-                          >
-                            <span className="text-xs font-bold font-mono text-slate-500 block line-through">
-                              {slot.startTime}
-                            </span>
-                            <span className="text-[9px] text-slate-400 block truncate">
-                              {slot.reason ? slot.reason.split(':')[0] : 'Ocupado'}
-                            </span>
-                          </div>
-                        );
+                        return null;
                       }
 
                       return (

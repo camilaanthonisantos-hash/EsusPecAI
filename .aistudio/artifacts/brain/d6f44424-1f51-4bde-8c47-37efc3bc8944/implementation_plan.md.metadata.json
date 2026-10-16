@@ -1,6 +1,6 @@
 {
-  "summary": "Plano atualizado com a reestruturação visual do Card de Faturamento RAAS (Ação em linha própria isolada e CID-10 Principal/Secundário lado a lado na linha inferior).",
-  "updatedAt": "2026-10-15T21:20:41.204553637Z",
+  "summary": "Plano de implementação para organização da fila de atendimento por data/hora/minuto e integração do agendamento/fila com as grades de horários configuradas dos profissionais.",
+  "updatedAt": "2026-10-16T14:23:58.808900710Z",
   "requestFeedback": true,
   "userFacing": true
 }

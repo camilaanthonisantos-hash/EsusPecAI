@@ -18,6 +18,7 @@ import {
   Heart,
   Activity,
   AlertTriangle,
+  AlertCircle,
   CheckCircle2,
   ArrowUpDown,
   Sparkles,
@@ -59,6 +60,7 @@ import {
   getTodayDateString,
   formatQueueDateTime,
 } from '../utils/dateCalculator';
+import { getAvailableSlotsForProfessional, normalizeTimeFormat } from '../utils/scheduleHelper';
 import { SpecularButton } from './SpecularButton';
 import { CallPatientModal } from './CallPatientModal';
 import { PublicQueueQrCodeModal } from './PublicQueueQrCodeModal';
@@ -382,17 +384,144 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     return (professionals || []).filter((p) => p && p.profession !== 'administrativo');
   }, [professionals]);
 
-  // Helper to determine accurate ordering priority (orderIndex takes precedence, followed by timestamp)
-  const getItemOrderValue = (item: ReceptionQueueItem): number => {
-    if (typeof item.orderIndex === 'number') {
-      return item.orderIndex;
+  // Profissional vinculado ao paciente do modal de alteração de data e horário
+  const editingTargetProf = useMemo(() => {
+    if (!editingDateTimeItem) return null;
+    return (
+      (professionals || []).find(
+        (p) =>
+          (editingDateTimeItem.professionalId && p.id === editingDateTimeItem.professionalId) ||
+          (editingDateTimeItem.professionalName &&
+            p.name.toLowerCase().trim() === editingDateTimeItem.professionalName.toLowerCase().trim())
+      ) ||
+      (currentUser && (!editingDateTimeItem.professionalId || editingDateTimeItem.professionalId === currentUser.id)
+        ? currentUser
+        : null) ||
+      clinicalProfessionals[0] ||
+      null
+    );
+  }, [professionals, editingDateTimeItem, currentUser, clinicalProfessionals]);
+
+  // Horários disponíveis da grade cadastrada em "Gestão de Agenda & Atendimentos" para a data
+  const editAvailableSlots = useMemo(() => {
+    if (!editingTargetProf || !editDate) return [];
+    // Desconsidera o próprio paciente sendo editado para que o seu horário atual não seja bloqueado para si próprio
+    const otherQueueItems = (queueItems || []).filter(
+      (q) => q.id !== editingDateTimeItem?.id && q.id !== editingDateTimeItem?.appointmentId
+    );
+    const otherAppointments = (appointments || []).filter(
+      (a) => a.id !== editingDateTimeItem?.id && a.id !== editingDateTimeItem?.appointmentId
+    );
+
+    return getAvailableSlotsForProfessional(
+      editingTargetProf,
+      editDate,
+      otherQueueItems,
+      otherAppointments,
+      true // Oculta totalmente os horários indisponíveis/ocupados
+    );
+  }, [editingTargetProf, editDate, queueItems, appointments, editingDateTimeItem]);
+
+  // Sincroniza o horário selecionado com a grade de horários disponíveis em Gestão de Agenda & Atendimentos
+  useEffect(() => {
+    if (editingDateTimeItem && editAvailableSlots.length > 0) {
+      const isCurrentTimeAvailable = editAvailableSlots.some((s) => s.startTime === editTime);
+      if (!isCurrentTimeAvailable) {
+        setEditTime(editAvailableSlots[0].startTime);
+      }
     }
-    return Number(item.timestamp) || 0;
+  }, [editAvailableSlots, editingDateTimeItem]);
+
+  // Helper: extrai a data padronizada YYYY-MM-DD com suporte a scheduledDate, formattedDateTime e timestamp
+  const extractItemDate = (item: ReceptionQueueItem): string => {
+    if (item.scheduledDate && /^\d{4}-\d{2}-\d{2}/.test(item.scheduledDate)) {
+      return item.scheduledDate.substring(0, 10);
+    }
+    if (item.formattedDateTime) {
+      const match = item.formattedDateTime.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+      if (match) {
+        const day = match[1].padStart(2, '0');
+        const month = match[2].padStart(2, '0');
+        let year = match[3];
+        if (year.length === 2) year = '20' + year;
+        return `${year}-${month}-${day}`;
+      }
+    }
+    if (item.timestamp && !isNaN(new Date(item.timestamp).getTime())) {
+      try {
+        const d = new Date(item.timestamp);
+        return d.toISOString().split('T')[0];
+      } catch {
+        // fallback
+      }
+    }
+    return todayStr;
+  };
+
+  // Helper: extrai o horário em minutos do dia (0 a 1439) para comparação numérica exata de hora e minutos
+  const extractItemMinutes = (item: ReceptionQueueItem): number => {
+    let timeStr = item.scheduledTime;
+    if (!timeStr && item.formattedDateTime) {
+      const match = item.formattedDateTime.match(/às\s*(\d{1,2}):(\d{1,2})/i);
+      if (match) {
+        timeStr = `${match[1]}:${match[2]}`;
+      }
+    }
+    if (timeStr) {
+      const clean = timeStr.trim();
+      const parts = clean.split(':').map((p) => parseInt(p, 10));
+      if (parts.length >= 2 && !isNaN(parts[0]) && !isNaN(parts[1])) {
+        return parts[0] * 60 + parts[1];
+      }
+    }
+    if (item.timestamp) {
+      const d = new Date(item.timestamp);
+      if (!isNaN(d.getTime())) {
+        return d.getHours() * 60 + d.getMinutes();
+      }
+    }
+    return 8 * 60; // 08:00 fallback (480 minutos)
+  };
+
+  // Helper de ordenação estritamente AUTOMÁTICA por Data, Hora e Minutos:
+  // 1. Prioridade primária: Data agendada (YYYY-MM-DD em ordem cronológica)
+  // 2. Prioridade secundária: Horário com precisão de Hora e Minuto (08:00 antes de 08:15, 08:15 antes de 08:30...)
+  // 3. Prioridade terciária: Desempate em caso de mesmo dia e mesmo horário exato
+  const compareQueueItems = (a: ReceptionQueueItem, b: ReceptionQueueItem): number => {
+    // 1. Data agendada (ex: '2026-10-16' antes de '2026-10-17')
+    const dateA = extractItemDate(a);
+    const dateB = extractItemDate(b);
+    if (dateA !== dateB) {
+      return dateA.localeCompare(dateB);
+    }
+
+    // 2. Horário com precisão de Hora e Minuto (08:00 < 08:15 < 08:30 < 08:45 < 09:00...)
+    const minA = extractItemMinutes(a);
+    const minB = extractItemMinutes(b);
+    if (minA !== minB) {
+      return minA - minB;
+    }
+
+    // 3. Se mesmo dia e mesmo horário exato: desempate por orderIndex manual ou timestamp
+    if (typeof a.orderIndex === 'number' && typeof b.orderIndex === 'number') {
+      if (a.orderIndex !== b.orderIndex) {
+        return a.orderIndex - b.orderIndex;
+      }
+    }
+    if (typeof a.orderIndex === 'number') return -1;
+    if (typeof b.orderIndex === 'number') return 1;
+
+    // 4. Timestamp de criação / chegada
+    return (a.timestamp || a.createdAt || 0) - (b.timestamp || b.createdAt || 0);
+  };
+
+  const getItemOrderValue = (item: ReceptionQueueItem): number => {
+    return compareQueueItems(item, { id: 'zero' } as any);
   };
 
   // Helper: verifica se um item da fila está dentro do escopo de data selecionado
   const isItemInDateScope = (item: ReceptionQueueItem): boolean => {
-    const itemDate = item.scheduledDate || (item.timestamp && !isNaN(new Date(item.timestamp).getTime()) ? new Date(item.timestamp).toISOString().split('T')[0] : '');
+    const itemDate = extractItemDate(item);
     if (dateScope === 'today') {
       return itemDate === todayStr;
     }
@@ -538,16 +667,18 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     return list;
   }, [queueItems, appointments, clinicalProfessionals, professionals, currentUser, todayStr]);
 
-  // Per-professional calling rank calculation
+  // Per-professional per-day calling rank calculation
   const profRankingMap = useMemo(() => {
     const scopeList = mergedAllQueueItems.filter(isItemInDateScope);
     const grouped = new Map<string, ReceptionQueueItem[]>();
     for (const item of scopeList) {
       const profKey = item.professionalId || item.professionalName || 'geral';
-      if (!grouped.has(profKey)) {
-        grouped.set(profKey, []);
+      const itemDate = extractItemDate(item);
+      const groupKey = `${profKey}_${itemDate}`;
+      if (!grouped.has(groupKey)) {
+        grouped.set(groupKey, []);
       }
-      grouped.get(profKey)!.push(item);
+      grouped.get(groupKey)!.push(item);
     }
 
     const rankMap = new Map<
@@ -561,7 +692,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     >();
 
     grouped.forEach((profItems) => {
-      profItems.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+      profItems.sort(compareQueueItems);
 
       let waitingCounter = 0;
       const waitingTotal = profItems.filter(
@@ -629,13 +760,13 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       });
     }
 
-    // Sort: group primarily by professional name and then by custom orderIndex/timestamp
+    // Sort: group primarily by professional name and then by date and time
     list.sort((a, b) => {
       const profCompare = (a.professionalName || '').localeCompare(b.professionalName || '');
       if (profCompare !== 0 && selectedProfId === 'all') {
         return profCompare;
       }
-      return getItemOrderValue(a) - getItemOrderValue(b);
+      return compareQueueItems(a, b);
     });
 
     return list;
@@ -674,7 +805,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     const map = new Map<string, ReceptionQueueItem[]>();
     for (const item of baseList) {
       const patName = (item.patientName || '').trim().toLowerCase();
-      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || !patName) continue;
+      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identified' || !patName) continue;
 
       const pName = (item.professionalName || '').trim().toLowerCase();
       const pId = (item.professionalId || '').trim().toLowerCase();
@@ -717,7 +848,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }[] = [];
 
     map.forEach((items, key) => {
-      items.sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+      items.sort(compareQueueItems);
       const firstItem = items[0];
       const profUser = clinicalProfessionals.find(
         (p) => p.id === key || (firstItem?.professionalName && p.name.toLowerCase().trim() === firstItem.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
@@ -1015,33 +1146,36 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   };
 
   const handleSaveDateTime = () => {
-    if (!editingDateTimeItem || !editDate || !editTime) return;
+    if (!editingDateTimeItem || !editDate) return;
+    const finalTime = editTime || (editAvailableSlots.length > 0 ? editAvailableSlots[0].startTime : '08:00');
+    if (!finalTime) return;
 
     const [year, month, day] = editDate.split('-').map(Number);
-    const [hours, minutes] = editTime.split(':').map(Number);
+    const [hours, minutes] = finalTime.split(':').map(Number);
     const newDateObj = new Date(year, (month || 1) - 1, day || 1, hours || 8, minutes || 0, 0);
     const newTimestamp = isNaN(newDateObj.getTime()) ? Date.now() : newDateObj.getTime();
-    const newFormatted = formatQueueDateTime(editDate, editTime);
+    const newFormatted = formatQueueDateTime(editDate, finalTime);
 
     const updatedItem: ReceptionQueueItem = {
       ...editingDateTimeItem,
       scheduledDate: editDate,
-      scheduledTime: editTime,
+      scheduledTime: finalTime,
       timestamp: newTimestamp,
       formattedDateTime: newFormatted,
+      orderIndex: undefined, // Garante que a ordenação seja estritamente automática por data e horário
       updatedAt: Date.now(),
     };
 
     if (onUpdateQueueItem) {
       onUpdateQueueItem(updatedItem);
     } else if (onUpdateQueueItemDateTime) {
-      onUpdateQueueItemDateTime(editingDateTimeItem.id, editDate, editTime);
+      onUpdateQueueItemDateTime(editingDateTimeItem.id, editDate, finalTime);
     }
 
     if (onShowToast) {
       onShowToast(
         'success',
-        `Data e horário de "${editingDateTimeItem.patientName}" atualizados para ${formatDatePtBr(editDate)} às ${editTime}.`,
+        `Data e horário de "${editingDateTimeItem.patientName}" atualizados para ${formatDatePtBr(editDate)} às ${finalTime}.`,
         'Horário Atualizado'
       );
     }
@@ -1062,13 +1196,15 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     if (!sourceItem || !targetItem) return;
 
     const targetProfKey = targetItem.professionalId || targetItem.professionalName || 'geral';
+    const targetDate = extractItemDate(targetItem);
 
     const profGroupItems = mergedAllQueueItems
       .filter((i) => {
         const pKey = i.professionalId || i.professionalName || 'geral';
-        return pKey === targetProfKey && isItemInDateScope(i);
+        const pDate = extractItemDate(i);
+        return pKey === targetProfKey && pDate === targetDate;
       })
-      .sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+      .sort(compareQueueItems);
 
     const filteredGroup = profGroupItems.filter((i) => i.id !== sourceItemId);
     const targetIdx = filteredGroup.findIndex((i) => i.id === targetItemId);
@@ -1081,7 +1217,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       professionalId: targetItem.professionalId,
       professionalName: targetItem.professionalName,
       professionalProfession: targetItem.professionalProfession,
-      scheduledDate: targetItem.scheduledDate || sourceItem.scheduledDate,
+      scheduledDate: targetDate,
     };
 
     filteredGroup.splice(insertIdx, 0, updatedSourceItem);
@@ -1107,12 +1243,14 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
   const handleQuickMove = (item: ReceptionQueueItem, direction: 'top' | 'up' | 'down' | 'bottom') => {
     const profKey = item.professionalId || item.professionalName || 'geral';
+    const itemDate = extractItemDate(item);
     const profGroupItems = mergedAllQueueItems
       .filter((i) => {
         const pKey = i.professionalId || i.professionalName || 'geral';
-        return pKey === profKey && isItemInDateScope(i);
+        const pDate = extractItemDate(i);
+        return pKey === profKey && pDate === itemDate;
       })
-      .sort((a, b) => getItemOrderValue(a) - getItemOrderValue(b));
+      .sort(compareQueueItems);
 
     const currentIndex = profGroupItems.findIndex((i) => i.id === item.id);
     if (currentIndex === -1) return;
@@ -2877,7 +3015,28 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           )}
                         </div>
                       ) : (
-                        visibleItems.map((item) => renderPatientCard(item))
+                        visibleItems.map((item, itemIdx) => {
+                          const itemDate = extractItemDate(item);
+                          const prevDate = itemIdx > 0 ? extractItemDate(visibleItems[itemIdx - 1]) : null;
+                          const isNewDay = itemDate !== prevDate;
+                          return (
+                            <React.Fragment key={item.id}>
+                              {isNewDay && (
+                                <div className="flex items-center gap-2 pt-2.5 pb-1 px-1">
+                                  <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-indigo-100/90 dark:bg-indigo-950/80 text-indigo-900 dark:text-indigo-200 text-xs font-black border border-indigo-200 dark:border-indigo-800 shadow-xs">
+                                    <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                                    <span>{formatDatePtBr(itemDate)}</span>
+                                    <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-white/80 dark:bg-slate-900/80 px-1.5 py-0.2 rounded-md">
+                                      Fila diária
+                                    </span>
+                                  </div>
+                                  <div className="flex-1 h-px bg-indigo-200/70 dark:bg-indigo-900/50" />
+                                </div>
+                              )}
+                              {renderPatientCard(item)}
+                            </React.Fragment>
+                          );
+                        })
                       )}
                     </motion.div>
                   )}
@@ -2889,7 +3048,28 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       ) : (
         /* Lista Contínua Unificada */
         <div className="space-y-3">
-          {filteredItems.map((item) => renderPatientCard(item))}
+          {filteredItems.map((item, itemIdx) => {
+            const itemDate = extractItemDate(item);
+            const prevDate = itemIdx > 0 ? extractItemDate(filteredItems[itemIdx - 1]) : null;
+            const isNewDay = itemDate !== prevDate;
+            return (
+              <React.Fragment key={item.id}>
+                {isNewDay && (
+                  <div className="flex items-center gap-2 pt-2.5 pb-1 px-1">
+                    <div className="inline-flex items-center gap-2 px-3 py-1 rounded-xl bg-indigo-100/90 dark:bg-indigo-950/80 text-indigo-900 dark:text-indigo-200 text-xs font-black border border-indigo-200 dark:border-indigo-800 shadow-xs">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-600 dark:text-indigo-400" />
+                      <span>{formatDatePtBr(itemDate)}</span>
+                      <span className="text-[10px] font-bold text-indigo-600 dark:text-indigo-400 bg-white/80 dark:bg-slate-900/80 px-1.5 py-0.2 rounded-md">
+                        Fila diária
+                      </span>
+                    </div>
+                    <div className="flex-1 h-px bg-indigo-200/70 dark:bg-indigo-900/50" />
+                  </div>
+                )}
+                {renderPatientCard(item)}
+              </React.Fragment>
+            );
+          })}
         </div>
       )}
 
@@ -2967,9 +3147,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
               </div>
             </div>
 
-            {/* Form Fields: Data e Hora */}
+            {/* Form Fields: Data e Horários da Grade em Gestão de Agenda & Atendimentos */}
             <div className="space-y-4">
-              {/* Field 1: Data */}
+              {/* Field 1: Data do Atendimento */}
               <div className="space-y-1.5">
                 <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
                   <Calendar className="w-4 h-4 text-teal-600" />
@@ -2981,106 +3161,48 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   onChange={(e) => setEditDate(e.target.value)}
                   className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
                 />
-
-                {/* Date Quick Shortcuts */}
-                <div className="flex flex-wrap gap-1.5 pt-1">
-                  <button
-                    type="button"
-                    onClick={() => setEditDate(todayStr)}
-                    className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-                      editDate === todayStr
-                        ? 'bg-teal-600 text-white shadow-xs'
-                        : 'bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300'
-                    }`}
-                  >
-                    Hoje
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 1);
-                      setEditDate(d.toISOString().split('T')[0]);
-                    }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                  >
-                    Amanhã
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 2);
-                      setEditDate(d.toISOString().split('T')[0]);
-                    }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                  >
-                    +2 Dias
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const d = new Date();
-                      d.setDate(d.getDate() + 7);
-                      setEditDate(d.toISOString().split('T')[0]);
-                    }}
-                    className="px-2.5 py-1 rounded-lg text-xs font-bold bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 text-slate-700 dark:text-slate-300 transition-all cursor-pointer"
-                  >
-                    +7 Dias
-                  </button>
-                </div>
               </div>
 
-              {/* Field 2: Horário */}
-              <div className="space-y-1.5">
-                <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
-                  <Clock className="w-4 h-4 text-teal-600" />
-                  <span>Horário Previsto (HH:mm)</span>
-                </label>
-                <div className="flex items-center gap-2">
-                  <input
-                    type="time"
-                    value={editTime}
-                    onChange={(e) => setEditTime(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-sm font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      const now = new Date();
-                      const hh = String(now.getHours()).padStart(2, '0');
-                      const mm = String(Math.floor(now.getMinutes() / 5) * 5).padStart(2, '0');
-                      setEditTime(`${hh}:${mm}`);
-                    }}
-                    className="px-3 py-2.5 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 text-teal-700 dark:text-teal-300 border border-teal-200 dark:border-teal-800 text-xs font-bold shrink-0 transition-colors cursor-pointer"
-                    title="Definir horário atual"
-                  >
-                    Agora
-                  </button>
+              {/* Field 2: Horários cadastrados em Gestão de Agenda & Atendimentos (mostra somente horários disponíveis e oculta indisponíveis) */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-teal-600" />
+                    <span>Horários Disponíveis da Grade ({editingTargetProf?.name || 'Profissional'})</span>
+                  </span>
+                  <span className="text-[11px] text-teal-700 dark:text-teal-300 font-extrabold bg-teal-50 dark:bg-teal-950/60 px-2.5 py-0.5 rounded-full border border-teal-200 dark:border-teal-800">
+                    {editAvailableSlots.length} vaga(s) disponível(is)
+                  </span>
                 </div>
 
-                {/* Common Slot Presets */}
-                <div className="pt-1">
-                  <span className="text-[10.5px] font-semibold text-slate-400 dark:text-slate-500 block mb-1">
-                    Horários sugeridos:
-                  </span>
-                  <div className="flex flex-wrap gap-1">
-                    {['08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30'].map((slot) => (
-                      <button
-                        key={slot}
-                        type="button"
-                        onClick={() => setEditTime(slot)}
-                        className={`px-2 py-1 rounded-md text-[11px] font-semibold transition-all cursor-pointer ${
-                          editTime === slot
-                            ? 'bg-teal-600 text-white font-bold shadow-xs'
-                            : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200'
-                        }`}
-                      >
-                        {slot}
-                      </button>
-                    ))}
+                {editAvailableSlots.length > 0 ? (
+                  <div className="flex flex-wrap gap-1.5 max-h-48 overflow-y-auto p-2 rounded-2xl bg-slate-50 dark:bg-slate-800/60 border border-slate-200 dark:border-slate-700/80">
+                    {editAvailableSlots.map((slot) => {
+                      const isSelected = editTime === slot.startTime;
+                      return (
+                        <button
+                          key={slot.startTime}
+                          type="button"
+                          onClick={() => setEditTime(slot.startTime)}
+                          className={`px-3 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+                            isSelected
+                              ? 'bg-teal-600 text-white shadow-sm ring-2 ring-teal-500/40 scale-105'
+                              : 'bg-white dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-teal-50 dark:hover:bg-teal-950/60 hover:text-teal-700 dark:hover:text-teal-300 border border-slate-200 dark:border-slate-700 shadow-2xs'
+                          }`}
+                        >
+                          {slot.startTime}
+                        </button>
+                      );
+                    })}
                   </div>
-                </div>
+                ) : (
+                  <div className="p-3.5 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>
+                      Nenhum horário livre disponível na grade deste profissional para {formatDatePtBr(editDate)}. Horários ocupados ou fora da grade foram ocultados.
+                    </span>
+                  </div>
+                )}
               </div>
 
               {/* Preview Banner */}

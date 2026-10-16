@@ -1,82 +1,80 @@
-# Plano de Gravação e Produção RAAS no Banco de Dados 2
+# Plano de Implementação: Organização da Fila & Seleção Dinâmica de Horários por Grade Profissional
 
-Plano completo de integração e mapeamento de dados do App 1 para as tabelas `public.raas_psychosocial` (admissão/cabeçalho) e `public.raas_psychosocial_items` (ações ambulatoriais) no Supabase Secundário (BD 2).
+Adequar a ordenação da Fila de Atendimento por data, hora e minuto (ordem cronológica) e restringir a seleção de horários nos agendamentos/adicição à fila apenas aos horários configurados na Gestão de Agenda de cada profissional, ocultando automaticamente os horários já ocupados.
 
-> [!IMPORTANT]
-> **Decisões Confirmadas e Atualizadas pelo Usuário**:
-> 1. **Data de Admissão**: Será utilizada estritamente a data de cadastro do paciente no App 1 (`patient.createdAt`), formatada no padrão internacional `AAAA-MM-DD`.
-> 2. **Campos Específicos do RAAS no Form de Entrada (Antes do Relato Clínico)**:
->    - **"Usuário de Álcool e / ou outras Drogas?"**: `Não / Não Se Aplica`, `Álcool`, `Crack`, `Outras Drogas`.
->    - **"Em situação de rua?"**: `N - Não`, `S - Sim`.
->    - **"Origem do Usuário"**: `01 - DEMANDA ESPONTANEA`, `02 - ATENCAO BASICA`, `03 - SERVICO DE URGENCIA`, `04 - OUTRO CAPS`, `05 - HOSPITAL DIA`, `06 - HOSPITAL PSIQUIATRICO`.
->    - **"Cobertura ESF"**: `N - Não`, `S - Sim` (ao selecionar Sim, habilita a entrada do **"CNES UBSF"**).
->    - **"Destino Usuário"**: `00 - PERMANENCIA`, `01 - CONTINUIDADE DO ACOMP.EM OUTRO CAPS`, `02 - CONTINUIDADE DO ACOMP.NA ATENCAO BASICA`, `03 - ALTA`, `04 - OBITO`.
-> 3. **Reestruturação Visual do Card de Faturamento RAAS (Componente 2)**:
->    - **Item 1 ("Ação")**: Isolado no topo ocupando a linha inteira.
->    - **Itens 2 & 3 ("CID-10 Principal" e "CID-10 Secundário")**: Posicionados logo abaixo da Ação, organizados lado a lado em 2 colunas.
->    - **Item 4**: Removido conforme solicitado.
+## Decisões Confirmadas do Usuário
+
+- **Exibição de Horários Ocupados**: Horários já agendados ou presentes na fila para o profissional no dia selecionado serão **totalmente ocultados** da listagem de seleção.
+- **Ordenação da Fila**: Fila ordenada cronologicamente por **data e horário agendado (data, hora, minuto)**, preservando a reordenação manual (drag-and-drop) via `orderIndex`.
+- **Grade Padrão de Fallback**: Caso o profissional não tenha configurado uma grade semanal customizada para determinado dia da semana, o sistema carrega a grade padrão da profissão/sistema com intervalos de 15 a 30 min.
 
 ---
 
-## 1. Origem e Extração dos Dados do App 1 ➔ BD 2
+## 1. Visão Geral & Conceito Core
 
-### A. Tabela Principal (`public.raas_psychosocial`)
+1. **Fila de Atendimento Organizada Cronologicamente**:
+   - A ordenação base da fila reflete fielmente a data e horário agendado de cada paciente (`scheduledDate` + `scheduledTime`), garantindo que a sequência (1º, 2º, 3º...) acompanhe os horários em ordem (ex: 19/10 08:00 antes de 19/10 08:20 e 20/10 08:00).
+   - Pacientes adicionados manualmente ou reordenados por drag & drop continuam com suporte ao `orderIndex` sem perder a consistência de data/hora.
 
-| Campo na Tela / Regra | Origem no App 1 | Coluna no BD 2 | Formato Salvo | Exemplo |
-| :--- | :--- | :--- | :--- | :--- |
-| **1. CNES Estabelecimento** | Padrão da Unidade | `establishment_cnes` | TEXT | `'7676417'` |
-| **2. CPF / CNS do Paciente** | `patient.cns` ou `patient.cpf` | `patient_cns` | TEXT (15 dígitos) | `'03351126255'` |
-| **3. Data de Admissão** | Data de cadastro (`patient.createdAt`) | `admission_date` | DATE (`YYYY-MM-DD`) | `'2026-10-10'` |
-| **5. Data de Nascimento** | `patient.birthDate` | `birth_date` | DATE (`YYYY-MM-DD`) | `'1997-05-25'` |
-| **Sexo** | `patient.gender` | `gender` | TEXT (`'M'`, `'F'` ou `'O'`) | `'F'` |
-| **6. Nome do Paciente** | `patient.fullName` | `patient_name` | TEXT (Caixa alta) | `'CAMILA DOS SANTOS VASCONCELOS'` |
-| **8. Situação de Rua?** | Seletor "Em situação de rua?" | `street_situation` | BOOLEAN | `true` ou `false` |
-| **9. Usuário Álcool/Drogas?** | Seletor "Usuário Álcool/Drogas?" | `substance_user` | BOOLEAN | `true` ou `false` |
-| **10. Origem do Usuário** | Seletor "Origem do Usuário" | `origin_code` | TEXT | `'01 - DEMANDA ESPONTANEA'` |
-| **11. CID-10 Principal** | `cidPrimary` da consulta | `cid_primary` | TEXT | `'Z09'` ou `'F32.2'` |
-| **CID-10 Secundário** | `cidSecondary` da consulta | `cid_secondary` | TEXT | `'F41.9'` |
-| **12. Cobertura ESF** | Seletor "Cobertura ESF" | `esf_coverage` | BOOLEAN | `true` ou `false` |
-| **CNES UBSF (Condicional)** | Campo "CNES UBSF" (se Cobertura ESF = Sim) | `esf_cnes_team` | TEXT | `'2408101'` |
-| **13. Destino Usuário** | Seletor "Destino Usuário" | `destination_code` | TEXT | `'00 - PERMANENCIA'` |
-| **14. Status do Registro** | Conclusão da consulta | `status` | TEXT | `'Finalizado'` |
-| **Observações** | Resumo da Avaliação / Plano | `notes` | TEXT | `'HISTÓRICO/EVOLUÇÃO: ...'` |
+2. **Seleção Dinâmica de Horários Disponíveis**:
+   - Ao abrir o modal "Adicionar à Fila" (`AddToQueueModal`) ou criar agendamentos (`AppointmentsManagementView`, `PublicBookingPortal`), o sistema consulta a grade do profissional selecionado (`user.scheduleConfig.weeklySchedule`).
+   - Calcula os horários da grade para o dia da semana específico (0=Domingo, 1=Segunda, ..., 6=Sábado).
+   - Cruza a grade do profissional com todos os agendamentos e itens de fila já existentes para aquele profissional naquela data.
+   - Remove da lista qualquer horário que já esteja ocupado.
 
 ---
 
-### B. Vinculação da Ação Ambulatorial (`public.raas_psychosocial_items`)
+## 2. Experiência do Usuário & Fluxo Visual
 
-| Campo da Ação | Origem no App 1 | Coluna no BD 2 | Formato Salvo | Exemplo |
-| :--- | :--- | :--- | :--- | :--- |
-| **Vínculo da Admissão** | ID da Tabela Principal | `raas_id` | UUID | `'uuid-123-abc'` |
-| **Ação / Procedimento** | `procedureCode` selecionado | `procedure_code` | TEXT | `'03.01.08.020-8'` |
-| **Data da Ação** | Data da consulta (`timestamp`) | `action_date` | DATE (`YYYY-MM-DD`) | `'2026-10-15'` |
-| **Quantidade** | Contagem do procedimento | `quantity` | INTEGER | `1` |
-| **CNS Profissional** | `currentUser.cns` | `professional_cns` | TEXT (15 dígitos) | `'702101723931195'` |
-| **CBO Profissional** | `currentUser.cbo` | `professional_cbo` | TEXT (6 dígitos) | `'223208'` |
-| **Local (C/T)** | Seleção na tela (`'C'` ou `'T'`) | `local` | TEXT | `'C'` |
+1. **Modal Adicionar à Fila / Agendamento**:
+   - Seleção de Profissional -> Atualização da Data -> Carregamento instantâneo dos chips/pills de horários disponíveis.
+   - Apenas os horários vagos pertencentes à grade configurada daquele profissional (ex: 15:00, 15:15, 15:30...) são exibidos para escolha.
+   - Caso todos os horários do dia estejam ocupados, exibe uma mensagem informativa e limpa a seleção.
+
+2. **Fila de Atendimento (`ReceptionQueueView`)**:
+   - Exibição sequencial 1º, 2º, 3º... rigidamente alinhada ao horário agendado de atendimento.
+   - Indicadores visuais claros de data e horário (ex: `19/10/26 [Segunda-feira] às 08:00`).
 
 ---
 
-## 2. Layout do Card de Faturamento RAAS no OutputCard (Componente 2)
+## 3. Arquitetura Técnica & Componentes
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│ 1. AÇÃO (Isolado na linha do topo)                          │
-│ [ Seletor do Procedimento SIGTAP / Ação Executada ]         │
-├──────────────────────────────┬──────────────────────────────┤
-│ 2. CID-10 PRINCIPAL          │ 3. CID-10 SECUNDÁRIO        │
-│ [ Campo de Entrada CID ]     │ [ Campo de Entrada CID ]     │
-└──────────────────────────────┴──────────────────────────────┘
+┌────────────────────────────────────────────────────────────────────────┐
+│                        Dados de Profissionais                          │
+│               (user.scheduleConfig / DEFAULT_WEEKLY_SCHEDULE)          │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                   Helper: getAvailableSlotsForProfessional             │
+│   (Filtra grade do dia da semana e remove horários ocupados na data)   │
+└───────────────────────────────────┬────────────────────────────────────┘
+                                    │
+          ┌─────────────────────────┴────────────────────────┐
+          ▼                                                  ▼
+┌───────────────────────────────────┐      ┌─────────────────────────────┐
+│       AddToQueueModal.tsx         │      │ AppointmentsManagementView  │
+│  Chips dinâmicos de horários      │      │ Seletor de horários livres  │
+│  livres para a data escolhida     │      │ sem duplicidade             │
+└───────────────────────────────────┘      └─────────────────────────────┘
+
+                                    │
+                                    ▼
+┌────────────────────────────────────────────────────────────────────────┐
+│                      ReceptionQueueView.tsx                            │
+│  Ordenação getItemOrderValue(item):                                    │
+│  1. orderIndex (se reordenado manualmente)                             │
+│  2. timestamp exato de (scheduledDate + scheduledTime)                 │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
----
-
-## 3. Etapas de Execução Técnicas
-
-1. Atualizar o Card de Faturamento RAAS em `OutputCard.tsx`:
-   - Mudar label de Procedimento para **"Ação"** e isolá-lo na primeira linha.
-   - Colocar **"CID-10 Principal"** e **"CID-10 Secundário"** lado a lado em 2 colunas logo abaixo.
-   - Remover itens excedentes.
-2. Atualizar o formulário de entrada em `ClinicalNotesForm.tsx` com o bloco de seletores do RAAS.
-3. Atualizar a sincronização com BD 2 em `src/services/secondarySupabase.ts`.
-4. Testar e validar a gravação no BD 2.
+### Componentes Chave Envolvidos
+1. `src/utils/dateCalculator.ts` ou novo helper `src/utils/scheduleHelper.ts`:
+   - Função utilitária para extrair os horários disponíveis de um profissional em determinada data, filtrando ocupações na fila (`queueItems`) e na agenda (`appointments`).
+2. `src/components/AddToQueueModal.tsx`:
+   - Substituir os `quickSlots` estáticos pelo seletor dinâmico baseado na grade do profissional e disponibilidade na data.
+3. `src/components/AppointmentsManagementView.tsx`:
+   - Aplicar a mesma restrição de horários disponíveis ao realizar novos agendamentos na visão de agenda.
+4. `src/components/ReceptionQueueView.tsx`:
+   - Refinar `getItemOrderValue` para calcular o valor de ordenação usando a combinação exata de `scheduledDate` + `scheduledTime` (ou `timestamp` ajustado), permitindo que os pacientes sejam ordenados no ranking 1º, 2º, 3º de forma rigorosamente cronológica por data/hora/minuto.

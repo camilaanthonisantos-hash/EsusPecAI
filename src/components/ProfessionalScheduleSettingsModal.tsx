@@ -116,7 +116,7 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
                 d.endTime || '17:00',
                 d.breakStartTime || '12:00',
                 d.breakEndTime || '13:00',
-                user.scheduleConfig?.slotDurationMinutes || 45
+                user.scheduleConfig?.slotDurationMinutes || 15
               ),
             };
           }
@@ -171,12 +171,12 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
   // Adding slot inline state
   const [addingSlotForDay, setAddingSlotForDay] = useState<number | null>(null);
   const [newSlotStart, setNewSlotStart] = useState('08:00');
-  const [newSlotEnd, setNewSlotEnd] = useState('08:45');
+  const [newSlotEnd, setNewSlotEnd] = useState('08:15');
 
   // Editing slot state
   const [editingSlotInfo, setEditingSlotInfo] = useState<{ dayIndex: number; slotId: string } | null>(null);
   const [editSlotStart, setEditSlotStart] = useState('08:00');
-  const [editSlotEnd, setEditSlotEnd] = useState('08:45');
+  const [editSlotEnd, setEditSlotEnd] = useState('08:15');
 
   // Copy slots state
   const [copyingFromDay, setCopyingFromDay] = useState<number | null>(null);
@@ -188,7 +188,7 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
   const [genEnd, setGenEnd] = useState('17:00');
   const [genBreakStart, setGenBreakStart] = useState('12:00');
   const [genBreakEnd, setGenBreakEnd] = useState('13:00');
-  const [genDuration, setGenDuration] = useState(45);
+  const [genDuration, setGenDuration] = useState(15);
 
   // New service inline form
   const [newServiceName, setNewServiceName] = useState('');
@@ -559,9 +559,46 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
   };
 
   const handleSearchSecondaryCalendars = async (emailToSearch?: string) => {
-    const targetEmail = (emailToSearch || googleAccountEmail || user.email || '').trim();
-    if (!targetEmail) {
-      onShowToast('error', 'Informe o seu e-mail do Google para buscar as agendas secundárias.', 'E-mail Obrigatório');
+    const targetInput = (emailToSearch || googleAccountEmail || user.email || '').trim();
+    if (!targetInput) {
+      onShowToast('error', 'Informe o seu e-mail do Google ou o ID da agenda secundária.', 'Campo Obrigatório');
+      return;
+    }
+
+    // Direct Check: If user entered or pasted a secondary calendar ID (@group.calendar.google.com)
+    if (isSecondaryCalendarId(targetInput)) {
+      setGoogleCalendarId(targetInput);
+      setIsSearchingSecondaryCalendars(true);
+      setCalendarSearchError(null);
+      setCalendarSearchAttempted(true);
+
+      try {
+        const res = await fetch('/api/appointments/google-calendar/test', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ calendarId: targetInput }),
+        });
+
+        const data = await res.json();
+        if (res.ok && data.valid) {
+          setIsCalendarVerified(true);
+          setCalendarType('secondary_group');
+          setCalendarVerifiedAt(Date.now());
+          setCalendarTestResult({ valid: true, message: data.message });
+          setSelectedSecondarySummary(targetInput.split('@')[0]);
+          onShowToast('success', `Agenda secundária "${targetInput}" vinculada e validada com sucesso!`, 'Google Calendar Conectado');
+        } else {
+          setIsCalendarVerified(false);
+          setCalendarSearchError(data.message || 'ID de agenda secundária inválido.');
+          onShowToast('error', data.message || 'ID de agenda inválido.', 'Erro de Validação');
+        }
+      } catch (err: any) {
+        setIsCalendarVerified(false);
+        setCalendarSearchError('Erro ao conectar ao servidor de validação.');
+        onShowToast('error', 'Não foi possível conectar ao servidor de validação.', 'Erro de Conexão');
+      } finally {
+        setIsSearchingSecondaryCalendars(false);
+      }
       return;
     }
 
@@ -570,7 +607,7 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
     setCalendarSearchAttempted(true);
 
     try {
-      const result = await connectAndFetchSecondaryCalendars(targetEmail);
+      const result = await connectAndFetchSecondaryCalendars(targetInput);
       if (result.success) {
         setSecondaryCalendarsList(result.secondaryCalendars);
         if (result.secondaryCalendars.length === 1) {
@@ -1955,17 +1992,17 @@ export const ProfessionalScheduleSettingsModal: React.FC<ProfessionalScheduleSet
                   {/* Step 1: Email Input and Search Secondary Calendars Button */}
                   <div className="p-3.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-2.5">
                     <label className="text-[11px] font-bold text-slate-700 dark:text-slate-300 block">
-                      1. Informe o e-mail da conta Google (da clínica ou do profissional):
+                      1. Informe o e-mail da conta Google OU cole o ID da agenda secundária (@group.calendar.google.com):
                     </label>
                     <div className="flex flex-col sm:flex-row items-center gap-2">
                       <input
-                        type="email"
+                        type="text"
                         value={googleAccountEmail}
                         onChange={(e) => {
                           setGoogleAccountEmail(e.target.value);
                           setCalendarSearchError(null);
                         }}
-                        placeholder="ex: seu.email@gmail.com ou profissional@clinica.com.br"
+                        placeholder="ex: seu.email@gmail.com ou 7d817bab036a... @group.calendar.google.com"
                         className="w-full px-3 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
                       />
 

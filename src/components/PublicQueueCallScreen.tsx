@@ -272,7 +272,19 @@ export const PublicQueueCallScreen: React.FC<PublicQueueCallScreenProps> = ({
     // 1. Aguardando
     const waiting = filteredQueue
       .filter((item) => item.status === 'waiting' || item.status === 'in_consultation' || item.status === 'in_service')
-      .sort((a, b) => a.timestamp - b.timestamp)
+      .sort((a, b) => {
+        const dateA = a.scheduledDate || '';
+        const dateB = b.scheduledDate || '';
+        if (dateA !== dateB) return dateA.localeCompare(dateB);
+        const parseMinutes = (it: ReceptionQueueItem): number => {
+          const t = it.scheduledTime || '08:00';
+          const parts = t.split(':').map((p) => parseInt(p, 10));
+          return (parts[0] || 0) * 60 + (parts[1] || 0);
+        };
+        const minDiff = parseMinutes(a) - parseMinutes(b);
+        if (minDiff !== 0) return minDiff;
+        return (a.timestamp || 0) - (b.timestamp || 0);
+      })
       .map((item, idx) => ({
         ...item,
         categoryType: 'waiting' as const,

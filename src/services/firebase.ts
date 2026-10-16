@@ -24,9 +24,14 @@ import { OFFICIAL_SUS_EXAMS } from '../data/susExams';
 import { normalizeSubscriptionExpiresAt } from '../utils/pixExpiration';
 import { safeSetItem, safeGetItem } from '../utils/safeStorage';
 
-// Dummy stubs for legacy references to avoid breaking any remaining imports
+import { initializeApp, getApps, getApp } from 'firebase/app';
+import { getAuth } from 'firebase/auth';
+import firebaseConfig from '../../firebase-applet-config.json';
+
+const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
+
 export const db: any = {};
-export const auth: any = { currentUser: null };
+export const auth = getAuth(firebaseApp);
 
 export enum OperationType {
   CREATE = 'create',

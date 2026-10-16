@@ -5,7 +5,7 @@ export function generateSlotsForTimeRange(
   endTime: string = '17:00',
   breakStartTime?: string,
   breakEndTime?: string,
-  durationMinutes: number = 45
+  durationMinutes: number = 15
 ): CustomTimeSlot[] {
   const parseMin = (str: string) => {
     const [h, m] = str.split(':').map(Number);
@@ -55,18 +55,7 @@ export function generateSlotsForTimeRange(
   return slots;
 }
 
-const DEFAULT_WEEKDAY_SLOTS: CustomTimeSlot[] = [
-  { id: 'slot-1', startTime: '08:00', endTime: '08:45', enabled: true },
-  { id: 'slot-2', startTime: '08:45', endTime: '09:30', enabled: true },
-  { id: 'slot-3', startTime: '09:30', endTime: '10:15', enabled: true },
-  { id: 'slot-4', startTime: '10:15', endTime: '11:00', enabled: true },
-  { id: 'slot-5', startTime: '11:00', endTime: '11:45', enabled: true },
-  { id: 'slot-6', startTime: '13:00', endTime: '13:45', enabled: true },
-  { id: 'slot-7', startTime: '13:45', endTime: '14:30', enabled: true },
-  { id: 'slot-8', startTime: '14:30', endTime: '15:15', enabled: true },
-  { id: 'slot-9', startTime: '15:15', endTime: '16:00', enabled: true },
-  { id: 'slot-10', startTime: '16:00', endTime: '16:45', enabled: true },
-];
+const DEFAULT_WEEKDAY_SLOTS: CustomTimeSlot[] = generateSlotsForTimeRange('08:00', '17:00', '12:00', '13:00', 15);
 
 export const DEFAULT_WEEKLY_SCHEDULE: DayScheduleConfig[] = [
   {
@@ -139,7 +128,7 @@ export const DEFAULT_WEEKLY_SCHEDULE: DayScheduleConfig[] = [
 
 export const DEFAULT_SCHEDULE_CONFIG: ScheduleConfig = {
   weeklySchedule: DEFAULT_WEEKLY_SCHEDULE,
-  slotDurationMinutes: 30,
+  slotDurationMinutes: 15,
   breakDurationMinutes: 0,
   advanceBookingDays: 30,
   minNoticeHours: 2,

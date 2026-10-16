@@ -4506,6 +4506,8 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         professionals={users}
         currentUserId={currentUser.id}
         initialProfessionalId={currentUser.id}
+        queueItems={queueItems}
+        appointments={appointments}
         onAddToQueue={(item) => {
           handleSaveQueueItem(item);
           setActiveTab('queue');

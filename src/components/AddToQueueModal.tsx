@@ -23,9 +23,11 @@ import {
   ReceptionQueueItem,
   RiskClassification,
   QueuePriorityCategory,
+  Appointment,
 } from '../types';
 import { PROFESSIONS } from '../data/professions';
 import { calculateChronologicalAge, formatQueueDateTime } from '../utils/dateCalculator';
+import { getAvailableSlotsForProfessional, normalizeTimeFormat } from '../utils/scheduleHelper';
 import { SpecularButton } from './SpecularButton';
 import { BrazilianDatePicker } from './BrazilianDatePicker';
 
@@ -43,6 +45,8 @@ interface AddToQueueModalProps {
   initialRisk?: RiskClassification;
   initialPriority?: QueuePriorityCategory;
   initialOrigin?: 'triagem' | 'agendamento' | 'pacientes' | 'conclusao_atendimento';
+  queueItems?: ReceptionQueueItem[];
+  appointments?: Appointment[];
 }
 
 // Diacritic and accent normalization helper for accurate Portuguese search
@@ -69,6 +73,8 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
   initialRisk,
   initialPriority,
   initialOrigin = 'pacientes',
+  queueItems = [],
+  appointments = [],
 }) => {
   // Currently active patient in the modal
   const [selectedPatient, setSelectedPatient] = useState<Patient | null>(patient);
@@ -107,6 +113,22 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
   const [isPregnant, setIsPregnant] = useState<boolean>(false);
   const [notes, setNotes] = useState<string>('');
 
+  const selectedProf = useMemo(() => {
+    return professionals.find((p) => p.id === selectedProfId) || null;
+  }, [professionals, selectedProfId]);
+
+  // Carrega apenas os horários livres configurados na grade do profissional para a data
+  const availableSlots = useMemo(() => {
+    if (!selectedProf || !scheduledDate) return [];
+    return getAvailableSlotsForProfessional(
+      selectedProf,
+      scheduledDate,
+      queueItems,
+      appointments,
+      true // Oculta totalmente os horários já ocupados
+    );
+  }, [selectedProf, scheduledDate, queueItems, appointments]);
+
   useEffect(() => {
     if (isOpen) {
       setSelectedPatient(patient || null);
@@ -119,12 +141,22 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
         setSelectedProfId(clinicalProfessionals[0].id);
       }
       setScheduledDate(todayStr);
-      setScheduledTime(nearestTimeStr);
       setPriorityCategory(initialPriority || 'padrao');
       setIsPregnant(false);
       setNotes('');
     }
-  }, [isOpen, patient, initialProfessionalId, currentUserId, clinicalProfessionals, todayStr, nearestTimeStr, initialPriority]);
+  }, [isOpen, patient, initialProfessionalId, currentUserId, clinicalProfessionals, todayStr, initialPriority]);
+
+  // Se o horário selecionado atualmente não estiver na lista de horários livres da grade, seleciona o primeiro vago
+  useEffect(() => {
+    if (availableSlots.length > 0) {
+      const formattedCurrent = normalizeTimeFormat(scheduledTime);
+      const isStillAvailable = availableSlots.some((s) => s.startTime === formattedCurrent);
+      if (!isStillAvailable) {
+        setScheduledTime(availableSlots[0].startTime);
+      }
+    }
+  }, [availableSlots, scheduledTime]);
 
   // Filtered patients with smart scoring: direct name matches are top priority
   const filteredPatients = useMemo(() => {
@@ -203,16 +235,9 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
 
   const activePatient = selectedPatient;
   const patientAge = activePatient?.birthDate ? calculateChronologicalAge(activePatient.birthDate) : null;
-  const selectedProf = professionals.find((p) => p.id === selectedProfId);
   const profConfig = selectedProf ? PROFESSIONS[selectedProf.profession] : null;
 
   const formattedDateTime = formatQueueDateTime(scheduledDate, scheduledTime);
-
-  // Quick time slot pills
-  const quickSlots = [
-    '08:00', '08:30', '09:00', '09:30', '10:00', '10:30', '11:00', '11:30',
-    '13:00', '13:30', '14:00', '14:30', '15:00', '15:30', '16:00', '16:30', '17:00'
-  ];
 
   const handleConfirm = () => {
     if (!activePatient) {
@@ -494,62 +519,56 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
             )}
           </div>
 
-          {/* 2. Date & Time Selection */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between gap-1.5">
-                <span className="flex items-center gap-1.5">
-                  <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                  <span>Data do Atendimento *</span>
-                </span>
-                <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium normal-case">
-                  (Digitação DD/MM/AAAA ou Calendário)
-                </span>
-              </label>
-              <BrazilianDatePicker
-                id="queue-input-date"
-                value={scheduledDate}
-                onChange={(newDate) => setScheduledDate(newDate)}
-                required
-              />
-            </div>
-
-            <div className="space-y-1.5">
-              <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center gap-1.5">
-                <Clock className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
-                <span>Horário Previsto *</span>
-              </label>
-              <input
-                type="time"
-                id="queue-input-time"
-                value={scheduledTime}
-                onChange={(e) => setScheduledTime(e.target.value)}
-                className="w-full px-4 py-2.5 rounded-2xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-sm font-semibold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none shadow-xs [color-scheme:light] dark:[color-scheme:dark]"
-              />
-            </div>
+          {/* 2. Date Selection */}
+          <div className="space-y-1.5">
+            <label className="text-xs font-bold uppercase tracking-wider text-slate-700 dark:text-slate-200 flex items-center justify-between gap-1.5">
+              <span className="flex items-center gap-1.5">
+                <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span>DATA</span>
+              </span>
+            </label>
+            <BrazilianDatePicker
+              id="queue-input-date"
+              value={scheduledDate}
+              onChange={(newDate) => setScheduledDate(newDate)}
+              required
+            />
           </div>
 
-          {/* Quick Slots */}
+          {/* Quick Slots - Grade de Horários do Profissional */}
           <div className="space-y-1.5">
-            <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
-              Horários Rápidos:
-            </span>
-            <div className="flex flex-wrap gap-1.5">
-              {quickSlots.map((slot) => (
-                <button
-                  key={slot}
-                  type="button"
-                  onClick={() => setScheduledTime(slot)}
-                  className={`px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
-                    scheduledTime === slot
-                      ? 'bg-teal-600 text-white shadow-xs font-bold'
-                      : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-teal-50 dark:hover:bg-teal-950/60 border border-slate-200 dark:border-slate-700'
-                  }`}
-                >
-                  {slot}
-                </button>
-              ))}
+            <div className="flex items-center justify-between">
+              <span className="text-[11px] font-semibold text-slate-600 dark:text-slate-300">
+                Horários Disponíveis da Grade do Profissional:
+              </span>
+              <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">
+                {availableSlots.length} vaga(s) livre(s)
+              </span>
             </div>
+
+            {availableSlots.length > 0 ? (
+              <div className="flex flex-wrap gap-1.5 max-h-36 overflow-y-auto p-1">
+                {availableSlots.map((slot) => (
+                  <button
+                    key={slot.startTime}
+                    type="button"
+                    onClick={() => setScheduledTime(slot.startTime)}
+                    className={`px-2.5 py-1 rounded-xl text-xs font-medium transition-all cursor-pointer ${
+                      scheduledTime === slot.startTime
+                        ? 'bg-teal-600 text-white shadow-xs font-bold ring-2 ring-teal-500/30'
+                        : 'bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-200 hover:bg-teal-50 dark:hover:bg-teal-950/60 border border-slate-200 dark:border-slate-700'
+                    }`}
+                  >
+                    {slot.startTime}
+                  </button>
+                ))}
+              </div>
+            ) : (
+              <div className="p-3 rounded-2xl bg-amber-50 dark:bg-amber-950/30 border border-amber-200 dark:border-amber-800/60 text-xs text-amber-800 dark:text-amber-300 flex items-center gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-600 shrink-0" />
+                <span>Nenhum horário livre disponível na grade deste profissional para a data selecionada.</span>
+              </div>
+            )}
           </div>
 
           {/* 3. Priority & Condition */}
