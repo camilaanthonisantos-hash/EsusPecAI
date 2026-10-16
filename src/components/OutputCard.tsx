@@ -339,46 +339,21 @@ export const OutputCard: React.FC<OutputCardProps> = ({
             <button
               type="button"
               id="btn-concluir-atendimento"
-              disabled={isSubmittingComplete}
-              onClick={async () => {
-                try {
-                  setIsSubmittingComplete(true);
-                  if (onSaveToTimeline) {
-                    await onSaveToTimeline(record, {
-                      avaliacao: avaliacaoText,
-                      plano: planoText,
-                      conduta: condutaText,
-                      procedureCode,
-                      cidPrimary,
-                      cidSecondary,
-                    });
-                  }
-                  onOpenCompleteModal({
-                    avaliacao: avaliacaoText,
-                    plano: planoText,
-                    conduta: condutaText,
-                    procedureCode,
-                    cidPrimary,
-                    cidSecondary,
-                  });
-                } finally {
-                  setIsSubmittingComplete(false);
-                }
+              onClick={() => {
+                onOpenCompleteModal({
+                  avaliacao: avaliacaoText,
+                  plano: planoText,
+                  conduta: condutaText,
+                  procedureCode,
+                  cidPrimary,
+                  cidSecondary,
+                });
               }}
-              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer disabled:opacity-60"
-              title="Concluir Atendimento Clínico (Gravar na Linha do Tempo e no BD 2)"
+              className="flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-black bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white shadow-md shadow-emerald-600/20 transition-all cursor-pointer"
+              title="Concluir Atendimento Clínico"
             >
-              {isSubmittingComplete ? (
-                <>
-                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-                  <span>Gravando no BD 2...</span>
-                </>
-              ) : (
-                <>
-                  <CheckCircle2 className="w-4 h-4" />
-                  <span>Concluir Atendimento</span>
-                </>
-              )}
+              <CheckCircle2 className="w-4 h-4" />
+              <span>Concluir Atendimento</span>
             </button>
           )}
 
@@ -600,16 +575,16 @@ export const OutputCard: React.FC<OutputCardProps> = ({
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            {/* Procedimento SIGTAP */}
+          <div className="space-y-3">
+            {/* Row 1: Item 1 - Ação (Isolado na linha do topo) */}
             <div className="space-y-1">
               <label className="block text-[11.5px] font-bold text-slate-900 dark:text-slate-100">
-                Procedimento SIGTAP:
+                Ação:
               </label>
               <select
                 value={procedureCode}
                 onChange={(e) => setProcedureCode(e.target.value)}
-                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 cursor-pointer shadow-2xs font-mono"
+                className="w-full text-xs font-semibold px-3 py-2.5 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 cursor-pointer shadow-2xs font-mono"
               >
                 <option value="03.01.08.020-8" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">[03.01.08.020-8 - Atendimento Individual em CAPS] (RAAS)</option>
                 <option value="03.01.08.021-6" className="bg-white dark:bg-slate-900 text-slate-900 dark:text-white">[03.01.08.021-6 - Atendimento em Grupo em CAPS] (RAAS)</option>
@@ -619,57 +594,29 @@ export const OutputCard: React.FC<OutputCardProps> = ({
               </select>
             </div>
 
-            {/* CID-10 Principal */}
-            <div className="space-y-1">
-              <label className="block text-[11.5px] font-bold text-slate-900 dark:text-slate-100">
-                CID-10 Principal (Obrigatório RAAS):
-              </label>
-              <input
-                type="text"
-                value={cidPrimary}
-                onChange={(e) => setCidPrimary(e.target.value.toUpperCase())}
-                placeholder="Ex: F32.2, F41.1, F20.0"
-                className="w-full text-xs font-mono font-bold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 shadow-2xs"
-              />
-              {autoCids.length > 0 && (
-                <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                  <span className="text-[10px] text-slate-600 dark:text-slate-300 font-medium">Sugestões IA:</span>
-                  {autoCids.slice(0, 3).map((c, i) => (
-                    <button
-                      key={i}
-                      type="button"
-                      onClick={() => setCidPrimary(c.rawCode)}
-                      className="px-1.5 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-[10px] font-mono font-bold hover:bg-teal-200 dark:hover:bg-teal-900 transition-colors cursor-pointer"
-                      title={c.description}
-                    >
-                      {c.rawCode}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            {/* CID-10 Secundário */}
-            <div className="space-y-1">
-              <label className="block text-[11.5px] font-bold text-slate-900 dark:text-slate-100">
-                CID-10 Secundário (Opcional):
-              </label>
-              <input
-                type="text"
-                value={cidSecondary}
-                onChange={(e) => setCidSecondary(e.target.value.toUpperCase())}
-                placeholder="Ex: F10.2, F19, F41.9"
-                className="w-full text-xs font-mono font-bold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 shadow-2xs"
-              />
+            {/* Row 2: Items 2 & 3 - CID-10 Principal e CID-10 Secundário (Lado a lado em 2 colunas) */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {/* Item 2: CID-10 Principal */}
+              <div className="space-y-1">
+                <label className="block text-[11.5px] font-bold text-slate-900 dark:text-slate-100">
+                  CID-10 Principal:
+                </label>
+                <input
+                  type="text"
+                  value={cidPrimary}
+                  onChange={(e) => setCidPrimary(e.target.value.toUpperCase())}
+                  placeholder="Ex: F32.2, F41.1, F20.0"
+                  className="w-full text-xs font-mono font-bold px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 shadow-2xs"
+                />
                 {autoCids.length > 0 && (
                   <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Sugestões IA:</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 font-medium">Sugestões IA:</span>
                     {autoCids.slice(0, 3).map((c, i) => (
                       <button
                         key={i}
                         type="button"
                         onClick={() => setCidPrimary(c.rawCode)}
-                        className="px-1.5 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950/90 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-[10px] font-mono font-bold hover:bg-teal-200 transition-colors cursor-pointer"
+                        className="px-1.5 py-0.5 rounded-md bg-teal-100 dark:bg-teal-950 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-[10px] font-mono font-bold hover:bg-teal-200 dark:hover:bg-teal-900 transition-colors cursor-pointer"
                         title={c.description}
                       >
                         {c.rawCode}
@@ -679,21 +626,21 @@ export const OutputCard: React.FC<OutputCardProps> = ({
                 )}
               </div>
 
-              {/* CID-10 Secundário */}
+              {/* Item 3: CID-10 Secundário */}
               <div className="space-y-1">
-                <label className="block text-[11px] font-bold text-slate-900 dark:text-slate-100">
-                  CID-10 Secundário (Opcional):
+                <label className="block text-[11.5px] font-bold text-slate-900 dark:text-slate-100">
+                  CID-10 Secundário:
                 </label>
                 <input
                   type="text"
                   value={cidSecondary}
                   onChange={(e) => setCidSecondary(e.target.value.toUpperCase())}
                   placeholder="Ex: F10.2, F19, F41.9"
-                  className="w-full text-xs font-mono font-bold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-600 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 shadow-2xs"
+                  className="w-full text-xs font-mono font-bold px-3 py-2 rounded-xl bg-white dark:bg-slate-800 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white placeholder-slate-400 dark:placeholder-slate-400 uppercase focus:outline-hidden focus:ring-2 focus:ring-teal-500/30 focus:border-teal-500 shadow-2xs"
                 />
                 {autoCids.length > 1 && (
                   <div className="flex flex-wrap items-center gap-1 pt-0.5">
-                    <span className="text-[10px] text-slate-500 dark:text-slate-400 font-medium">Sugestão secundária:</span>
+                    <span className="text-[10px] text-slate-600 dark:text-slate-300 font-medium">Sugestão secundária:</span>
                     <button
                       type="button"
                       onClick={() => setCidSecondary(autoCids[1].rawCode)}
@@ -707,7 +654,8 @@ export const OutputCard: React.FC<OutputCardProps> = ({
               </div>
             </div>
           </div>
-        )}
+        </div>
+      )}
 
       {/* ================= SPECIALIZED SINGLE CARD: CAMPO TRIAGEM (TÉC. & AUX. DE ENFERMAGEM) ================= */}
       {isTriage ? (

@@ -64,7 +64,23 @@ export const CompleteConsultationModal: React.FC<CompleteConsultationModalProps>
   const [scheduledDate, setScheduledDate] = useState<string>(todayStr);
   const [scheduledTime, setScheduledTime] = useState<string>(nearestTimeStr);
 
-  if (!isOpen || !patient) return null;
+  if (!isOpen) return null;
+
+  const activePatientObj = patient || {
+    id: 'pat-default',
+    fullName: 'Cidadão Atendido CAPS I',
+    cpf: '11216765294',
+    cns: '11216765294',
+    birthDate: '1985-05-10',
+    gender: 'Masculino',
+    city: 'Natal',
+    state: 'RN',
+    codMunicipio: '240810',
+    nationality: 'Brasileira',
+    race: 'Branca',
+    createdAt: Date.now(),
+    updatedAt: Date.now(),
+  };
 
   const targetProf = professionals.find((p) => p.id === selectedProfId) || availableProfessionals[0];
   const targetProfConfig = targetProf ? PROFESSIONS[targetProf.profession] : null;
@@ -105,7 +121,7 @@ export const CompleteConsultationModal: React.FC<CompleteConsultationModalProps>
                 Concluir Atendimento Clínico
               </h3>
               <p className="text-xs text-slate-500 dark:text-slate-400">
-                Paciente: <strong>{patient.fullName}</strong>
+                Paciente: <strong>{activePatientObj.fullName}</strong>
               </p>
             </div>
           </div>

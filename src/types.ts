@@ -1440,6 +1440,13 @@ export interface Consultation {
   cidSecondaryDesc?: string;
   localAction?: 'C' | 'T';
   cnes?: string;
+  streetSituation?: boolean;
+  substanceUser?: boolean;
+  substanceUserDetail?: string;
+  originCode?: string;
+  esfCoverage?: boolean;
+  esfCnesTeam?: string;
+  destinationCode?: string;
   db2Synced?: boolean;
   db2Message?: string;
 }

@@ -654,20 +654,54 @@ export async function recordBpaIInDb2(params: {
 }
 
 /**
- * Grava RAAS Psicossocial em public.raas_psychosocial
+ * Mapeia códigos de procedimento RAAS para nome oficial SIGTAP
+ */
+const RAAS_PROCEDURE_NAMES_MAP: Record<string, string> = {
+  '03.01.08.020-8': 'Atendimento Individual em CAPS',
+  '0301080208': 'Atendimento Individual em CAPS',
+  '03.01.08.021-6': 'Atendimento em Grupo em CAPS',
+  '0301080216': 'Atendimento em Grupo em CAPS',
+  '03.01.08.022-4': 'Atendimento Familiar em CAPS',
+  '0301080224': 'Atendimento Familiar em CAPS',
+  '03.01.08.027-5': 'Atendimento Domiciliar em CAPS',
+  '0301080275': 'Atendimento Domiciliar em CAPS',
+  '03.01.08.024-0': 'Práticas Corporais em CAPS',
+  '0301080240': 'Práticas Corporais em CAPS',
+};
+
+/**
+ * Formata código numérico de procedimento no padrão SIGTAP (ex: 0301080208 -> 03.01.08.020-8)
+ */
+export function formatSigtapCode(code: string): string {
+  const digits = code.replace(/\D/g, '');
+  if (digits.length === 10) {
+    return `${digits.slice(0, 2)}.${digits.slice(2, 4)}.${digits.slice(4, 6)}.${digits.slice(6, 9)}-${digits.slice(9)}`;
+  }
+  return code.trim();
+}
+
+/**
+ * Grava RAAS Psicossocial em public.raas_psychosocial e a ação individualizada em public.raas_psychosocial_items
  */
 export async function recordRaasInDb2(params: {
   patient: Patient;
   procedureCode: string;
+  procedureName?: string;
   dateService?: string | number | Date;
   cbo?: string;
   professionId?: string;
+  professionalName?: string;
+  professionalCns?: string;
   cidPrimary?: string;
   cidPrimaryDesc?: string;
   cidSecondary?: string;
   cidSecondaryDesc?: string;
   localAction?: 'C' | 'T';
   notes?: string;
+  streetSituation?: boolean;
+  substanceUser?: boolean;
+  originCode?: string;
+  destinationCode?: string;
   customConfig?: { url?: string; key?: string };
 }): Promise<{ success: boolean; message: string; id?: string }> {
   const client = getSecondarySupabaseClient(params.customConfig?.url, params.customConfig?.key);
@@ -685,8 +719,10 @@ export async function recordRaasInDb2(params: {
 
     // Formata datas
     const isoDate = formatIsoUtc(params.dateService);
+    const actionDateStr = isoDate.split('T')[0];
+
     // REGRA DE NEGÓCIO: A data de admissão no RAAS deve ser a data em que o paciente foi cadastrado no sistema
-    let admissionDate = isoDate.split('T')[0];
+    let admissionDate = actionDateStr;
     if (params.patient.createdAt) {
       try {
         const d = new Date(params.patient.createdAt);
@@ -697,6 +733,7 @@ export async function recordRaasInDb2(params: {
         // fallback
       }
     }
+
     let birthDateVal = '1980-01-01';
     if (params.patient.birthDate) {
       const bRaw = params.patient.birthDate.trim();
@@ -716,50 +753,116 @@ export async function recordRaasInDb2(params: {
     }
     const primaryCid = (params.cidPrimary || 'F32.2').trim().toUpperCase();
 
-    const payload: Record<string, any> = {
-      competence,
-      establishment_cnes: CAPS_CNES,
-      establishment_name: CAPS_MODALITY,
-      status: 'Finalizado',
-      patient_cns: activeDoc,
-      patient_cpf: docCpf ? (params.patient.cpf || docCpf) : null,
-      patient_name: params.patient.fullName?.trim() || 'Paciente',
-      admission_date: admissionDate,
-      record_number: params.patient.id ? params.patient.id.replace(/\D/g, '').slice(0, 6) || '0001' : '0001',
-      birth_date: birthDateVal,
-      gender: genderLetter,
-      nationality: (params.patient.nationality || 'BRASILEIRA').toUpperCase(),
-      street_situation: false,
-      substance_user: false,
-      origin_code: '01 - Demanda Espontânea',
-      cid_primary: primaryCid,
-      cid_primary_desc: params.cidPrimaryDesc || null,
-      cid_secondary: params.cidSecondary ? params.cidSecondary.trim().toUpperCase() : null,
-      cid_secondary_desc: params.cidSecondaryDesc || null,
-      esf_coverage: true,
-      destination_code: '1 - Permanência / Acompanhamento no CAPS',
-      notes: params.notes || null,
+    // 2. Busca ou cria o registro principal de admissão/atendimento RAAS em public.raas_psychosocial
+    let raasId: string | undefined;
+
+    const { data: existingRaas } = await client
+      .from('raas_psychosocial')
+      .select('id')
+      .eq('patient_cns', activeDoc)
+      .eq('competence', competence)
+      .maybeSingle();
+
+    if (existingRaas?.id) {
+      raasId = existingRaas.id;
+    } else {
+      const payload: Record<string, any> = {
+        competence,
+        establishment_cnes: CAPS_CNES,
+        establishment_name: CAPS_MODALITY,
+        status: 'Finalizado',
+        patient_cns: activeDoc,
+        patient_cpf: docCpf ? (params.patient.cpf || docCpf) : null,
+        patient_name: params.patient.fullName?.trim() ? params.patient.fullName.trim().toUpperCase() : 'PACIENTE',
+        admission_date: admissionDate,
+        record_number: params.patient.id ? params.patient.id.replace(/\D/g, '').slice(0, 6) || '0001' : '0001',
+        birth_date: birthDateVal,
+        gender: genderLetter,
+        nationality: (params.patient.nationality || 'BRASILEIRA').toUpperCase(),
+        street_situation: params.streetSituation ?? false,
+        substance_user: params.substanceUser ?? false,
+        origin_code: params.originCode || '01 - DEMANDA ESPONTANEA',
+        cid_primary: primaryCid,
+        cid_primary_desc: params.cidPrimaryDesc || null,
+        cid_secondary: params.cidSecondary ? params.cidSecondary.trim().toUpperCase() : null,
+        cid_secondary_desc: params.cidSecondaryDesc || null,
+        esf_coverage: params.esfCoverage ?? true,
+        esf_cnes_team: params.esfCnesTeam || (params.esfCoverage ? 'Com Cobertura' : null),
+        destination_code: params.destinationCode || '00 - PERMANENCIA',
+        notes: params.notes || null,
+        created_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: newRaas, error: raasErr } = await client
+        .from('raas_psychosocial')
+        .insert(payload)
+        .select('id')
+        .single();
+
+      if (raasErr) {
+        return {
+          success: false,
+          message: `Erro ao gravar RAAS principal no Banco 2: ${raasErr.message}`,
+        };
+      }
+      raasId = newRaas?.id;
+    }
+
+    if (!raasId) {
+      return {
+        success: false,
+        message: 'Não foi possível gerar ou recuperar a ficha RAAS do paciente no Banco 2.',
+      };
+    }
+
+    // 3. Grava o item da ação ambulatorial em public.raas_psychosocial_items
+    const formattedCode = formatSigtapCode(params.procedureCode || '03.01.08.020-8');
+    const procName =
+      params.procedureName ||
+      RAAS_PROCEDURE_NAMES_MAP[formattedCode] ||
+      RAAS_PROCEDURE_NAMES_MAP[params.procedureCode] ||
+      'Atendimento Individual em CAPS';
+
+    const cboDigits = extractCboDigits(params.cbo, params.professionId);
+    const profName = params.professionalName || 'Profissional do CAPS';
+    const profCns = (params.professionalCns || activeDoc).replace(/\D/g, '').padEnd(15, '0').slice(0, 15);
+    const profOccupation = params.professionId ? params.professionId.replace(/_/g, ' ').toUpperCase() : 'PROFISSIONAL DE SAÚDE';
+
+    const itemPayload = {
+      raas_id: raasId,
+      procedure_code: formattedCode,
+      procedure_name: procName,
+      action_date: actionDateStr,
+      quantity: 1,
+      professional_cns: profCns,
+      professional_name: profName,
+      professional_cbo: cboDigits,
+      professional_occupation: profOccupation,
+      local: params.localAction || 'C',
+      status: 'VALIDADO',
       created_at: new Date().toISOString(),
-      updated_at: new Date().toISOString(),
     };
 
-    const { data, error } = await client
-      .from('raas_psychosocial')
-      .insert(payload)
+    const { data: itemData, error: itemErr } = await client
+      .from('raas_psychosocial_items')
+      .insert(itemPayload)
       .select('id')
       .single();
 
-    if (error) {
+    if (itemErr) {
+      console.warn('[Banco 2] Erro na gravação do item RAAS:', itemErr.message);
       return {
-        success: false,
-        message: `Erro ao gravar RAAS no Banco 2: ${error.message}`,
+        success: true,
+        message: `RAAS gravado na ficha principal do Banco 2 (ID: ${raasId}), com alerta no item: ${itemErr.message}`,
+        id: raasId,
       };
     }
 
     return {
       success: true,
-      message: `RAAS Psicossocial registrado com sucesso no Banco 2 (Competência: ${competence}, CID: ${primaryCid}).`,
-      id: data?.id,
+      message: `RAAS Psicossocial e ação ambulatorial (${formattedCode}) registrados com sucesso no Banco 2!`,
+      id: raasId,
     };
   } catch (err: any) {
     return {
@@ -983,12 +1086,20 @@ export async function syncConsultationToDb2(
     dateService: consultation.timestamp,
     cbo: consultation.authorCbo,
     professionId: consultation.authorProfession,
+    professionalName: consultation.authorName,
+    professionalCns: consultation.authorRegister,
     cidPrimary: consultation.cidPrimary,
     cidPrimaryDesc: consultation.cidPrimaryDesc,
     cidSecondary: consultation.cidSecondary,
     cidSecondaryDesc: consultation.cidSecondaryDesc,
     localAction: consultation.localAction || 'C',
     notes: consultation.avaliacao || consultation.plano,
+    streetSituation: consultation.streetSituation,
+    substanceUser: consultation.substanceUser,
+    originCode: consultation.originCode,
+    esfCoverage: consultation.esfCoverage,
+    esfCnesTeam: consultation.esfCnesTeam,
+    destinationCode: consultation.destinationCode,
     customConfig,
   });
 

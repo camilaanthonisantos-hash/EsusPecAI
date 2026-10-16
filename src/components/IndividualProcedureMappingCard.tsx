@@ -51,8 +51,6 @@ export const IndividualProcedureMappingCard: React.FC<IndividualProcedureMapping
       id="card-mapeamento-procedimento-bd2"
       className="p-4 sm:p-5 rounded-3xl bg-white dark:bg-slate-900 border border-teal-500/30 dark:border-teal-700/60 shadow-xs space-y-4 transition-all"
     >
-
-
       {/* Lista Suspensa (Dropdown) dos Procedimentos Perfil */}
       <div className="space-y-1.5">
         <label className="block text-xs font-bold text-slate-900 dark:text-slate-100">
@@ -78,3 +76,4 @@ export const IndividualProcedureMappingCard: React.FC<IndividualProcedureMapping
     </div>
   );
 };
+

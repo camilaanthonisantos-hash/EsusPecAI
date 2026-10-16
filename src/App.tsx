@@ -430,6 +430,14 @@ export default function App() {
   const [audioAttachment, setAudioAttachment] = useState<AttachmentItem | null>(null);
   const [attachments, setAttachments] = useState<AttachmentItem[]>([]);
 
+  // RAAS Specific Parameters State (Banco 2)
+  const [raasSubstanceUser, setRaasSubstanceUser] = useState<string>('Não / Não Se Aplica');
+  const [raasStreetSituation, setRaasStreetSituation] = useState<string>('N - Não');
+  const [raasOriginCode, setRaasOriginCode] = useState<string>('01 - DEMANDA ESPONTANEA');
+  const [raasEsfCoverage, setRaasEsfCoverage] = useState<string>('N - Não');
+  const [raasEsfCnesTeam, setRaasEsfCnesTeam] = useState<string>('');
+  const [raasDestinationCode, setRaasDestinationCode] = useState<string>('00 - PERMANENCIA');
+
   // Generation state
   const [isGenerating, setIsGenerating] = useState(false);
   const [generationStatus, setGenerationStatus] = useState<GenerationStatusUpdate | null>(null);
@@ -1970,6 +1978,13 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       cidPrimary: finalCidPrimary,
       cidSecondary: finalCidSecondary,
       cnes: '7676417',
+      streetSituation: raasStreetSituation === 'S - Sim' || raasStreetSituation === 'true',
+      substanceUser: raasSubstanceUser !== 'Não / Não Se Aplica',
+      substanceUserDetail: raasSubstanceUser,
+      originCode: raasOriginCode,
+      esfCoverage: raasEsfCoverage === 'S - Sim' || raasEsfCoverage === 'true',
+      esfCnesTeam: raasEsfCoverage === 'S - Sim' ? raasEsfCnesTeam : undefined,
+      destinationCode: raasDestinationCode,
     };
 
     setSavedConsultationId(consultationId);
@@ -3608,6 +3623,18 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                       userApiKey={systemSettings.geminiApiKey || userApiKey}
                       openaiApiKey={systemSettings.openaiApiKey}
                       groqApiKey={systemSettings.groqApiKey}
+                      raasSubstanceUser={raasSubstanceUser}
+                      setRaasSubstanceUser={setRaasSubstanceUser}
+                      raasStreetSituation={raasStreetSituation}
+                      setRaasStreetSituation={setRaasStreetSituation}
+                      raasOriginCode={raasOriginCode}
+                      setRaasOriginCode={setRaasOriginCode}
+                      raasEsfCoverage={raasEsfCoverage}
+                      setRaasEsfCoverage={setRaasEsfCoverage}
+                      raasEsfCnesTeam={raasEsfCnesTeam}
+                      setRaasEsfCnesTeam={setRaasEsfCnesTeam}
+                      raasDestinationCode={raasDestinationCode}
+                      setRaasDestinationCode={setRaasDestinationCode}
                     />
                   )}
                 </section>
@@ -3618,7 +3645,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
                     <OutputCard
                       record={currentRecord}
                       profession={PROFESSIONS[currentRecord.professionId] || PROFESSIONS[selectedProfession] || PROFESSIONS.medico}
-                      patient={selectedPatient}
+                      patient={selectedPatient || (patients && patients[0]) || null}
                       onSaveToTimeline={handleSaveToPatientTimeline}
                       isSavedToTimeline={isRecordSavedToTimeline}
                       initialProcedureCode={selectedIndividualProcedureCode}

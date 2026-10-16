@@ -46,6 +46,18 @@ interface MultimodalInputProps {
   userApiKey?: string;
   openaiApiKey?: string;
   groqApiKey?: string;
+  raasSubstanceUser?: string;
+  setRaasSubstanceUser?: (val: string) => void;
+  raasStreetSituation?: string;
+  setRaasStreetSituation?: (val: string) => void;
+  raasOriginCode?: string;
+  setRaasOriginCode?: (val: string) => void;
+  raasEsfCoverage?: string;
+  setRaasEsfCoverage?: (val: string) => void;
+  raasEsfCnesTeam?: string;
+  setRaasEsfCnesTeam?: (val: string) => void;
+  raasDestinationCode?: string;
+  setRaasDestinationCode?: (val: string) => void;
 }
 
 export const MultimodalInput: React.FC<MultimodalInputProps> = ({
@@ -69,6 +81,18 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
   userApiKey,
   openaiApiKey,
   groqApiKey,
+  raasSubstanceUser = 'Não / Não Se Aplica',
+  setRaasSubstanceUser,
+  raasStreetSituation = 'N - Não',
+  setRaasStreetSituation,
+  raasOriginCode = '01 - DEMANDA ESPONTANEA',
+  setRaasOriginCode,
+  raasEsfCoverage = 'N - Não',
+  setRaasEsfCoverage,
+  raasEsfCnesTeam = '',
+  setRaasEsfCnesTeam,
+  raasDestinationCode = '00 - PERMANENCIA',
+  setRaasDestinationCode,
 }) => {
   const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [isDragOver, setIsDragOver] = useState(false);
@@ -375,6 +399,124 @@ export const MultimodalInput: React.FC<MultimodalInputProps> = ({
             </motion.div>
           )}
         </AnimatePresence>
+
+        {/* Bloco de Seletores de Entrada Específicos do RAAS */}
+        <div id="raas-form-input-block" className="p-4 border-b border-slate-200 dark:border-slate-800 bg-slate-50/70 dark:bg-slate-950/40 space-y-3">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-black uppercase tracking-wider text-teal-800 dark:text-teal-300 flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-teal-500 animate-pulse" />
+              Parâmetros de Admissão & Produção RAAS (Banco 2)
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+            {/* 1. Usuário de Álcool/Drogas */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                Usuário de Álcool e / ou outras Drogas?
+              </label>
+              <select
+                id="select-raas-substance-user"
+                value={raasSubstanceUser}
+                onChange={(e) => setRaasSubstanceUser?.(e.target.value)}
+                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+              >
+                <option value="Não / Não Se Aplica">Não / Não Se Aplica</option>
+                <option value="Álcool">Álcool</option>
+                <option value="Crack">Crack</option>
+                <option value="Outras Drogas">Outras Drogas</option>
+              </select>
+            </div>
+
+            {/* 2. Em situação de rua */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                Em situação de rua?
+              </label>
+              <select
+                id="select-raas-street-situation"
+                value={raasStreetSituation}
+                onChange={(e) => setRaasStreetSituation?.(e.target.value)}
+                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+              >
+                <option value="N - Não">N - Não</option>
+                <option value="S - Sim">S - Sim</option>
+              </select>
+            </div>
+
+            {/* 3. Origem do Usuário */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                Origem do Usuário
+              </label>
+              <select
+                id="select-raas-origin-code"
+                value={raasOriginCode}
+                onChange={(e) => setRaasOriginCode?.(e.target.value)}
+                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+              >
+                <option value="01 - DEMANDA ESPONTANEA">01 - DEMANDA ESPONTANEA</option>
+                <option value="02 - ATENCAO BASICA">02 - ATENCAO BASICA</option>
+                <option value="03 - SERVICO DE URGENCIA">03 - SERVICO DE URGENCIA</option>
+                <option value="04 - OUTRO CAPS">04 - OUTRO CAPS</option>
+                <option value="05 - HOSPITAL DIA">05 - HOSPITAL DIA</option>
+                <option value="06 - HOSPITAL PSIQUIATRICO">06 - HOSPITAL PSIQUIATRICO</option>
+              </select>
+            </div>
+
+            {/* 4. Cobertura ESF */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                Cobertura ESF
+              </label>
+              <select
+                id="select-raas-esf-coverage"
+                value={raasEsfCoverage}
+                onChange={(e) => setRaasEsfCoverage?.(e.target.value)}
+                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+              >
+                <option value="N - Não">N - Não</option>
+                <option value="S - Sim">S - Sim</option>
+              </select>
+            </div>
+
+            {/* 4b. CNES UBSF (Exibido condicionalmente se Cobertura ESF = Sim) */}
+            {raasEsfCoverage === 'S - Sim' && (
+              <div className="space-y-1">
+                <label className="block text-[11px] font-bold text-teal-700 dark:text-teal-300">
+                  CNES UBSF
+                </label>
+                <input
+                  type="text"
+                  id="input-raas-esf-cnes-team"
+                  value={raasEsfCnesTeam}
+                  onChange={(e) => setRaasEsfCnesTeam?.(e.target.value)}
+                  placeholder="Ex: 2408101"
+                  className="w-full text-xs font-mono font-bold px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-teal-400 dark:border-teal-700 text-slate-900 dark:text-white placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none"
+                />
+              </div>
+            )}
+
+            {/* 5. Destino Usuário */}
+            <div className="space-y-1">
+              <label className="block text-[11px] font-bold text-slate-800 dark:text-slate-200">
+                Destino Usuário
+              </label>
+              <select
+                id="select-raas-destination-code"
+                value={raasDestinationCode}
+                onChange={(e) => setRaasDestinationCode?.(e.target.value)}
+                className="w-full text-xs font-semibold px-2.5 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-slate-900 dark:text-white focus:ring-2 focus:ring-teal-500 outline-none cursor-pointer"
+              >
+                <option value="00 - PERMANENCIA">00 - PERMANENCIA</option>
+                <option value="01 - CONTINUIDADE DO ACOMP.EM OUTRO CAPS">01 - CONTINUIDADE DO ACOMP.EM OUTRO CAPS</option>
+                <option value="02 - CONTINUIDADE DO ACOMP.NA ATENCAO BASICA">02 - CONTINUIDADE DO ACOMP.NA ATENCAO BASICA</option>
+                <option value="03 - ALTA">03 - ALTA</option>
+                <option value="04 - OBITO">04 - OBITO</option>
+              </select>
+            </div>
+          </div>
+        </div>
 
         {/* Main Textarea */}
         <div className="p-4">
