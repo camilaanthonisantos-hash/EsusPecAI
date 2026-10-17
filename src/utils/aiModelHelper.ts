@@ -9,6 +9,7 @@ export function getFriendlyModelName(modelId?: string): string {
   // Ollama Local
   if (clean.startsWith('ollama:')) {
     const raw = clean.replace(/^ollama:\s*/i, '');
+    if (raw.includes('llama3.2')) return `Llama 3.2 ${raw.includes('1b') ? '1B' : '3B'} (Ollama Local)`;
     if (raw.includes('llama3-med42')) return 'Llama 3 Med42 8B (Ollama Local)';
     if (raw.includes('medllama2')) return 'MedLlama 2 (Ollama Local)';
     return `Ollama Local (${raw})`;

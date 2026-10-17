@@ -110,6 +110,7 @@ function getFriendlyModelNameServer(modelId) {
   const clean = modelId.trim().toLowerCase();
   if (clean.startsWith("ollama:")) {
     const raw = clean.replace(/^ollama:\s*/i, "");
+    if (raw.includes("llama3.2")) return `Llama 3.2 ${raw.includes("1b") ? "1B" : "3B"} (Ollama Local)`;
     if (raw.includes("llama3-med42")) return "Llama 3 Med42 8B (Ollama Local)";
     if (raw.includes("medllama2")) return "MedLlama 2 (Ollama Local)";
     return `Ollama Local (${raw})`;
@@ -1030,7 +1031,8 @@ app.get("/api/health/ollama", async (req, res) => {
   } catch (err) {
     results.steps.models = { ok: false, error: err?.message || String(err) };
   }
-  const testModel = req.query.model || "medllama2";
+  const detectedModel = results.steps.models?.list?.[0]?.name;
+  const testModel = req.query.model || detectedModel || "llama3.2:3b";
   try {
     const controller3 = new AbortController();
     const t3 = setTimeout(() => controller3.abort(), 12e4);

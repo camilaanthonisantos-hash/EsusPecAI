@@ -73,6 +73,7 @@ export type AIModelId =
   | 'groq:whisper-large-v3-turbo'
   | 'groq:whisper-large-v3'
   | 'ollama:llama3-med42-8b'
+  | 'ollama:llama3.2:3b'
   | 'ollama:medllama2'
   | string;
 
@@ -90,6 +91,17 @@ export interface ModelOption {
 
 export const AVAILABLE_MODELS: ModelOption[] = [
   // 0. OLLAMA LOCAL (CONTAINER DOCKER PECCAPS-NETWORK / OFFLINE)
+  {
+    id: 'ollama:llama3.2:3b',
+    name: 'Llama 3.2 3B (Ollama Local)',
+    badge: 'Local / Otimizado',
+    description: 'Execução 100% local no container Ollama. Otimizado para alta velocidade em CPU com privacidade total.',
+    speed: 'Rápido (Local)',
+    recommendedFor: 'Privacidade máxima, prontuário SOAP e modo offline rápido na VPS',
+    provider: 'ollama',
+    isAudioCapable: false,
+    contextWindow: '8k tokens',
+  },
   {
     id: 'ollama:llama3-med42-8b',
     name: 'Llama 3 Med42 8B (Ollama Local)',
