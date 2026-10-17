@@ -6,6 +6,14 @@ export function getFriendlyModelName(modelId?: string): string {
 
   const clean = modelId.trim().toLowerCase();
 
+  // Ollama Local
+  if (clean.startsWith('ollama:')) {
+    const raw = clean.replace(/^ollama:\s*/i, '');
+    if (raw.includes('llama3-med42')) return 'Llama 3 Med42 8B (Ollama Local)';
+    if (raw.includes('medllama2')) return 'MedLlama 2 (Ollama Local)';
+    return `Ollama Local (${raw})`;
+  }
+
   // OpenRouter Free
   if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') {
     return 'OpenRouter Free (Auto-Roteador)';
@@ -70,7 +78,7 @@ export function getFriendlyModelName(modelId?: string): string {
 
   // Formata fallback
   return modelId
-    .replace(/^(openai:|openrouter:|groq:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
+    .replace(/^(openai:|openrouter:|groq:|ollama:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
@@ -79,9 +87,12 @@ export function getFriendlyModelName(modelId?: string): string {
 /**
  * Retorna o provedor associado ao ID do modelo
  */
-export function getModelProvider(modelId?: string): 'gemini' | 'openai' | 'openrouter' | 'groq' {
+export function getModelProvider(modelId?: string): 'gemini' | 'openai' | 'openrouter' | 'groq' | 'ollama' {
   if (!modelId) return 'gemini';
   const clean = modelId.trim().toLowerCase();
+  if (clean.startsWith('ollama:')) {
+    return 'ollama';
+  }
   if (
     clean.startsWith('openrouter:') ||
     clean.includes('inclusionai') ||
@@ -109,6 +120,11 @@ export function getModelProvider(modelId?: string): 'gemini' | 'openai' | 'openr
 export function getModelProviderBadge(modelId?: string): { label: string; colorClass: string } {
   const provider = getModelProvider(modelId);
   switch (provider) {
+    case 'ollama':
+      return {
+        label: 'Ollama Local',
+        colorClass: 'bg-teal-100 text-teal-700 dark:bg-teal-950/70 dark:text-teal-300 border-teal-300 dark:border-teal-800',
+      };
     case 'openrouter':
       return {
         label: 'OpenRouter',
@@ -135,12 +151,13 @@ export function getModelProviderBadge(modelId?: string): { label: string; colorC
 
 /**
  * Extrai o slug real a ser enviado para a API específica,
- * removendo prefixos como "openrouter:", "openai:", "groq:".
+ * removendo prefixos como "ollama:", "openrouter:", "openai:", "groq:".
  * IMPORTANTE: OpenRouter rejeita com 400 se o prefixo "openrouter:" for mantido.
  */
 export function extractRealModelSlug(modelId?: string): string {
   if (!modelId) return 'gemini-3.7-flash';
   return modelId
+    .replace(/^ollama:\s*/i, '')
     .replace(/^openrouter:\s*/i, '')
     .replace(/^openai:\s*/i, '')
     .replace(/^groq:\s*/i, '')

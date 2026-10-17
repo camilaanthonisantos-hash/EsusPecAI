@@ -88,6 +88,12 @@ function getGeminiClient(userKey?: string): GoogleGenAI {
 function getFriendlyModelNameServer(modelId?: string): string {
   if (!modelId || typeof modelId !== 'string') return 'OpenRouter Free (Auto)';
   const clean = modelId.trim().toLowerCase();
+  if (clean.startsWith('ollama:')) {
+    const raw = clean.replace(/^ollama:\s*/i, '');
+    if (raw.includes('llama3-med42')) return 'Llama 3 Med42 8B (Ollama Local)';
+    if (raw.includes('medllama2')) return 'MedLlama 2 (Ollama Local)';
+    return `Ollama Local (${raw})`;
+  }
   if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') return 'OpenRouter Free (Auto)';
   if (clean.includes('lfm-2.5-2.6b')) return 'Liquid LFM 2.5 2.6B (Free)';
   if (clean.includes('laguna-s-2.1')) return 'Poolside Laguna S 2.1 (Free)';
@@ -132,13 +138,13 @@ function getFriendlyModelNameServer(modelId?: string): string {
   if (clean.includes('mistral-nemo') || clean.includes('mistral')) return 'Mistral Nemo (OpenRouter)';
   if (clean.includes('phi-3')) return 'Microsoft Phi-3 Medium (OpenRouter Free)';
   return modelId
-    .replace(/^(openai:|openrouter:|groq:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
+    .replace(/^(openai:|openrouter:|groq:|ollama:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 }
 
-// Resilient multi-provider fallback executor (Groq / OpenRouter / OpenAI / Google Gemini)
+// Resilient multi-provider fallback executor (Groq / OpenRouter / OpenAI / Google Gemini / Ollama Local)
 interface MultiProviderFallbackParams {
   primaryModelId: string;
   fallbackChain?: string[];
@@ -150,6 +156,7 @@ interface MultiProviderFallbackParams {
   openaiApiKey?: string;
   openrouterApiKey?: string;
   groqApiKey?: string;
+  ollamaBaseUrl?: string;
   onModelTransition?: (info: { currentModel: string; previousModel?: string; isFallback: boolean; reason?: string }) => void;
 }
 
@@ -167,6 +174,7 @@ async function executeMultiProviderWithFallback(
     openaiApiKey: customOpenAiKey,
     openrouterApiKey: customOpenRouterKey,
     groqApiKey: customGroqKey,
+    ollamaBaseUrl: customOllamaUrl,
     onModelTransition,
   } = params;
 
@@ -255,10 +263,11 @@ async function executeMultiProviderWithFallback(
     const candidate = candidateModels[i];
     const previousModel = i > 0 ? candidateModels[i - 1] : undefined;
 
-    const isGroq = candidate.startsWith("groq:") || (candidate.includes("groq/") && !candidate.startsWith("openrouter:"));
-    const isOpenRouter = !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
-    const isOpenAI = !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
-    const isGemini = !isGroq && !isOpenRouter && !isOpenAI;
+    const isOllama = candidate.startsWith("ollama:");
+    const isGroq = !isOllama && (candidate.startsWith("groq:") || (candidate.includes("groq/") && !candidate.startsWith("openrouter:")));
+    const isOpenRouter = !isOllama && !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
+    const isOpenAI = !isOllama && !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
+    const isGemini = !isOllama && !isGroq && !isOpenRouter && !isOpenAI;
 
     if (i > 0 && onModelTransition) {
       onModelTransition({
@@ -267,6 +276,70 @@ async function executeMultiProviderWithFallback(
         isFallback: true,
         reason: `Alternando para modelo de contingência (${getFriendlyModelNameServer(candidate)})`,
       });
+    }
+
+    // -1. OLLAMA LOCAL (CONTAINER DOCKER PECCAPS-NETWORK / OFFLINE)
+    if (isOllama) {
+      const ollamaBaseUrl = (customOllamaUrl || systemSettings.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://ollama:11434").replace(/\/+$/, "");
+      const cleanSlug = candidate.replace(/^ollama:\s*/i, "").trim();
+      console.log(`[AI Cascade] Tentando Ollama Local (${cleanSlug}) em ${ollamaBaseUrl}...`);
+
+      try {
+        const messages: Array<{ role: string; content: string }> = [
+          ...(systemInstruction ? [{ role: "system", content: systemInstruction }] : []),
+          { role: "user", content: userPrompt },
+        ];
+
+        const reqBody: any = {
+          model: cleanSlug,
+          messages,
+          stream: false,
+        };
+
+        if (responseMimeType === "application/json") {
+          reqBody.format = "json";
+        }
+        if (typeof temperature === "number") {
+          reqBody.options = { temperature };
+        }
+
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 120000); // 2 minutos para processamento de inferência local
+
+        const response = await fetch(`${ollamaBaseUrl}/api/chat`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify(reqBody),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          const errText = await response.text().catch(() => "");
+          throw new Error(`Ollama HTTP ${response.status}: ${errText || response.statusText}`);
+        }
+
+        const data: any = await response.json();
+        const outputText = (data?.message?.content || "").trim();
+
+        if (outputText && outputText.length > 0) {
+          console.log(`[AI Cascade] Sucesso com Ollama Local (${cleanSlug})!`);
+          return { text: outputText, modelUsed: candidate };
+        }
+
+        if (data?.error) {
+          throw new Error(data.error || `Erro retornado pelo Ollama no modelo ${cleanSlug}`);
+        }
+
+        throw new Error(`Ollama retornou resposta vazia para o modelo ${cleanSlug}.`);
+      } catch (err: any) {
+        console.warn(`[AI Cascade] Ollama (${cleanSlug}) falhou:`, err?.message || err);
+        lastError = err;
+        continue;
+      }
     }
 
     // 0. GROQ
@@ -447,6 +520,8 @@ async function executeMultiProviderWithFallback(
           console.warn(`[AI Cascade] Chave de API do Gemini inválida ou sem permissão. Pulando demais modelos Gemini na cascata.`);
           while (
             i + 1 < candidateModels.length &&
+            !candidateModels[i + 1].startsWith("ollama:") &&
+            !candidateModels[i + 1].startsWith("groq:") &&
             !candidateModels[i + 1].startsWith("openrouter:") &&
             !candidateModels[i + 1].startsWith("openai:")
           ) {

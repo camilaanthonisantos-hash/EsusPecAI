@@ -72,6 +72,8 @@ export type AIModelId =
   | 'openrouter:openai/o3-mini'
   | 'groq:whisper-large-v3-turbo'
   | 'groq:whisper-large-v3'
+  | 'ollama:llama3-med42-8b'
+  | 'ollama:medllama2'
   | string;
 
 export interface ModelOption {
@@ -81,12 +83,36 @@ export interface ModelOption {
   description: string;
   speed: string;
   recommendedFor: string;
-  provider?: 'gemini' | 'openai' | 'openrouter' | 'groq';
+  provider?: 'gemini' | 'openai' | 'openrouter' | 'groq' | 'ollama';
   isAudioCapable?: boolean;
   contextWindow?: string;
 }
 
 export const AVAILABLE_MODELS: ModelOption[] = [
+  // 0. OLLAMA LOCAL (CONTAINER DOCKER PECCAPS-NETWORK / OFFLINE)
+  {
+    id: 'ollama:llama3-med42-8b',
+    name: 'Llama 3 Med42 8B (Ollama Local)',
+    badge: 'Local / Docker',
+    description: 'Execução 100% local e segura no container Ollama interno (peccaps-network), sem tráfego de dados para nuvem.',
+    speed: 'Ultra Rápido (Local)',
+    recommendedFor: 'Privacidade máxima, prontuário SOAP, modo offline e conformidade LGPD',
+    provider: 'ollama',
+    isAudioCapable: false,
+    contextWindow: '8k tokens',
+  },
+  {
+    id: 'ollama:medllama2',
+    name: 'MedLlama 2 (Ollama Local)',
+    badge: 'Local / Médico',
+    description: 'Modelo local treinado em literatura médica para suporte diagnóstico offline no container Ollama.',
+    speed: 'Rápido (Local)',
+    recommendedFor: 'Análise clínica e contingência offline',
+    provider: 'ollama',
+    isAudioCapable: false,
+    contextWindow: '4k tokens',
+  },
+
   // 1. OPENROUTER ESPECIALIZADO EM SAÚDE & MEDICINA (FREE)
   {
     id: 'openrouter:openrouter/free',
