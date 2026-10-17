@@ -262,7 +262,8 @@ async function executeMultiProviderWithFallback(params) {
     if (isOllama) {
       const ollamaBaseUrl = (customOllamaUrl || systemSettings.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://ollama:11434").replace(/\/+$/, "");
       const cleanSlug = candidate.replace(/^ollama:\s*/i, "").trim();
-      console.log(`[AI Cascade] Tentando Ollama Local (${cleanSlug}) em ${ollamaBaseUrl}...`);
+      const ollamaTimeoutMs = 48e4;
+      console.log(`[AI Cascade] Tentando Ollama Local (${cleanSlug}) em ${ollamaBaseUrl} (timeout: ${ollamaTimeoutMs / 1e3}s)...`);
       try {
         const messages = [
           ...systemInstruction ? [{ role: "system", content: systemInstruction }] : [],
@@ -280,7 +281,8 @@ async function executeMultiProviderWithFallback(params) {
           reqBody.options = { temperature };
         }
         const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), 12e4);
+        const timeoutId = setTimeout(() => controller.abort(), ollamaTimeoutMs);
+        const startTime = Date.now();
         const response = await fetch(`${ollamaBaseUrl}/api/chat`, {
           method: "POST",
           headers: {
@@ -290,6 +292,7 @@ async function executeMultiProviderWithFallback(params) {
           signal: controller.signal
         });
         clearTimeout(timeoutId);
+        const elapsedSec = ((Date.now() - startTime) / 1e3).toFixed(1);
         if (!response.ok) {
           const errText = await response.text().catch(() => "");
           throw new Error(`Ollama HTTP ${response.status}: ${errText || response.statusText}`);
@@ -297,7 +300,7 @@ async function executeMultiProviderWithFallback(params) {
         const data = await response.json();
         const outputText = (data?.message?.content || "").trim();
         if (outputText && outputText.length > 0) {
-          console.log(`[AI Cascade] Sucesso com Ollama Local (${cleanSlug})!`);
+          console.log(`[AI Cascade] Sucesso com Ollama Local (${cleanSlug}) em ${elapsedSec}s!`);
           return { text: outputText, modelUsed: candidate };
         }
         if (data?.error) {
@@ -305,7 +308,8 @@ async function executeMultiProviderWithFallback(params) {
         }
         throw new Error(`Ollama retornou resposta vazia para o modelo ${cleanSlug}.`);
       } catch (err) {
-        console.warn(`[AI Cascade] Ollama (${cleanSlug}) falhou:`, err?.message || err);
+        const isTimeout = err?.name === "AbortError";
+        console.warn(`[AI Cascade] Ollama (${cleanSlug}) falhou${isTimeout ? " (TIMEOUT \u2014 infer\xEAncia demorou demais)" : ""}:`, err?.message || err);
         lastError = err;
         continue;
       }
@@ -992,6 +996,75 @@ app.get("/api/health", (req, res) => {
     service: "e-SUS PEC Multiprofissional AI API",
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   });
+});
+app.get("/api/health/ollama", async (req, res) => {
+  const systemSettings = readStoreData("settings", {});
+  const ollamaBaseUrl = (systemSettings.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://ollama:11434").replace(/\/+$/, "");
+  const results = {
+    ollamaBaseUrl,
+    envVar: process.env.OLLAMA_BASE_URL || "(not set)",
+    settingsVar: systemSettings.ollamaBaseUrl || "(not set)",
+    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
+    steps: {}
+  };
+  try {
+    const controller1 = new AbortController();
+    const t1 = setTimeout(() => controller1.abort(), 1e4);
+    const r1 = await fetch(ollamaBaseUrl, { signal: controller1.signal });
+    clearTimeout(t1);
+    const body1 = await r1.text();
+    results.steps.connectivity = { ok: true, status: r1.status, body: body1.slice(0, 200) };
+  } catch (err) {
+    results.steps.connectivity = { ok: false, error: err?.message || String(err) };
+    results.diagnosis = "FALHA DE CONECTIVIDADE \u2014 o container esus-pec-ai N\xC3O consegue alcan\xE7ar o container ollama. Verifique se ambos est\xE3o na mesma rede Docker (peccaps-network).";
+    return res.json(results);
+  }
+  try {
+    const controller2 = new AbortController();
+    const t2 = setTimeout(() => controller2.abort(), 1e4);
+    const r2 = await fetch(`${ollamaBaseUrl}/api/tags`, { signal: controller2.signal });
+    clearTimeout(t2);
+    const data2 = await r2.json();
+    const models = (data2?.models || []).map((m) => ({ name: m.name, size: m.size, modified: m.modified_at }));
+    results.steps.models = { ok: true, count: models.length, list: models };
+  } catch (err) {
+    results.steps.models = { ok: false, error: err?.message || String(err) };
+  }
+  const testModel = req.query.model || "medllama2";
+  try {
+    const controller3 = new AbortController();
+    const t3 = setTimeout(() => controller3.abort(), 12e4);
+    const startMs = Date.now();
+    const r3 = await fetch(`${ollamaBaseUrl}/api/chat`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        model: testModel,
+        messages: [{ role: "user", content: "Ol\xE1, responda apenas: OK" }],
+        stream: false
+      }),
+      signal: controller3.signal
+    });
+    clearTimeout(t3);
+    const elapsedSec = ((Date.now() - startMs) / 1e3).toFixed(1);
+    if (!r3.ok) {
+      const errText = await r3.text().catch(() => "");
+      results.steps.inference = { ok: false, status: r3.status, error: errText, elapsedSec };
+    } else {
+      const data3 = await r3.json();
+      const output = (data3?.message?.content || "").trim();
+      results.steps.inference = { ok: true, model: testModel, response: output.slice(0, 300), elapsedSec };
+    }
+  } catch (err) {
+    const isTimeout = err?.name === "AbortError";
+    results.steps.inference = { ok: false, model: testModel, error: err?.message || String(err), isTimeout };
+  }
+  if (results.steps.connectivity?.ok && results.steps.models?.ok && results.steps.inference?.ok) {
+    results.diagnosis = "TUDO OK \u2014 Ollama acess\xEDvel, modelos listados e infer\xEAncia funcionando.";
+  } else if (results.steps.connectivity?.ok && results.steps.inference && !results.steps.inference.ok) {
+    results.diagnosis = "CONECTIVIDADE OK mas INFER\xCANCIA FALHOU \u2014 o Ollama responde mas o modelo pode n\xE3o estar carregado ou houve timeout.";
+  }
+  res.json(results);
 });
 app.post("/api/gemini/generate", async (req, res) => {
   const isStream = req.body?.stream === true || req.headers.accept && req.headers.accept.includes("text/event-stream");
