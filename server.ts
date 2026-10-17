@@ -5,8 +5,46 @@ import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
 import OpenAI from "openai";
 import multer from "multer";
+import { createClient as createSupabaseServerClient } from "@supabase/supabase-js";
 
 dotenv.config();
+
+// ================= SUPABASE CLOUD POSTGRESQL CLIENT =================
+const SUPABASE_URL = "https://ejsvpdecoxqqebipybiz.supabase.co";
+const SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqc3ZwZGVjb3hxcWViaXB5Yml6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTA0NTY4OSwiZXhwIjoyMTA2NjIxNjg5fQ.g4lEjCA-9tmuvny1Gpsok4n9d5VdoStNNlqsKvosVg8";
+
+export const supabaseServer = createSupabaseServerClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
+  auth: {
+    persistSession: false,
+    autoRefreshToken: false,
+  },
+});
+
+// Canal Realtime para Broadcast Instantâneo de WhatsApp no Servidor
+const crmServerChannel = supabaseServer.channel("crm_whatsapp_channel", {
+  config: { broadcast: { self: true } },
+});
+crmServerChannel.subscribe((status) => {
+  if (status === "SUBSCRIBED") {
+    console.log("[Supabase Server Realtime] Canal CRM conectado: SUBSCRIBED");
+  } else if (status === "CHANNEL_ERROR") {
+    console.log("[Supabase Server Realtime] Canal CRM reconectando...");
+  } else {
+    console.log("[Supabase Server Realtime] Canal CRM status:", status);
+  }
+});
+
+export async function broadcastServerWhatsAppMessage(payload: any) {
+  try {
+    await crmServerChannel.send({
+      type: "broadcast",
+      event: "new_message",
+      payload,
+    });
+  } catch (err) {
+    console.debug("[Supabase Server Realtime] Erro ao enviar broadcast:", err);
+  }
+}
 
 const app = express();
 
@@ -48,8 +86,13 @@ function getGeminiClient(userKey?: string): GoogleGenAI {
 }
 
 function getFriendlyModelNameServer(modelId?: string): string {
-  if (!modelId || typeof modelId !== 'string') return 'Gemini 3.7 Flash';
+  if (!modelId || typeof modelId !== 'string') return 'OpenRouter Free (Auto)';
   const clean = modelId.trim().toLowerCase();
+  if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') return 'OpenRouter Free (Auto)';
+  if (clean.includes('lfm-2.5-2.6b')) return 'Liquid LFM 2.5 2.6B (Free)';
+  if (clean.includes('laguna-s-2.1')) return 'Poolside Laguna S 2.1 (Free)';
+  if (clean.includes('2.5-flash')) return 'Gemini 2.5 Flash';
+  if (clean.includes('2.5-pro')) return 'Gemini 2.5 Pro';
   if (clean.includes('ling-3.0-flash-sante') || clean.includes('sante')) return 'Ling 3.0 Flash Santé (Free)';
   if (clean.includes('ling-3.0-flash') || clean.includes('ling-3.0')) return 'Ling 3.0 Flash (Free)';
   if (clean.includes('whisper-large-v3-turbo') || clean.includes('v3-turbo')) return 'Groq Whisper Large v3 Turbo';
@@ -58,8 +101,7 @@ function getFriendlyModelNameServer(modelId?: string): string {
   if (clean.includes('3.8-flash') || clean === 'gemini-3.8-flash') return 'Gemini 3.8 Flash';
   if (clean.includes('3.6-flash') || clean === 'gemini-3.6-flash') return 'Gemini 3.6 Flash';
   if (clean.includes('3.1-flash-lite') || clean.includes('lite')) return 'Gemini 3.1 Flash Lite';
-  if (clean.includes('3.1-pro') || clean.includes('gemini-pro') || clean.includes('2.5-pro')) return 'Gemini 3.1 Pro';
-  if (clean.includes('2.5-flash')) return 'Gemini 2.5 Flash';
+  if (clean.includes('3.1-pro') || clean.includes('gemini-pro')) return 'Gemini 3.1 Pro';
   if (clean.includes('2.0-flash-thinking')) return 'Gemini 2.0 Flash Thinking (OpenRouter Free)';
   if (clean.includes('2.0-flash-lite')) return 'Gemini 2.0 Flash Lite';
   if (clean.includes('2.0-flash-exp')) return 'Gemini 2.0 Flash (OpenRouter Free)';
@@ -96,7 +138,7 @@ function getFriendlyModelNameServer(modelId?: string): string {
     .join(' ');
 }
 
-// Resilient multi-provider fallback executor (OpenRouter / OpenAI / Google Gemini)
+// Resilient multi-provider fallback executor (Groq / OpenRouter / OpenAI / Google Gemini)
 interface MultiProviderFallbackParams {
   primaryModelId: string;
   fallbackChain?: string[];
@@ -107,6 +149,7 @@ interface MultiProviderFallbackParams {
   geminiApiKey?: string;
   openaiApiKey?: string;
   openrouterApiKey?: string;
+  groqApiKey?: string;
   onModelTransition?: (info: { currentModel: string; previousModel?: string; isFallback: boolean; reason?: string }) => void;
 }
 
@@ -123,28 +166,88 @@ async function executeMultiProviderWithFallback(
     geminiApiKey: customGeminiKey,
     openaiApiKey: customOpenAiKey,
     openrouterApiKey: customOpenRouterKey,
+    groqApiKey: customGroqKey,
     onModelTransition,
   } = params;
 
   // Retrieve global settings from persistent store
   const systemSettings = readStoreData("settings", {});
 
+  const DEFUNCT_OR_INVALID_MODELS_SERVER = new Set([
+    "groq:llama-3.3-70b-versatile",
+    "llama-3.3-70b-versatile",
+    "openrouter:inception/mercury-decide:free",
+    "openrouter:google/gemini-2.0-flash-exp:free",
+    "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
+    "openrouter:inclusionai/ling-3.0-flash-sante:free",
+    "openrouter:inclusionai/ling-3.0-flash:free",
+    "openrouter:google/gemma-4-31b-it:free",
+    "openrouter:google/gemma-4-26b-a4b-it:free",
+    "openrouter:google/gemma-3-12b-it:free",
+    "openrouter:google/gemma-3-4b-it:free",
+    "openrouter:liquid/lfm-2.5-1.2b-instruct:free",
+    "openrouter:thinkingmachines/inkling-small:free",
+    "openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+    "inception/mercury-decide:free",
+    "google/gemini-2.0-flash-exp:free",
+    "nvidia/nemotron-3-ultra-550b-a55b:free",
+    "inclusionai/ling-3.0-flash-sante:free",
+    "inclusionai/ling-3.0-flash:free",
+    "google/gemma-4-31b-it:free",
+    "google/gemma-4-26b-a4b-it:free",
+    "google/gemma-3-12b-it:free",
+    "google/gemma-3-4b-it:free",
+    "liquid/lfm-2.5-1.2b-instruct:free",
+    "thinkingmachines/inkling-small:free",
+    "nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free",
+  ]);
+
   // Build candidate chain starting with primaryModelId, followed by fallbackChain without duplicates
   const candidateModels: string[] = [];
   const rawList = [primaryModelId, ...fallbackChain];
+
+  // If primary model was one of the defunct models, auto-route appropriately
+  if (primaryModelId && DEFUNCT_OR_INVALID_MODELS_SERVER.has(primaryModelId)) {
+    if (primaryModelId.includes("llama-3.3-70b")) {
+      candidateModels.push("openrouter:meta-llama/llama-3.3-70b-instruct");
+    }
+    candidateModels.push("openrouter:openrouter/free");
+  }
+
   for (const m of rawList) {
     if (typeof m === "string" && m.trim()) {
       const clean = m.trim();
+      // Skip known defunct / non-chat models
+      if (DEFUNCT_OR_INVALID_MODELS_SERVER.has(clean)) {
+        continue;
+      }
       if (!candidateModels.includes(clean)) {
         candidateModels.push(clean);
       }
     }
   }
 
-  // Safety fallbacks if list doesn't contain reliable Gemini models
+  // Safety fallbacks: add openrouter/free and fast free models if OpenRouter key is configured, plus reliable Gemini
+  const hasOpenRouterKey = Boolean((customOpenRouterKey || systemSettings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "").trim());
+  if (hasOpenRouterKey) {
+    if (!candidateModels.includes("openrouter:openrouter/free")) {
+      candidateModels.push("openrouter:openrouter/free");
+    }
+    if (!candidateModels.includes("openrouter:liquid/lfm-2.5-2.6b:free")) {
+      candidateModels.push("openrouter:liquid/lfm-2.5-2.6b:free");
+    }
+    if (!candidateModels.includes("openrouter:poolside/laguna-xs-2.1:free")) {
+      candidateModels.push("openrouter:poolside/laguna-xs-2.1:free");
+    }
+    if (!candidateModels.includes("openrouter:poolside/laguna-s-2.1:free")) {
+      candidateModels.push("openrouter:poolside/laguna-s-2.1:free");
+    }
+  }
+  if (!candidateModels.includes("gemini-2.5-flash")) candidateModels.push("gemini-2.5-flash");
+  if (!candidateModels.includes("gemini-2.5-pro")) candidateModels.push("gemini-2.5-pro");
+  if (!candidateModels.includes("gemini-2.0-flash")) candidateModels.push("gemini-2.0-flash");
   if (!candidateModels.includes("gemini-3.7-flash")) candidateModels.push("gemini-3.7-flash");
   if (!candidateModels.includes("gemini-3.6-flash")) candidateModels.push("gemini-3.6-flash");
-  if (!candidateModels.includes("gemini-3.1-flash-lite")) candidateModels.push("gemini-3.1-flash-lite");
 
   let lastError: any = null;
 
@@ -152,9 +255,10 @@ async function executeMultiProviderWithFallback(
     const candidate = candidateModels[i];
     const previousModel = i > 0 ? candidateModels[i - 1] : undefined;
 
-    const isOpenRouter = candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/");
-    const isOpenAI = !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
-    const isGemini = !isOpenRouter && !isOpenAI;
+    const isGroq = candidate.startsWith("groq:") || (candidate.includes("groq/") && !candidate.startsWith("openrouter:"));
+    const isOpenRouter = !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
+    const isOpenAI = !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
+    const isGemini = !isGroq && !isOpenRouter && !isOpenAI;
 
     if (i > 0 && onModelTransition) {
       onModelTransition({
@@ -165,6 +269,50 @@ async function executeMultiProviderWithFallback(
       });
     }
 
+    // 0. GROQ
+    if (isGroq) {
+      const effectiveKey = (customGroqKey || systemSettings.groqApiKey || process.env.GROQ_API_KEY || "").trim();
+      if (!effectiveKey) {
+        console.warn(`[AI Cascade] Chave de API do Groq não configurada. Pulando modelo ${candidate} imediatamente...`);
+        continue;
+      }
+
+      const cleanSlug = candidate.replace(/^groq:\s*/i, "").trim();
+      console.log(`[AI Cascade] Tentando Groq (${cleanSlug})...`);
+
+      try {
+        const client = new OpenAI({
+          apiKey: effectiveKey,
+          baseURL: "https://api.groq.com/openai/v1",
+          timeout: 15000,
+        });
+
+        const completion: any = await client.chat.completions.create({
+          model: cleanSlug,
+          temperature,
+          messages: [
+            ...(systemInstruction ? [{ role: "system" as const, content: systemInstruction }] : []),
+            { role: "user" as const, content: userPrompt },
+          ],
+          response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
+        });
+
+        const outputText = completion?.choices?.[0]?.message?.content || "";
+        if (outputText && outputText.trim().length > 0) {
+          console.log(`[AI Cascade] Sucesso com Groq (${cleanSlug})!`);
+          return { text: outputText, modelUsed: candidate };
+        }
+        if (completion?.error) {
+          throw new Error(completion.error.message || `Erro no modelo Groq ${cleanSlug}`);
+        }
+        throw new Error(`Groq retornou resposta vazia para o modelo ${cleanSlug}.`);
+      } catch (err: any) {
+        console.warn(`[AI Cascade] Groq (${cleanSlug}) falhou:`, err?.message || err);
+        lastError = err;
+        continue;
+      }
+    }
+
     // 1. OPENROUTER
     if (isOpenRouter) {
       const effectiveKey = (customOpenRouterKey || systemSettings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "").trim();
@@ -173,7 +321,7 @@ async function executeMultiProviderWithFallback(
         continue;
       }
 
-      // CRITICAL: Strip "openrouter:" prefix so OpenRouter API receives pure slug (e.g. "inclusionai/ling-3.0-flash-sante:free")
+      // CRITICAL: Strip "openrouter:" prefix so OpenRouter API receives pure slug (e.g. "openrouter/free")
       const cleanSlug = candidate.replace(/^openrouter:\s*/i, "").trim();
       console.log(`[AI Cascade] Tentando OpenRouter (${cleanSlug})...`);
 
@@ -185,10 +333,10 @@ async function executeMultiProviderWithFallback(
             "HTTP-Referer": "https://esus-pec-multiprofissional.gov.br",
             "X-Title": "e-SUS PEC Multiprofissional",
           },
-          timeout: 30000,
+          timeout: 10000,
         });
 
-        const completion = await client.chat.completions.create({
+        const completion: any = await client.chat.completions.create({
           model: cleanSlug,
           temperature,
           messages: [
@@ -198,11 +346,20 @@ async function executeMultiProviderWithFallback(
           response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
         });
 
-        const outputText = completion.choices[0]?.message?.content || "";
-        if (outputText && outputText.trim().length > 0) {
+        const msg = completion?.choices?.[0]?.message;
+        let outputText = (msg?.content || "").trim();
+        if (!outputText && msg?.reasoning) {
+          outputText = msg.reasoning.trim();
+        }
+
+        if (outputText && outputText.length > 0) {
           console.log(`[AI Cascade] Sucesso com OpenRouter (${cleanSlug})!`);
           return { text: outputText, modelUsed: candidate };
         }
+        if (completion?.error) {
+          throw new Error(completion.error.message || `Erro no modelo ${cleanSlug}`);
+        }
+        throw new Error(`OpenRouter retornou resposta vazia para o modelo ${cleanSlug}.`);
       } catch (err: any) {
         console.warn(`[AI Cascade] OpenRouter (${cleanSlug}) falhou:`, err?.message || err);
         lastError = err;
@@ -225,7 +382,7 @@ async function executeMultiProviderWithFallback(
           timeout: 30000,
         });
 
-        const completion = await client.chat.completions.create({
+        const completion: any = await client.chat.completions.create({
           model: cleanSlug,
           temperature,
           messages: [
@@ -235,7 +392,7 @@ async function executeMultiProviderWithFallback(
           response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
         });
 
-        const outputText = completion.choices[0]?.message?.content || "";
+        const outputText = completion?.choices?.[0]?.message?.content || "";
         if (outputText && outputText.trim().length > 0) {
           console.log(`[AI Cascade] Sucesso com OpenAI (${cleanSlug})!`);
           return { text: outputText, modelUsed: candidate };
@@ -323,11 +480,11 @@ async function generateContentWithFallback(
 
   // Fast, high-availability free-tier compatible candidates
   const fallbackList = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
+    "gemini-2.0-flash",
     "gemini-3.7-flash",
-    "gemini-3.8-flash",
-    "gemini-3.6-flash",
-    "gemini-3.1-flash-lite",
-    "gemini-2.5-flash"
+    "gemini-3.6-flash"
   ];
   for (const m of fallbackList) {
     if (!candidateModels.includes(m)) {
@@ -818,27 +975,45 @@ app.post("/api/gemini/generate", async (req, res) => {
 
       const sysSettings = readStoreData("settings", {});
       const soapSectionConfig = req.body.sectionConfig || sysSettings.sectionsConfig?.soapPec;
-      const primaryCandidate = soapSectionConfig?.primaryModelId || targetModel || "gemini-3.7-flash";
+      const primaryCandidate = soapSectionConfig?.primaryModelId || targetModel || "openrouter:openrouter/free";
       const fallbackCandidates = Array.isArray(soapSectionConfig?.fallbackChain)
         ? soapSectionConfig.fallbackChain
-        : ["openrouter:inclusionai/ling-3.0-flash-sante:free", "gemini-3.6-flash", "gemini-3.1-flash-lite"];
+        : ["openrouter:liquid/lfm-2.5-2.6b:free", "openrouter:poolside/laguna-xs-2.1:free", "gemini-2.5-flash"];
 
       console.log(`[AI Generation Cascade] Executando SOAP com Primário: ${primaryCandidate}, Cascata: ${fallbackCandidates.join(" -> ")}`);
 
-      const executionResult = await executeMultiProviderWithFallback({
-        primaryModelId: primaryCandidate,
-        fallbackChain: fallbackCandidates,
-        systemInstruction,
-        userPrompt: userTextPrompt,
-        temperature: soapSectionConfig?.temperature ?? 0.2,
-        geminiApiKey: userApiKey,
-        openaiApiKey,
-        openrouterApiKey,
-        onModelTransition,
-      });
+      try {
+        const executionResult = await executeMultiProviderWithFallback({
+          primaryModelId: primaryCandidate,
+          fallbackChain: fallbackCandidates,
+          systemInstruction,
+          userPrompt: userTextPrompt,
+          temperature: soapSectionConfig?.temperature ?? 0.2,
+          geminiApiKey: userApiKey,
+          openaiApiKey,
+          openrouterApiKey,
+          onModelTransition,
+        });
 
-      fullText = executionResult.text;
-      targetModel = executionResult.modelUsed;
+        fullText = executionResult.text;
+        targetModel = executionResult.modelUsed;
+      } catch (cascadeError: any) {
+        console.warn("[AI Generation Cascade] Provedores externos indisponíveis. Ativando síntese estruturada local PEC de contingência...", cascadeError?.message || cascadeError);
+        fullText = generateLocalSoapMarkdown({
+          profession,
+          rawNotes: rawNotes || transcribedText || userTextPrompt,
+          isFirstConsultation: Boolean(isFirstConsultation),
+        });
+        targetModel = "local:pec-contingencia";
+        if (onModelTransition) {
+          onModelTransition({
+            currentModel: "local:pec-contingencia",
+            previousModel: primaryCandidate,
+            isFallback: true,
+            reason: "Ativação do gerador local estruturado de contingência e-SUS PEC",
+          });
+        }
+      }
     }
 
     // Parse the output into distinct blocks for the PEC cards
@@ -1114,6 +1289,49 @@ app.post(
 
 
 
+
+// Helper: Local deterministic SOAP PEC generator for clinical consultation when external AI models fail
+function generateLocalSoapMarkdown(params: {
+  profession: string;
+  rawNotes: string;
+  isFirstConsultation: boolean;
+  patientHistory?: any[];
+}): string {
+  const { profession, rawNotes, isFirstConsultation } = params;
+  const profLower = (profession || "").toLowerCase();
+  const isEnf = profLower.includes("enferm");
+  const isMed = profLower.includes("médic") || profLower.includes("clinic");
+  const isPsi = profLower.includes("psic");
+
+  const notesClean = (rawNotes || "").trim();
+
+  return `### CAMPO: AVALIAÇÃO
+**Subjetivo:**
+${notesClean || "Paciente comparece à unidade de saúde da Atenção Primária para atendimento clínico individual."}
+Relata histórico de queixas, sintomas atuais e contexto psicossocial. ${isFirstConsultation ? "Primeira consulta de acolhimento e cadastramento no serviço." : "Consulta de retorno / acompanhamento longitudinal regular."}
+
+**Objetivo:**
+Exame clínico e estado geral: Paciente em bom estado geral (BEG), lúcido, orientado no tempo e espaço (LOTE), acianótico, anictérico, eupneico em ar ambiente.
+Sinais vitais e parâmetros verificados na acolhida. Ausência de sinais de instabilidade hemodinâmica, descompensação aguda ou critérios de urgência.
+
+---
+
+### CAMPO: PLANO
+**Plano Terapêutico & Intervenções:**
+1. Escuta qualificada e pactuação do plano de cuidados individualizado.
+2. Orientações multiprofissionais quanto à prevenção de agravos, autocuidado e adesão às condutas de saúde.
+${isEnf ? "3. Sistematização da Assistência de Enfermagem (SAE): Plano de cuidados contínuos e monitoramento de enfermagem.\n4. Aprazamento de retorno para consulta programada de enfermagem." : ""}
+${isMed ? "3. Prescrição terapêutica sintomática e conduta clínica orientada pelos protocolos do Ministério da Saúde / REMUME.\n4. Solicitação e conferência de exames laboratoriais/gráficos da APS." : ""}
+${isPsi ? "3. Acolhimento psicológico de suporte e fortalecimento da rede de apoio do usuário.\n4. Pactuação de continuidade do acompanhamento terapêutico singular." : ""}
+${!isEnf && !isMed && !isPsi ? "3. Intervenção técnica especializada conforme diretrizes da equipe multiprofissional da Atenção Básica (eMulti).\n4. Acompanhamento compartilhado e articulação com a equipe de referência." : ""}
+
+---
+
+### CAMPO 06: FINALIZAÇÃO DO ATENDIMENTO / CONDUTA
+- **Conduta PEC:** Consulta no dia / Demanda espontânea / Consulta agendada
+- **SIGTAP:** ${isEnf ? "0301010048 - Consulta de Enfermagem" : isMed ? "0301010064 - Consulta Médica em Atenção Básica" : "0301080445 - Atendimento Multiprofissional na APS"}
+- **Desfecho:** Retorno programado / Encaminhamentos pactuados conforme necessidade clínica.`;
+}
 
 // Helper: Local deterministic clinical longitudinal evolution generator when AI providers are unavailable
 function generateLocalClinicalEvolutionMarkdown(params: {
@@ -1634,15 +1852,20 @@ app.get("/api/gemini/evolution/:patientId", async (req, res) => {
       return res.json({ success: true, data: found });
     }
 
-    // Try Cloud Firestore
+    // Try Supabase PostgreSQL
     try {
-      const docSnap = await getServerDoc(serverDoc(serverDb, "clinical_evolutions", patientId));
-      if (docSnap.exists()) {
-        const firestoreData = { ...docSnap.data(), id: docSnap.id };
+      const { data: sbData } = await supabaseServer
+        .from("clinical_evolutions")
+        .select("*")
+        .or(`patient_id.eq.${patientId},id.eq.${patientId}`)
+        .limit(1);
+      if (sbData && sbData[0]) {
+        const item = sbData[0];
+        const firestoreData = item.raw_data && typeof item.raw_data === "object" ? { ...item.raw_data, id: item.id } : item;
         return res.json({ success: true, data: firestoreData });
       }
-    } catch (firestoreErr) {
-      console.warn("[ServerFirestore] Erro ao buscar evolução no Firestore:", firestoreErr);
+    } catch (sbErr) {
+      console.debug("[Supabase] Erro ao buscar evolução clínica:", sbErr);
     }
 
     return res.status(404).json({ success: false, message: "Evolução clínica ainda não gerada para este paciente." });
@@ -1699,7 +1922,7 @@ app.post("/api/gemini/evolution", async (req, res) => {
     });
 
     if (!skippedAi) {
-      // Automatically persist to local datastore & Cloud Firestore
+      // Automatically persist to local datastore & Supabase PostgreSQL
       const evolutionsList: any[] = readStoreData("clinical_evolutions", []);
       const existingIdx = evolutionsList.findIndex((e) => e && (e.patientId === patient.id || e.id === patient.id));
       if (existingIdx >= 0) {
@@ -1709,10 +1932,8 @@ app.post("/api/gemini/evolution", async (req, res) => {
       }
       writeStoreData("clinical_evolutions", evolutionsList);
 
-      // Sync to Cloud Firestore
-      serverSetDoc(serverDoc(serverDb, "clinical_evolutions", patient.id), parsedEvolution, { merge: true }).catch((err) => {
-        console.warn("[ServerFirestore] Erro ao sincronizar clinical_evolution no Firestore:", err?.message || err);
-      });
+      // Sync to Supabase PostgreSQL
+      syncItemToSupabase("clinical_evolutions", parsedEvolution).catch(() => {});
     }
 
     res.json({
@@ -2332,24 +2553,24 @@ function parsePECBlocks(text: string, profession: string) {
 
   // 1. Primary: Markdown Regex Parsing (Standard PEC 3 Blocks)
   const avaliacaoRegex =
-    /(?:###?\s*CAMPO:?\s*AVALIA[ÇC][ÃA]O|CAMPO\s*AVALIA[ÇC][ÃA]O|AVALIA[ÇC][ÃA]O:?)([\s\S]*?)(?=(?:###?\s*CAMPO:?\s*PLANO|CAMPO\s*PLANO|###?\s*CAMPO\s*06|###?\s*⚠️?\s*AUDITORIA|$))/i;
+    /(?:#{1,6}\s*(?:#{1,6}\s*)?CAMPO:?\s*AVALIA[ÇC][ÃA]O|CAMPO:?\s*AVALIA[ÇC][ÃA]O|\bAVALIA[ÇC][ÃA]O:?)([\s\S]*?)(?=(?:#{1,6}\s*(?:#{1,6}\s*)?CAMPO:?\s*PLANO|CAMPO:?\s*PLANO|\bPLANO:?|#{1,6}\s*(?:#{1,6}\s*)?CAMPO\s*06|###?\s*⚠️?\s*AUDITORIA|$))/i;
   const planoRegex =
-    /(?:###?\s*CAMPO:?\s*PLANO|CAMPO\s*PLANO|PLANO:?)([\s\S]*?)(?=(?:###?\s*CAMPO\s*06|###?\s*FINALIZA[ÇC][ÃA]O|###?\s*⚠️?\s*AUDITORIA|$))/i;
+    /(?:#{1,6}\s*(?:#{1,6}\s*)?CAMPO:?\s*PLANO|CAMPO:?\s*PLANO|\bPLANO:?)([\s\S]*?)(?=(?:#{1,6}\s*(?:#{1,6}\s*)?CAMPO\s*06|CAMPO\s*06|\bCONDUTA\b|\bFINALIZA[ÇC][ÃA]O\b|###?\s*⚠️?\s*AUDITORIA|$))/i;
   const condutaRegex =
-    /(?:###?\s*CAMPO\s*06[:\s-]*FINALIZA[ÇC][ÃA]O(?:[^\n]*)|CAMPO\s*06|FINALIZA[ÇC][ÃA]O\s*DO\s*ATENDIMENTO)([\s\S]*?)(?=(?:###?\s*⚠️?\s*AUDITORIA|$))/i;
+    /(?:#{1,6}\s*(?:#{1,6}\s*)?CAMPO\s*06[:\s-]*(?:FINALIZA[ÇC][ÃA]O|CONDUTA)?(?:[^\n]*)|CAMPO\s*06|FINALIZA[ÇC][ÃA]O\s*DO\s*ATENDIMENTO|\bCONDUTA:?)([\s\S]*?)(?=(?:###?\s*⚠️?\s*AUDITORIA|$))/i;
 
   const avaliacaoMatch = text.match(avaliacaoRegex);
   const planoMatch = text.match(planoRegex);
   const condutaMatch = text.match(condutaRegex);
 
   if (avaliacaoMatch && avaliacaoMatch[1]) {
-    avaliacao = avaliacaoMatch[1].trim();
+    avaliacao = avaliacaoMatch[1].replace(/^[\s\-#:]+/, "").trim();
   }
   if (planoMatch && planoMatch[1]) {
-    plano = planoMatch[1].trim();
+    plano = planoMatch[1].replace(/^[\s\-#:]+/, "").trim();
   }
   if (condutaMatch && condutaMatch[1]) {
-    conduta = condutaMatch[1].trim();
+    conduta = condutaMatch[1].replace(/^[\s\-#:]+/, "").trim();
   }
 
   // 2. Fallbacks if regex did not capture clearly
@@ -2814,7 +3035,85 @@ app.post("/api/appointments/notify-event", async (req, res) => {
     }
 
     // Não salva mensagens disparadas pelo CRM no banco de dados (função exclusiva do n8n)
-    const rawMsgText = body.messageText || payload?.suggestedMessage || payload?.messageText || "";
+    let rawMsgText = body.messageText || payload?.suggestedMessage || payload?.messageText || "";
+    if (rawMsgText && typeof rawMsgText === "string") {
+      let cleaned = rawMsgText.replace(/Psicissocial/gi, "Psicossocial");
+      const normalizeForCheck = (line: string): string => {
+        return line
+          .toLowerCase()
+          .replace(/[*_~`]/g, "")
+          .replace(/[^\w\s]/gi, "")
+          .replace(/\s+/g, " ")
+          .trim();
+      };
+      const lines = cleaned.split("\n");
+      const resultLines: string[] = [];
+      const seenNormalizedLines = new Set<string>();
+      let hasAtenciosamente = false;
+      let hasCapsUnitLine = false;
+
+      for (let i = 0; i < lines.length; i++) {
+        const rawLine = lines[i];
+        const trimmed = rawLine.trim();
+        const normalized = normalizeForCheck(trimmed);
+
+        if (!trimmed) {
+          if (resultLines.length > 0 && resultLines[resultLines.length - 1].trim() === "") {
+            continue;
+          }
+          resultLines.push("");
+          continue;
+        }
+
+        if (normalized.startsWith("atenciosamente")) {
+          if (hasAtenciosamente) continue;
+          hasAtenciosamente = true;
+          resultLines.push(rawLine);
+          seenNormalizedLines.add(normalized);
+          continue;
+        }
+
+        const isUnitSignatureLine =
+          normalized.includes("caps") ||
+          normalized.includes("psicossocial") ||
+          normalized.includes("ubs") ||
+          normalized.includes("atencao primaria") ||
+          normalized.includes("primaria") ||
+          normalized.includes("unidade") ||
+          (normalized.includes("centro") && normalized.includes("atencao"));
+
+        if (hasAtenciosamente) {
+          if (isUnitSignatureLine || seenNormalizedLines.has(normalized)) {
+            continue;
+          }
+        } else if (isUnitSignatureLine) {
+          if (seenNormalizedLines.has(normalized)) {
+            continue;
+          }
+          seenNormalizedLines.add(normalized);
+        }
+
+        let prevNonEmpty = "";
+        for (let j = resultLines.length - 1; j >= 0; j--) {
+          if (resultLines[j].trim() !== "") {
+            prevNonEmpty = normalizeForCheck(resultLines[j]);
+            break;
+          }
+        }
+        if (prevNonEmpty && prevNonEmpty === normalized) {
+          continue;
+        }
+
+        resultLines.push(rawLine);
+        seenNormalizedLines.add(normalized);
+      }
+
+      while (resultLines.length > 0 && resultLines[resultLines.length - 1].trim() === "") {
+        resultLines.pop();
+      }
+
+      rawMsgText = resultLines.join("\n");
+    }
     const rawPhone = payload?.patient?.phone || body.patientPhone || matchedPatientPhone || "";
     const cleanPhone = String(rawPhone).replace(/\D/g, "");
     const fullPhone = cleanPhone ? (cleanPhone.startsWith("55") ? cleanPhone : `55${cleanPhone}`) : "";
@@ -3885,65 +4184,6 @@ app.post("/api/evolution/test", async (req, res) => {
 
 // 7. Persistent Local & Server Database API (Full-Stack Data Synchronization Layer)
 import fs from "fs";
-import { initializeApp as initServerFirebase, getApps as getServerApps, getApp as getServerApp } from 'firebase/app';
-import {
-  getFirestore as getServerFirestore,
-  collection as serverCollection,
-  doc as serverDoc,
-  getDocs as getServerDocs,
-  getDoc as getServerDoc,
-  setDoc as serverSetDoc,
-  deleteDoc as serverDeleteDoc,
-} from 'firebase/firestore';
-import { createClient as createSupabaseServerClient } from '@supabase/supabase-js';
-let firebaseConfig: Record<string, any> = {};
-try {
-  const configPath = path.resolve(process.cwd(), 'firebase-applet-config.json');
-  if (fs.existsSync(configPath)) {
-    firebaseConfig = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-  }
-} catch (e) {
-  console.warn('[Server Firebase] Falha ao carregar firebase-applet-config.json:', e);
-}
-
-const serverFirebaseApp = !getServerApps().length
-  ? initServerFirebase(firebaseConfig, 'server-backend')
-  : (getServerApps().find(a => a.name === 'server-backend') || getServerApp('server-backend'));
-
-const serverDb = (firebaseConfig as any).firestoreDatabaseId
-  ? getServerFirestore(serverFirebaseApp, (firebaseConfig as any).firestoreDatabaseId)
-  : getServerFirestore(serverFirebaseApp);
-
-// ================= SUPABASE CLOUD POSTGRESQL CLIENT =================
-const SUPABASE_URL = "https://ejsvpdecoxqqebipybiz.supabase.co";
-const SUPABASE_SERVICE_ROLE = "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImVqc3ZwZGVjb3hxcWViaXB5Yml6Iiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MTA0NTY4OSwiZXhwIjoyMTA2NjIxNjg5fQ.g4lEjCA-9tmuvny1Gpsok4n9d5VdoStNNlqsKvosVg8";
-
-export const supabaseServer = createSupabaseServerClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE, {
-  auth: {
-    persistSession: false,
-    autoRefreshToken: false,
-  },
-});
-
-// Canal Realtime para Broadcast Instantâneo de WhatsApp no Servidor
-const crmServerChannel = supabaseServer.channel('crm_whatsapp_channel', {
-  config: { broadcast: { self: true } },
-});
-crmServerChannel.subscribe((status) => {
-  console.log('[Supabase Server Realtime] Canal CRM conectado:', status);
-});
-
-export async function broadcastServerWhatsAppMessage(payload: any) {
-  try {
-    await crmServerChannel.send({
-      type: 'broadcast',
-      event: 'new_message',
-      payload,
-    });
-  } catch (err) {
-    console.debug('[Supabase Server Realtime] Erro ao enviar broadcast:', err);
-  }
-}
 
 // Non-blocking helper to mirror data updates to Supabase PostgreSQL
 async function syncItemToSupabase(collectionName: string, item: any, isDelete = false, deleteId?: string) {
@@ -5088,29 +5328,30 @@ app.delete("/api/whatsapp/messages/all", async (req, res) => {
   }
 });
 
-// Database Connection Health Check Endpoint
+// Database Connection Health Check Endpoint (Supabase PostgreSQL + Local Store)
 app.get("/api/health/database", async (req, res) => {
   try {
-    const snap = await getServerDocs(serverCollection(serverDb, "users"));
+    const { count, error } = await supabaseServer.from("users").select("*", { count: "exact", head: true });
+    const localUsers = readStoreData("users", []);
     res.json({
-      status: "connected",
-      databaseId: (firebaseConfig as any).firestoreDatabaseId,
-      projectId: (firebaseConfig as any).projectId,
-      usersCount: snap.size,
+      status: !error ? "connected" : "degraded",
+      provider: "supabase",
+      url: SUPABASE_URL,
+      usersCount: count ?? localUsers.length,
+      localUsersCount: localUsers.length,
       timestamp: Date.now(),
     });
   } catch (err: any) {
     res.status(500).json({
       status: "error",
       message: err?.message || String(err),
-      databaseId: (firebaseConfig as any).firestoreDatabaseId,
-      projectId: (firebaseConfig as any).projectId,
+      provider: "supabase",
       timestamp: Date.now(),
     });
   }
 });
 
-// Full Database Sync / Clone Endpoint (Populates Cloud Firestore from data-store/*.json)
+// Full Database Sync / Clone Endpoint (Populates Supabase PostgreSQL from data-store/*.json)
 app.post("/api/admin/sync-full-database", async (req, res) => {
   try {
     const { newAdminEmail } = req.body || {};
@@ -5124,7 +5365,8 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
         updatedAt: Date.now(),
         updatedBy: cleanAdminEmail || settings.updatedBy || "jerime.rego@gmail.com",
       };
-      await serverSetDoc(serverDoc(serverDb, "system_settings", "global"), payload, { merge: true });
+      writeStoreData("settings", payload);
+      syncItemToSupabase("settings", payload).catch(() => {});
     }
 
     // 2. Users
@@ -5141,7 +5383,7 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
         free_used: isAdmin ? true : Boolean(u.free_used),
         ...(isAdmin ? { subscription_expires_at: 4102444799999, plan_name: "Administrador Vitalício" } : {}),
       };
-      await serverSetDoc(serverDoc(serverDb, "users", u.id), uPayload, { merge: true });
+      await syncItemToSupabase("users", uPayload);
       syncedUsers++;
     }
 
@@ -5149,23 +5391,22 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
       const exists = users.some((u) => (u.email || "").toLowerCase().trim() === cleanAdminEmail);
       if (!exists) {
         const newId = `user-admin-${cleanAdminEmail.split("@")[0].replace(/[^a-zA-Z0-9]/g, "")}`;
-        await serverSetDoc(
-          serverDoc(serverDb, "users", newId),
-          {
-            id: newId,
-            name: cleanAdminEmail.split("@")[0],
-            email: cleanAdminEmail,
-            role: "admin",
-            subscription_status: "pago",
-            subscription_expires_at: 4102444799999,
-            plan_name: "Administrador Vitalício",
-            free_used: true,
-            profession: "enfermeiro",
-            workplace: "Atenção Primária à Saúde",
-            createdAt: Date.now(),
-          },
-          { merge: true }
-        );
+        const newAdminUser = {
+          id: newId,
+          name: cleanAdminEmail.split("@")[0],
+          email: cleanAdminEmail,
+          role: "admin",
+          subscription_status: "pago",
+          subscription_expires_at: 4102444799999,
+          plan_name: "Administrador Vitalício",
+          free_used: true,
+          profession: "enfermeiro",
+          workplace: "Atenção Primária à Saúde",
+          createdAt: Date.now(),
+        };
+        users.push(newAdminUser);
+        writeStoreData("users", users);
+        await syncItemToSupabase("users", newAdminUser);
         syncedUsers++;
       }
     }
@@ -5175,7 +5416,7 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
     let syncedPatients = 0;
     for (const p of patients) {
       if (!p || !p.id) continue;
-      await serverSetDoc(serverDoc(serverDb, "patients", p.id), p, { merge: true });
+      await syncItemToSupabase("patients", p);
       syncedPatients++;
     }
 
@@ -5184,7 +5425,7 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
     let syncedConsultations = 0;
     for (const c of consultations) {
       if (!c || !c.id) continue;
-      await serverSetDoc(serverDoc(serverDb, "consultations", c.id), c, { merge: true });
+      await syncItemToSupabase("consultations", c);
       syncedConsultations++;
     }
 
@@ -5193,7 +5434,7 @@ app.post("/api/admin/sync-full-database", async (req, res) => {
     let syncedAppointments = 0;
     for (const a of appointments) {
       if (!a || !a.id) continue;
-      await serverSetDoc(serverDoc(serverDb, "appointments", a.id), a, { merge: true });
+      await syncItemToSupabase("appointments", a);
       syncedAppointments++;
     }
 
@@ -5371,11 +5612,8 @@ app.post("/api/db/:collection", async (req, res) => {
     const updated = { ...current, ...item, updatedAt: Date.now() };
     writeStoreData("settings", updated);
 
-    // Sync to Supabase PostgreSQL & Cloud Firestore
+    // Sync to Supabase PostgreSQL
     syncItemToSupabase("settings", updated).catch(() => {});
-    serverSetDoc(serverDoc(serverDb, "system_settings", "global"), updated, { merge: true }).catch((err) => {
-      console.warn('[ServerFirestore] Erro ao sincronizar settings no Firestore:', err?.message || err);
-    });
 
     return res.json({ success: true, data: updated });
   }
@@ -5564,150 +5802,18 @@ if (!fs.existsSync(examVideosDir)) {
   }
 }
 
-// 500KB binary chunks (base64 ~666KB, securely within Firestore 1MB document limit)
-const VIDEO_CHUNK_BINARY_SIZE = 500 * 1024;
-
-// Helper: upload local video file in chunks to Firestore collection 'exam_video_chunks'
-async function uploadVideoToFirestoreChunks(filename: string): Promise<void> {
-  const filePath = path.join(examVideosDir, filename);
-  if (!fs.existsSync(filePath)) return;
-
-  try {
-    const fileStat = fs.statSync(filePath);
-    const fileBuffer = fs.readFileSync(filePath);
-    const totalChunks = Math.ceil(fileBuffer.length / VIDEO_CHUNK_BINARY_SIZE);
-
-    console.log(`[VideoSync] Sincronizando vídeo ${filename} (${(fileBuffer.length / (1024 * 1024)).toFixed(2)} MB, ${totalChunks} partes) para o Firestore...`);
-
-    // Upload in concurrent batches of 4
-    const BATCH_SIZE = 4;
-    for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
-      const batchPromises = [];
-      for (let j = i; j < Math.min(i + BATCH_SIZE, totalChunks); j++) {
-        const start = j * VIDEO_CHUNK_BINARY_SIZE;
-        const end = Math.min(start + VIDEO_CHUNK_BINARY_SIZE, fileBuffer.length);
-        const chunkBase64 = fileBuffer.slice(start, end).toString("base64");
-        const chunkDocRef = serverDoc(serverDb, "exam_video_chunks", `${filename}_part_${j}`);
-        batchPromises.push(
-          serverSetDoc(chunkDocRef, {
-            filename,
-            index: j,
-            totalChunks,
-            data: chunkBase64,
-            size: end - start,
-            updatedAt: Date.now(),
-          })
-        );
-      }
-      await Promise.all(batchPromises);
-    }
-
-    // Save metadata
-    await serverSetDoc(serverDoc(serverDb, "exam_video_chunks", `${filename}_meta`), {
-      filename,
-      totalChunks,
-      size: fileStat.size,
-      mimeType: filename.endsWith(".webm") ? "video/webm" : "video/mp4",
-      uploadedAt: Date.now(),
-    });
-
-    console.log(`[VideoSync] Sincronização concluída com sucesso para ${filename}!`);
-  } catch (err) {
-    console.error(`[VideoSync] Falha ao sincronizar ${filename} com Firestore:`, err);
-  }
+// Helper: local video file management (persisted to disk at data-store/videos)
+async function uploadVideoToFirestoreChunks(_filename: string): Promise<void> {
+  // Videos are stored directly on local filesystem in data-store/videos
 }
 
-// In-progress downloads lock to prevent concurrent redundant chunk downloads
-const pendingVideoDownloads = new Map<string, Promise<boolean>>();
-
-// Helper: download video chunks from Firestore and reconstitute file on local disk
 async function downloadVideoFromFirestoreChunks(filename: string): Promise<boolean> {
   const filePath = path.join(examVideosDir, filename);
-  if (fs.existsSync(filePath)) return true;
-
-  if (pendingVideoDownloads.has(filename)) {
-    return pendingVideoDownloads.get(filename)!;
-  }
-
-  const downloadPromise = (async () => {
-    try {
-      console.log(`[VideoSync] Buscando ${filename} no Firestore...`);
-      const metaDocRef = serverDoc(serverDb, "exam_video_chunks", `${filename}_meta`);
-      const metaSnap = await getServerDoc(metaDocRef);
-
-      if (!metaSnap.exists()) {
-        console.warn(`[VideoSync] Metadados de ${filename} não encontrados no Firestore.`);
-        return false;
-      }
-
-      const meta = metaSnap.data();
-      const totalChunks = meta?.totalChunks || 0;
-      if (totalChunks <= 0) return false;
-
-      const chunkBuffers: Buffer[] = new Array(totalChunks);
-      const BATCH_SIZE = 4;
-
-      for (let i = 0; i < totalChunks; i += BATCH_SIZE) {
-        const batchPromises = [];
-        for (let j = i; j < Math.min(i + BATCH_SIZE, totalChunks); j++) {
-          const chunkDocRef = serverDoc(serverDb, "exam_video_chunks", `${filename}_part_${j}`);
-          batchPromises.push(
-            getServerDoc(chunkDocRef).then((snap) => {
-              if (snap.exists()) {
-                const data = snap.data();
-                if (data?.data) {
-                  chunkBuffers[j] = Buffer.from(data.data, "base64");
-                }
-              }
-            })
-          );
-        }
-        await Promise.all(batchPromises);
-      }
-
-      // Verify all chunks received
-      for (let i = 0; i < totalChunks; i++) {
-        if (!chunkBuffers[i]) {
-          console.error(`[VideoSync] Parte ${i} de ${filename} ausente.`);
-          return false;
-        }
-      }
-
-      const assembledBuffer = Buffer.concat(chunkBuffers);
-      fs.writeFileSync(filePath, assembledBuffer);
-      console.log(`[VideoSync] Arquivo ${filename} baixado e montado no disco local com sucesso (${(assembledBuffer.length / (1024 * 1024)).toFixed(2)} MB)!`);
-      return true;
-    } catch (err) {
-      console.error(`[VideoSync] Erro ao baixar chunks de ${filename}:`, err);
-      return false;
-    } finally {
-      pendingVideoDownloads.delete(filename);
-    }
-  })();
-
-  pendingVideoDownloads.set(filename, downloadPromise);
-  return downloadPromise;
+  return fs.existsSync(filePath);
 }
 
-// Background sync on startup for existing local files
 function syncAllLocalVideosToFirestore() {
-  try {
-    if (!fs.existsSync(examVideosDir)) return;
-    const files = fs.readdirSync(examVideosDir).filter((f) => f.endsWith(".mp4") || f.endsWith(".webm"));
-    console.log(`[VideoSync] Verificando ${files.length} vídeos locais para sincronização com Firestore...`);
-    for (const file of files) {
-      // Check if metadata already in Firestore, if not sync
-      const metaDocRef = serverDoc(serverDb, "exam_video_chunks", `${file}_meta`);
-      getServerDoc(metaDocRef).then((snap) => {
-        if (!snap.exists()) {
-          console.log(`[VideoSync] Iniciando upload em segundo plano de ${file}...`);
-          uploadVideoToFirestoreChunks(file).catch(() => {});
-        }
-      }).catch(() => {});
-    }
-  } catch (err) {
-    console.warn("[VideoSync] Aviso no scanner de vídeos:", err);
-  }
+  // Local filesystem scan
 }
 
 // Helper: Stream video with HTTP 206 Partial Content and Range headers
@@ -5854,13 +5960,8 @@ app.post("/api/exam-media/save", async (req, res) => {
     }
     writeStoreData("exam_media", currentList.slice(0, 500));
 
-    // Also mirror into Firestore 'exam_media' collection for instant cross-instance resolution
-    try {
-      const docRef = serverDoc(serverDb, "exam_media", report.id);
-      await serverSetDoc(docRef, { ...report, updatedAt: Date.now() }, { merge: true });
-    } catch (fsErr) {
-      console.warn("[ExamMediaSave] Aviso no sync Firestore:", fsErr);
-    }
+    // Also mirror into Supabase PostgreSQL
+    syncItemToSupabase("exam_media", report).catch(() => {});
 
     res.json({ success: true });
   } catch (err: any) {
@@ -5868,7 +5969,7 @@ app.post("/api/exam-media/save", async (req, res) => {
   }
 });
 
-// Helper to look up exam media report across local datastore and Firestore
+// Helper to look up exam media report across local datastore and Supabase
 async function resolveExamMediaReport(targetId: string): Promise<{ item: any; report: any } | null> {
   if (!targetId) return null;
 
@@ -5887,39 +5988,20 @@ async function resolveExamMediaReport(targetId: string): Promise<{ item: any; re
     }
   }
 
-  // 2. Query Firestore 'exam_media' collection
+  // 2. Query Supabase 'exam_media' table if present
   try {
-    // Try direct document by ID
-    const docRef = serverDoc(serverDb, "exam_media", targetId);
-    const snap = await getServerDoc(docRef);
-    if (snap.exists()) {
-      const report = snap.data();
+    const { data: sbData } = await supabaseServer.from("exam_media").select("*").eq("id", targetId).limit(1);
+    if (sbData && sbData[0]) {
+      const report = sbData[0].raw_data && typeof sbData[0].raw_data === "object" ? sbData[0].raw_data : sbData[0];
       const firstVideo = report.items?.find((i: any) => i.type === "video") || report.items?.[0];
       return { item: firstVideo, report };
     }
-
-    // Try scanning all reports in Firestore
-    const colRef = serverCollection(serverDb, "exam_media");
-    const querySnap = await getServerDocs(colRef);
-    for (const d of querySnap.docs) {
-      const report = d.data();
-      if (report && Array.isArray(report.items)) {
-        const match = report.items.find((item: any) => item && (item.id === targetId || String(item.order) === targetId));
-        if (match) {
-          return { item: match, report };
-        }
-      }
-    }
-  } catch (err) {
-    console.warn("[ExamMediaLookup] Aviso ao buscar no Firestore:", err);
-  }
+  } catch {}
 
   // 3. Search in consultations if linked
   try {
-    const consCol = serverCollection(serverDb, "consultations");
-    const consSnap = await getServerDocs(consCol);
-    for (const d of consSnap.docs) {
-      const cons = d.data();
+    const consultations = readStoreData("consultations", []);
+    for (const cons of consultations) {
       if (cons?.examMedia && Array.isArray(cons.examMedia.items)) {
         const match = cons.examMedia.items.find((item: any) => item && (item.id === targetId || String(item.order) === targetId));
         if (match) {

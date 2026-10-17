@@ -1,10 +1,12 @@
 import { Appointment, PixTransactionRecord, SystemSettings } from '../types';
+import { cleanDuplicateSignatureLines } from '../utils/textFormatters';
 
 export type NotificationEventType =
   | 'pix_created'
   | 'appointment_confirmed'
   | 'appointment_cancelled'
   | 'appointment_rescheduled'
+  | 'appointment_reminder'
   | 'reminder_daily'
   | 'reminder_30m'
   | 'reminder_10m';
@@ -189,7 +191,8 @@ export function buildNotificationPayload(
       break;
     }
 
-    case 'reminder_daily': {
+    case 'reminder_daily':
+    case 'appointment_reminder': {
       const now = new Date();
       const hour = now.getHours();
       let greeting = 'Bom dia';
@@ -199,7 +202,7 @@ export function buildNotificationPayload(
         greeting = 'Boa noite';
       }
 
-      let dateShort = dateFormatted;
+      let dateFull = dateFormatted;
       let weekday = '';
       let remainingText = 'em breve';
       if (rawDate) {
@@ -214,8 +217,9 @@ export function buildNotificationPayload(
               parseInt(hStr || '8', 10),
               parseInt(minStr || '0', 10)
             );
-            dateShort = `${parts[2]}/${parts[1]}/${parts[0].slice(-2)}`;
-            weekday = dObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+            dateFull = `${parts[2]}/${parts[1]}/${parts[0]}`;
+            const rawWd = dObj.toLocaleDateString('pt-BR', { weekday: 'long' });
+            weekday = rawWd.charAt(0).toUpperCase() + rawWd.slice(1);
 
             const diffMs = dObj.getTime() - now.getTime();
             if (diffMs > 0) {
@@ -236,10 +240,13 @@ export function buildNotificationPayload(
 
       const profTitle = appointment?.professionalProfession || 'Profissional de Saúde';
       const profDisplay = `*${professionalName}* (*${profTitle}*)`;
+      const finalUnit = (unitName || 'CAPS (Centro de Atenção Psicossocial)').trim();
 
-      suggestedMessage =
-        `*${greeting}* *${patientName}*, não deixe de comparecer na sua consulta com ${profDisplay} no dia *${dateShort}* - *${weekday}* às *${startTime}*, restando *${remainingText}*.\n\n` +
-        `Atenciosamente,`;
+      suggestedMessage = cleanDuplicateSignatureLines(
+        `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com ${profDisplay} no dia *${dateFull} - ${weekday}* às *${startTime}*, restando ${remainingText}. Por favor, chegue pelo menos *30 minutos* antes da hora da consulta.\n\n` +
+        `Atente-se em sempre consultar as mensagens. Pois, pode ter mudanças de dia e horário de acordo com possíveis desistências.\n\n` +
+        `Atenciosamente,`
+      );
       break;
     }
 

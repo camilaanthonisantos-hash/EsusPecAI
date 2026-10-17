@@ -6,55 +6,54 @@ import { getFriendlyModelName, getModelProvider } from './aiModelHelper';
  */
 export const DEFAULT_SECTIONS_CONFIG: AppAISectionsConfig = {
   soapPec: {
-    primaryModelId: 'gemini-3.7-flash',
+    primaryModelId: 'openrouter:openrouter/free',
     fallbackChain: [
-      'openrouter:inclusionai/ling-3.0-flash-sante:free',
-      'gemini-3.6-flash',
-      'gemini-3.1-flash-lite',
+      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'openrouter:poolside/laguna-s-2.1:free',
+      'gemini-2.5-flash',
       'openai:gpt-4o-mini',
     ],
     temperature: 0.2,
   },
   timelineLongitudinal: {
-    primaryModelId: 'openai:gpt-4o',
+    primaryModelId: 'openrouter:openrouter/free',
     fallbackChain: [
-      'gemini-3.7-flash',
-      'openrouter:meta-llama/llama-3.3-70b-instruct',
-      'openrouter:inclusionai/ling-3.0-flash-sante:free',
-      'gemini-3.6-flash',
+      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'gemini-2.5-flash',
+      'openai:gpt-4o',
     ],
     temperature: 0.2,
   },
   officialReports: {
-    primaryModelId: 'gemini-3.7-flash',
+    primaryModelId: 'openrouter:openrouter/free',
     fallbackChain: [
-      'openrouter:inclusionai/ling-3.0-flash-sante:free',
+      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'gemini-2.5-flash',
       'openai:gpt-4o-mini',
-      'gemini-3.6-flash',
     ],
     temperature: 0.2,
   },
   medicalCertificates: {
-    primaryModelId: 'gemini-3.7-flash',
+    primaryModelId: 'openrouter:openrouter/free',
     fallbackChain: [
-      'openrouter:inclusionai/ling-3.0-flash-sante:free',
-      'gemini-3.1-flash-lite',
+      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'gemini-2.5-flash',
     ],
     temperature: 0.3,
   },
   examResults: {
-    primaryModelId: 'gemini-3.7-flash',
+    primaryModelId: 'openrouter:openrouter/free',
     fallbackChain: [
-      'openrouter:inclusionai/ling-3.0-flash-sante:free',
-      'gemini-3.1-pro-preview',
+      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'gemini-2.5-flash',
     ],
     temperature: 0.2,
   },
   audioTranscription: {
     primaryModelId: 'groq:whisper-large-v3-turbo',
     fallbackChain: [
+      'openrouter:openrouter/free',
       'groq:whisper-large-v3',
-      'gemini-3.7-flash',
       'gemini-2.5-flash',
     ],
     temperature: 0.0,
@@ -117,18 +116,52 @@ export const CLINICAL_SECTIONS_META: SectionMeta[] = [
   },
 ];
 
+export const DEFUNCT_OR_INVALID_MODELS = new Set([
+  'openrouter:inception/mercury-decide:free',
+  'openrouter:google/gemini-2.0-flash-exp:free',
+  'openrouter:google/gemini-2.0-flash-thinking-exp:free',
+  'openrouter:nvidia/nemotron-3-ultra-550b-a55b:free',
+  'openrouter:nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'openrouter:inclusionai/ling-3.0-flash-sante:free',
+  'openrouter:inclusionai/ling-3.0-flash:free',
+  'openrouter:google/gemma-4-31b-it:free',
+  'openrouter:google/gemma-4-26b-a4b-it:free',
+  'openrouter:google/gemma-3-12b-it:free',
+  'openrouter:google/gemma-3-4b-it:free',
+  'openrouter:liquid/lfm-2.5-1.2b-instruct:free',
+  'openrouter:thinkingmachines/inkling-small:free',
+  'inception/mercury-decide:free',
+  'google/gemini-2.0-flash-exp:free',
+  'google/gemini-2.0-flash-thinking-exp:free',
+  'nvidia/nemotron-3-ultra-550b-a55b:free',
+  'nvidia/nemotron-3-nano-omni-30b-a3b-reasoning:free',
+  'inclusionai/ling-3.0-flash-sante:free',
+  'inclusionai/ling-3.0-flash:free',
+  'google/gemma-4-31b-it:free',
+  'google/gemma-4-26b-a4b-it:free',
+  'google/gemma-3-12b-it:free',
+  'google/gemma-3-4b-it:free',
+  'liquid/lfm-2.5-1.2b-instruct:free',
+  'thinkingmachines/inkling-small:free',
+]);
+
 /**
  * Sanitiza a lista de fallback garantindo:
  * 1. Não conter IDs nulos ou vazios
  * 2. Não conter o modelo primário (evita loop redundante)
  * 3. Não conter itens duplicados
+ * 4. Filtrar modelos descontinuados ou incompatíveis com chat
  */
 export function sanitizeFallbackChain(primaryModelId: string, fallbackChain?: string[]): string[] {
-  if (!Array.isArray(fallbackChain)) return [];
+  if (!Array.isArray(fallbackChain)) return ['openrouter:openrouter/free'];
   const cleanPrimary = (primaryModelId || '').trim();
   const filtered = fallbackChain
     .map((id) => (typeof id === 'string' ? id.trim() : ''))
-    .filter((id) => id && id !== cleanPrimary);
+    .filter((id) => id && id !== cleanPrimary && !DEFUNCT_OR_INVALID_MODELS.has(id));
+
+  if (!filtered.includes('openrouter:openrouter/free') && cleanPrimary !== 'openrouter:openrouter/free') {
+    filtered.unshift('openrouter:openrouter/free');
+  }
   return Array.from(new Set(filtered));
 }
 
@@ -152,9 +185,15 @@ export function ensureSectionsConfig(loadedConfig?: Partial<AppAISectionsConfig>
       return { ...defaultSection, fallbackChain: [...defaultSection.fallbackChain] };
     }
 
-    const primaryModelId = (typeof rawSection.primaryModelId === 'string' && rawSection.primaryModelId.trim())
+    let primaryModelId = (typeof rawSection.primaryModelId === 'string' && rawSection.primaryModelId.trim())
       ? rawSection.primaryModelId.trim()
       : defaultSection.primaryModelId;
+
+    if (DEFUNCT_OR_INVALID_MODELS.has(primaryModelId)) {
+      primaryModelId = defaultSection.primaryModelId.startsWith('openrouter:')
+        ? 'openrouter:openrouter/free'
+        : defaultSection.primaryModelId;
+    }
 
     const rawChain = Array.isArray(rawSection.fallbackChain)
       ? rawSection.fallbackChain
@@ -228,7 +267,9 @@ export function getAvailableModelsForSection(
     }
   }
 
-  const allCombined = Array.from(modelMap.values());
+  const allCombined = Array.from(modelMap.values()).filter(
+    (m) => !DEFUNCT_OR_INVALID_MODELS.has(m.id)
+  );
 
   if (sectionKey === 'audioTranscription') {
     return allCombined.filter((m) => m.isAudioCapable === true || m.id.includes('whisper') || m.id.includes('gemini'));

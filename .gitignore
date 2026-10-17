@@ -11,3 +11,5 @@ cookies*.txt
 *.local.*
 data-store/*.local.*
 data-store/videos/
+data-store/*.json
+

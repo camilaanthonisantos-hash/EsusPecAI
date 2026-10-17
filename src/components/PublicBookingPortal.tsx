@@ -60,9 +60,7 @@ import {
   getPatientByCpf,
   creditPatientBalance,
   deductPatientBalance,
-  db,
 } from '../services/firebase';
-import { doc, getDoc } from 'firebase/firestore';
 import { safeSetItem } from '../utils/safeStorage';
 import { SpecularButton } from './SpecularButton';
 
@@ -840,11 +838,12 @@ export const PublicBookingPortal: React.FC<PublicBookingPortalProps> = ({
 
     const pollInterval = setInterval(async () => {
       try {
-        const docRef = doc(db, 'subscriptions', activePixOrder.id);
-        const snap = await getDoc(docRef);
-        if (snap.exists()) {
-          const tx = snap.data() as PixTransactionRecord;
-          if (tx.status === 'pago') {
+        const res = await fetch('/api/db/subscriptions');
+        if (res.ok) {
+          const json = await res.json();
+          const list = Array.isArray(json?.data) ? json.data : [];
+          const tx = list.find((s: any) => s && s.id === activePixOrder.id);
+          if (tx && tx.status === 'pago') {
             handlePaymentConfirmed(tx);
           }
         }
@@ -867,19 +866,21 @@ export const PublicBookingPortal: React.FC<PublicBookingPortalProps> = ({
       const data = JSON.parse(saved);
       if (data && data.orderId && data.expiresAt) {
         if (Date.now() < data.expiresAt) {
-          const docRef = doc(db, 'subscriptions', data.orderId);
-          getDoc(docRef).then((snap) => {
-            if (snap.exists()) {
-              const tx = snap.data() as PixTransactionRecord;
-              if (tx.status === 'pago') {
-                handlePaymentConfirmed(tx);
-              } else if (tx.status === 'pendente') {
-                setActivePixOrder(tx);
-                setPixData({
-                  pixQrCode: tx.pixQrCode,
-                  pixCopiaECola: tx.pixCopiaECola,
-                  pixId: tx.pixId,
-                });
+          fetch('/api/db/subscriptions')
+            .then((r) => r.json())
+            .then((json) => {
+              const list = Array.isArray(json?.data) ? json.data : [];
+              const tx = list.find((s: any) => s && s.id === data.orderId);
+              if (tx) {
+                if (tx.status === 'pago') {
+                  handlePaymentConfirmed(tx);
+                } else if (tx.status === 'pendente') {
+                  setActivePixOrder(tx);
+                  setPixData({
+                    pixQrCode: tx.pixQrCode,
+                    pixCopiaECola: tx.pixCopiaECola,
+                    pixId: tx.pixId,
+                  });
                 if (data.selectedProfId) setSelectedProfId(data.selectedProfId);
                 if (data.selectedServiceId) setSelectedServiceId(data.selectedServiceId);
                 if (data.selectedDate) setSelectedDate(data.selectedDate);

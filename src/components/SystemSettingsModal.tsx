@@ -103,6 +103,7 @@ import {
   decodeSupabaseKeyRole,
 } from '../services/secondarySupabase';
 import { isProfessionalAvailableForBooking } from '../services/calendar';
+import { cleanDuplicateSignatureLines } from '../utils/textFormatters';
 import { resetUserSubscriptionAndPixForTesting } from '../services/firebase';
 import { ProfessionalRegisterInputs } from './ProfessionalRegisterInputs';
 import { WorkplaceSelectInput } from './WorkplaceSelectInput';
@@ -1107,8 +1108,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
 
     try {
       const callbackUrl = `${window.location.origin}/api/appointments/button-action-callback`;
-      const testMsg = `Olá, Paciente Teste! Lembramos que sua consulta de Lembrete PEC-CAPS está agendada para hoje às 14:30 com ${currentUser.name || 'Profissional de Saúde'}.\n\nPara confirmar sua presença, clique no botão abaixo ou responda a esta mensagem.\n\nAtenciosamente,`;
-
       const fullName = (currentUser?.name || '').trim();
       const nameParts = fullName ? fullName.split(/\s+/).filter(Boolean) : [];
       const firstName = nameParts.length > 0 ? nameParts[0] : '';
@@ -1117,6 +1116,14 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
         ? getProfessionalProfessionTitle(currentUser, currentUser.profession) || currentUser.profession
         : '';
       const unitLotacao = currentUser?.workplace || defaultUnitName || 'Unidade de Atendimento e-SUS PEC';
+
+      const testHour = new Date().getHours();
+      const testGreeting = testHour >= 12 && testHour < 18 ? 'Boa tarde' : (testHour >= 18 || testHour < 5 ? 'Boa noite' : 'Bom dia');
+      const testMsg = cleanDuplicateSignatureLines(
+        `${testGreeting} *Paciente Teste*, não deixe de comparecer na sua consulta com *${currentUser?.name || 'Profissional de Saúde'}* (*${professionTitle || 'Especialidade'}*) no dia *19/10/2026 - Segunda-feira* às *14:30*, restando 2 dias e 4 horas. Por favor, chegue pelo menos *30 minutos* antes da hora da consulta.\n\n` +
+        `Atente-se em sempre consultar as mensagens. Pois, pode ter mudanças de dia e horário de acordo com possíveis desistências.\n\n` +
+        `Atenciosamente,`
+      );
 
       const enrichedSenderUser = currentUser
         ? {
@@ -2855,10 +2862,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                           );
                           // Subdivisão OpenRouter para navegação ágil
                           const openrouterFreeModels = openrouterModels.filter(
-                            (m) => m.id.endsWith(':free') || m.badge?.toLowerCase().includes('free') || m.id.includes('sante')
+                            (m) => (m.id.endsWith(':free') || m.badge?.toLowerCase().includes('free') || m.id.includes('sante')) && !medicalModels.includes(m)
                           );
                           const openrouterProModels = openrouterModels.filter(
-                            (m) => !openrouterFreeModels.includes(m)
+                            (m) => !openrouterFreeModels.includes(m) && !medicalModels.includes(m)
                           );
                           // 3. Google Gemini (Nativo)
                           const geminiModels = sectionAvailableModels.filter(

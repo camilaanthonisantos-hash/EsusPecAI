@@ -1,6 +1,7 @@
 import { Appointment, AvailableTimeSlot, ScheduleConfig, User, ProfessionalService } from '../types';
 import { DEFAULT_SCHEDULE_CONFIG, getDefaultServicesForProfession } from '../data/defaultSchedule';
 import { getProfessionalProfessionTitle } from '../data/professions';
+import { cleanDuplicateSignatureLines } from '../utils/textFormatters';
 
 /**
  * Checks if a given Google Calendar ID is a valid secondary calendar.
@@ -288,6 +289,7 @@ export function formatAppointmentDateAndWeekday(dateStr?: string, startTimeStr?:
   if (!dateStr) {
     return {
       dateShort: 'Hoje',
+      dateFull: 'Hoje',
       weekday: '',
       appointmentDate: null as Date | null,
     };
@@ -314,15 +316,18 @@ export function formatAppointmentDateAndWeekday(dateStr?: string, startTimeStr?:
   const appointmentDate = (y && m && d) ? new Date(y, m - 1, d, h, min) : null;
   const dd = String(d).padStart(2, '0');
   const mm = String(m).padStart(2, '0');
-  const aa = String(y).slice(-2);
+  const yyyy = String(y || new Date().getFullYear());
+  const aa = yyyy.slice(-2);
   const dateShort = `${dd}/${mm}/${aa}`;
+  const dateFull = `${dd}/${mm}/${yyyy}`;
 
   let weekday = '';
   if (appointmentDate) {
-    weekday = appointmentDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+    const rawWd = appointmentDate.toLocaleDateString('pt-BR', { weekday: 'long' });
+    weekday = rawWd.charAt(0).toUpperCase() + rawWd.slice(1);
   }
 
-  return { dateShort, weekday, appointmentDate };
+  return { dateShort, dateFull, weekday, appointmentDate };
 }
 
 /**
@@ -381,20 +386,23 @@ export function formatRemainingTimeToAppointment(targetDate: Date | null, fromDa
 
 /**
  * Builds standard plain text WhatsApp reminder message conforming to official template:
- * "[Bom dia ou Boa tarde ou boa noite] [Nome da paciente], não deixe de comparecer na sua consulta com [Nome do profissional] ([profissão]) no dia [dd/mm/aa] - [dia da semana] às [hh:mm], restando [tempo restante].
+ * "{Saudação} *{Nome do Paciente}*, não deixe de comparecer na sua consulta com *{Profissional}* (*{Especialidade}*) no dia *{Data} - {Dia da Semana}* às *{Hora}*, restando {Tempo Restante}. Por favor, chegue pelo menos *30 minutos* antes da hora da consulta.
  *
- * Atenciosamente,"
+ * Atente-se em sempre consultar as mensagens. Pois, pode ter mudanças de dia e horário de acordo com possíveis desistências.
+ *
+ * Atenciosamente,
+ * CAPS (Centro de Atenção Psicossocial)"
  */
 export function buildWhatsAppReminderMessageText(
   appointment: Appointment,
   professionalObj?: User,
-  _currentUser?: User | null,
-  _unitName?: string
+  currentUser?: User | null,
+  unitName?: string
 ): string {
   const greeting = getGreetingForCurrentTime();
   const patientName = appointment.patientName || 'Paciente';
 
-  const { dateShort, weekday, appointmentDate } = formatAppointmentDateAndWeekday(
+  const { dateFull, weekday, appointmentDate } = formatAppointmentDateAndWeekday(
     appointment.date,
     appointment.startTime
   );
@@ -409,10 +417,18 @@ export function buildWhatsAppReminderMessageText(
   const startTime = appointment.startTime || '08:00';
   const remainingTime = formatRemainingTimeToAppointment(appointmentDate);
 
-  return (
-    `*${greeting}* *${patientName}*, não deixe de comparecer na sua consulta com *${professionalName}* (*${profTitle}*) no dia *${dateShort}* - *${weekday}* às *${startTime}*, restando *${remainingTime}*.\n\n` +
-    `Atenciosamente,`
-  );
+  const finalUnitName = (
+    unitName ||
+    currentUser?.workplace ||
+    'CAPS (Centro de Atenção Psicossocial)'
+  ).trim();
+
+  const rawMsg =
+    `${greeting} *${patientName}*, não deixe de comparecer na sua consulta com *${professionalName}* (*${profTitle}*) no dia *${dateFull} - ${weekday}* às *${startTime}*, restando ${remainingTime}. Por favor, chegue pelo menos *30 minutos* antes da hora da consulta.\n\n` +
+    `Atente-se em sempre consultar as mensagens. Pois, pode ter mudanças de dia e horário de acordo com possíveis desistências.\n\n` +
+    `Atenciosamente,`;
+
+  return cleanDuplicateSignatureLines(rawMsg);
 }
 
 /**

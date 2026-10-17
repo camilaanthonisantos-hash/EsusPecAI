@@ -6,6 +6,11 @@ export function getFriendlyModelName(modelId?: string): string {
 
   const clean = modelId.trim().toLowerCase();
 
+  // OpenRouter Free
+  if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') {
+    return 'OpenRouter Free (Auto-Roteador)';
+  }
+
   // Saúde / Médico
   if (clean.includes('ling-3.0-flash-sante') || clean.includes('sante')) {
     return 'Ling 3.0 Flash Santé (Free)';

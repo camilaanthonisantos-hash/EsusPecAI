@@ -16,6 +16,7 @@ import {
 import { Appointment, Patient, User, WhatsAppMessage, SystemSettings } from '../types';
 import { buildWhatsAppReminderMessageText } from '../services/calendar';
 import { getProfessionalProfessionTitle } from '../data/professions';
+import { cleanDuplicateSignatureLines } from '../utils/textFormatters';
 import {
   supabase,
   getWhatsAppMessagesFromDb,
@@ -719,7 +720,7 @@ export const WhatsAppChatModal: React.FC<WhatsAppChatModalProps> = ({
 
                     {/* Conteúdo da Mensagem */}
                     <div className="text-xs whitespace-pre-wrap leading-relaxed font-sans">
-                      {renderWhatsAppFormattedText(msg.messageText)}
+                      {renderWhatsAppFormattedText(cleanDuplicateSignatureLines(msg.messageText))}
                     </div>
 
                     {/* Ação de Excluir Mensagem Individual */}
