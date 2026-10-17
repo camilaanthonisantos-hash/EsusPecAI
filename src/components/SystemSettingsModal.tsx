@@ -263,7 +263,7 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [isRegisteringNewModelModalOpen, setIsRegisteringNewModelModalOpen] = useState(false);
   const [newModelIdInput, setNewModelIdInput] = useState('');
   const [newModelNameInput, setNewModelNameInput] = useState('');
-  const [newModelProviderInput, setNewModelProviderInput] = useState<'openrouter' | 'gemini' | 'openai' | 'groq' | 'ollama'>('openrouter');
+  const [newModelProviderInput, setNewModelProviderInput] = useState<'openrouter' | 'gemini' | 'openai' | 'groq'>('openrouter');
   const [newModelBadgeInput, setNewModelBadgeInput] = useState('');
   const [newModelDescInput, setNewModelDescInput] = useState('');
   const [newModelTargetRole, setNewModelTargetRole] = useState<'primary' | 'fallback' | 'catalog_only'>('primary');
@@ -656,12 +656,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
       fullId = `openai:${fullId}`;
     } else if (newModelProviderInput === 'groq' && !fullId.startsWith('groq:')) {
       fullId = `groq:${fullId}`;
-    } else if (newModelProviderInput === 'ollama' && !fullId.startsWith('ollama:')) {
-      fullId = `ollama:${fullId}`;
     }
 
     const friendlyName = newModelNameInput.trim() || getFriendlyModelName(fullId);
-    const badge = newModelBadgeInput.trim() || (newModelProviderInput === 'openrouter' ? 'OpenRouter Free' : newModelProviderInput === 'ollama' ? 'Local / Docker' : 'Personalizado');
+    const badge = newModelBadgeInput.trim() || (newModelProviderInput === 'openrouter' ? 'OpenRouter Free' : 'Personalizado');
 
     const newOption: ModelOption = {
       id: fullId,
@@ -5390,19 +5388,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                         <button
                           type="button"
                           onClick={() => {
-                            setNewModelProviderInput('ollama');
-                            setNewModelIdInput('ollama:llama3-med42-8b');
-                            setNewModelNameInput('Llama 3 Med42 8B (Ollama Local)');
-                            setNewModelBadgeInput('Local / Docker');
-                            setNewModelDescInput('Modelo local médico no container Ollama (peccaps-network), 100% offline e privativo.');
-                          }}
-                          className="px-2.5 py-1 rounded-lg bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900 text-teal-800 dark:text-teal-300 text-[10px] font-bold border border-teal-300 dark:border-teal-800 transition-all cursor-pointer"
-                        >
-                          🏥 Ollama Llama3-Med42
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => {
                             setNewModelProviderInput('gemini');
                             setNewModelIdInput('gemini-3.8-flash');
                             setNewModelNameInput('Gemini 3.8 Flash');
@@ -5422,8 +5407,8 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                         <label className="text-xs font-bold text-slate-900 dark:text-slate-100 block">
                           Provedor do Modelo
                         </label>
-                        <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
-                          {(['openrouter', 'gemini', 'openai', 'groq', 'ollama'] as const).map((prov) => (
+                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                          {(['openrouter', 'gemini', 'openai', 'groq'] as const).map((prov) => (
                             <button
                               key={prov}
                               type="button"
@@ -5438,7 +5423,6 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                               {prov === 'gemini' && 'Google Gemini'}
                               {prov === 'openai' && 'OpenAI'}
                               {prov === 'groq' && 'Groq (Voz)'}
-                              {prov === 'ollama' && 'Ollama (Local)'}
                             </button>
                           ))}
                         </div>
@@ -5461,15 +5445,12 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                               ? 'ex: gpt-4o ou o3-mini'
                               : newModelProviderInput === 'groq'
                               ? 'ex: whisper-large-v3'
-                              : newModelProviderInput === 'ollama'
-                              ? 'ex: llama3-med42-8b ou medllama2'
                               : 'ex: gemini-3.8-flash'
                           }
                           className="w-full px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono text-slate-900 dark:text-slate-100 outline-none focus:ring-2 focus:ring-indigo-500"
                         />
                         <p className="text-[10px] text-slate-400">
                           {newModelProviderInput === 'openrouter' && 'Dica: Você pode colar o slug direto do catálogo do openrouter.ai (ex: inclusionai/ling-3.0-flash-sante:free).'}
-                          {newModelProviderInput === 'ollama' && 'Dica: Nome do modelo instalado no Ollama local (ex: llama3-med42-8b ou medllama2). O prefixo "ollama:" será mantido.'}
                         </p>
                       </div>
 

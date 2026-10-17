@@ -108,13 +108,6 @@ function getGeminiClient(userKey) {
 function getFriendlyModelNameServer(modelId) {
   if (!modelId || typeof modelId !== "string") return "OpenRouter Free (Auto)";
   const clean = modelId.trim().toLowerCase();
-  if (clean.startsWith("ollama:")) {
-    const raw = clean.replace(/^ollama:\s*/i, "");
-    if (raw.includes("llama3.2")) return `Llama 3.2 ${raw.includes("1b") ? "1B" : "3B"} (Ollama Local)`;
-    if (raw.includes("llama3-med42")) return "Llama 3 Med42 8B (Ollama Local)";
-    if (raw.includes("medllama2")) return "MedLlama 2 (Ollama Local)";
-    return `Ollama Local (${raw})`;
-  }
   if (clean.includes("openrouter/free") || clean === "openrouter:openrouter/free") return "OpenRouter Free (Auto)";
   if (clean.includes("lfm-2.5-2.6b")) return "Liquid LFM 2.5 2.6B (Free)";
   if (clean.includes("laguna-s-2.1")) return "Poolside Laguna S 2.1 (Free)";
@@ -158,7 +151,7 @@ function getFriendlyModelNameServer(modelId) {
   if (clean.includes("mistral-7b")) return "Mistral 7B Instruct (OpenRouter Free)";
   if (clean.includes("mistral-nemo") || clean.includes("mistral")) return "Mistral Nemo (OpenRouter)";
   if (clean.includes("phi-3")) return "Microsoft Phi-3 Medium (OpenRouter Free)";
-  return modelId.replace(/^(openai:|openrouter:|groq:|ollama:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, "").split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
+  return modelId.replace(/^(openai:|openrouter:|groq:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, "").split(/[-_]/).map((w) => w.charAt(0).toUpperCase() + w.slice(1)).join(" ");
 }
 async function executeMultiProviderWithFallback(params) {
   const {
@@ -172,7 +165,6 @@ async function executeMultiProviderWithFallback(params) {
     openaiApiKey: customOpenAiKey,
     openrouterApiKey: customOpenRouterKey,
     groqApiKey: customGroqKey,
-    ollamaBaseUrl: customOllamaUrl,
     onModelTransition
   } = params;
   const systemSettings = readStoreData("settings", {});
@@ -247,11 +239,10 @@ async function executeMultiProviderWithFallback(params) {
   for (let i = 0; i < candidateModels.length; i++) {
     const candidate = candidateModels[i];
     const previousModel = i > 0 ? candidateModels[i - 1] : void 0;
-    const isOllama = candidate.startsWith("ollama:");
-    const isGroq = !isOllama && (candidate.startsWith("groq:") || candidate.includes("groq/") && !candidate.startsWith("openrouter:"));
-    const isOpenRouter = !isOllama && !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
-    const isOpenAI = !isOllama && !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
-    const isGemini = !isOllama && !isGroq && !isOpenRouter && !isOpenAI;
+    const isGroq = candidate.startsWith("groq:") || candidate.includes("groq/") && !candidate.startsWith("openrouter:");
+    const isOpenRouter = !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
+    const isOpenAI = !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
+    const isGemini = !isGroq && !isOpenRouter && !isOpenAI;
     if (i > 0 && onModelTransition) {
       onModelTransition({
         currentModel: candidate,
@@ -259,61 +250,6 @@ async function executeMultiProviderWithFallback(params) {
         isFallback: true,
         reason: `Alternando para modelo de conting\xEAncia (${getFriendlyModelNameServer(candidate)})`
       });
-    }
-    if (isOllama) {
-      const ollamaBaseUrl = (customOllamaUrl || systemSettings.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://ollama:11434").replace(/\/+$/, "");
-      const cleanSlug = candidate.replace(/^ollama:\s*/i, "").trim();
-      const ollamaTimeoutMs = 48e4;
-      console.log(`[AI Cascade] Tentando Ollama Local (${cleanSlug}) em ${ollamaBaseUrl} (timeout: ${ollamaTimeoutMs / 1e3}s)...`);
-      try {
-        const messages = [
-          ...systemInstruction ? [{ role: "system", content: systemInstruction }] : [],
-          { role: "user", content: userPrompt }
-        ];
-        const reqBody = {
-          model: cleanSlug,
-          messages,
-          stream: false
-        };
-        if (responseMimeType === "application/json") {
-          reqBody.format = "json";
-        }
-        if (typeof temperature === "number") {
-          reqBody.options = { temperature };
-        }
-        const controller = new AbortController();
-        const timeoutId = setTimeout(() => controller.abort(), ollamaTimeoutMs);
-        const startTime = Date.now();
-        const response = await fetch(`${ollamaBaseUrl}/api/chat`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json"
-          },
-          body: JSON.stringify(reqBody),
-          signal: controller.signal
-        });
-        clearTimeout(timeoutId);
-        const elapsedSec = ((Date.now() - startTime) / 1e3).toFixed(1);
-        if (!response.ok) {
-          const errText = await response.text().catch(() => "");
-          throw new Error(`Ollama HTTP ${response.status}: ${errText || response.statusText}`);
-        }
-        const data = await response.json();
-        const outputText = (data?.message?.content || "").trim();
-        if (outputText && outputText.length > 0) {
-          console.log(`[AI Cascade] Sucesso com Ollama Local (${cleanSlug}) em ${elapsedSec}s!`);
-          return { text: outputText, modelUsed: candidate };
-        }
-        if (data?.error) {
-          throw new Error(data.error || `Erro retornado pelo Ollama no modelo ${cleanSlug}`);
-        }
-        throw new Error(`Ollama retornou resposta vazia para o modelo ${cleanSlug}.`);
-      } catch (err) {
-        const isTimeout = err?.name === "AbortError";
-        console.warn(`[AI Cascade] Ollama (${cleanSlug}) falhou${isTimeout ? " (TIMEOUT \u2014 infer\xEAncia demorou demais)" : ""}:`, err?.message || err);
-        lastError = err;
-        continue;
-      }
     }
     if (isGroq) {
       const effectiveKey = (customGroqKey || systemSettings.groqApiKey || process.env.GROQ_API_KEY || "").trim();
@@ -460,7 +396,7 @@ async function executeMultiProviderWithFallback(params) {
         const errMsg = String(err?.message || "").toLowerCase();
         if (errMsg.includes("api_key_invalid") || errMsg.includes("api key not valid") || errMsg.includes("invalid api key") || err?.status === 400 || err?.status === 401 || err?.status === 403) {
           console.warn(`[AI Cascade] Chave de API do Gemini inv\xE1lida ou sem permiss\xE3o. Pulando demais modelos Gemini na cascata.`);
-          while (i + 1 < candidateModels.length && !candidateModels[i + 1].startsWith("ollama:") && !candidateModels[i + 1].startsWith("groq:") && !candidateModels[i + 1].startsWith("openrouter:") && !candidateModels[i + 1].startsWith("openai:")) {
+          while (i + 1 < candidateModels.length && !candidateModels[i + 1].startsWith("groq:") && !candidateModels[i + 1].startsWith("openrouter:") && !candidateModels[i + 1].startsWith("openai:")) {
             i++;
           }
         }
@@ -997,76 +933,6 @@ app.get("/api/health", (req, res) => {
     service: "e-SUS PEC Multiprofissional AI API",
     timestamp: (/* @__PURE__ */ new Date()).toISOString()
   });
-});
-app.get("/api/health/ollama", async (req, res) => {
-  const systemSettings = readStoreData("settings", {});
-  const ollamaBaseUrl = (systemSettings.ollamaBaseUrl || process.env.OLLAMA_BASE_URL || "http://ollama:11434").replace(/\/+$/, "");
-  const results = {
-    ollamaBaseUrl,
-    envVar: process.env.OLLAMA_BASE_URL || "(not set)",
-    settingsVar: systemSettings.ollamaBaseUrl || "(not set)",
-    timestamp: (/* @__PURE__ */ new Date()).toISOString(),
-    steps: {}
-  };
-  try {
-    const controller1 = new AbortController();
-    const t1 = setTimeout(() => controller1.abort(), 1e4);
-    const r1 = await fetch(ollamaBaseUrl, { signal: controller1.signal });
-    clearTimeout(t1);
-    const body1 = await r1.text();
-    results.steps.connectivity = { ok: true, status: r1.status, body: body1.slice(0, 200) };
-  } catch (err) {
-    results.steps.connectivity = { ok: false, error: err?.message || String(err) };
-    results.diagnosis = "FALHA DE CONECTIVIDADE \u2014 o container esus-pec-ai N\xC3O consegue alcan\xE7ar o container ollama. Verifique se ambos est\xE3o na mesma rede Docker (peccaps-network).";
-    return res.json(results);
-  }
-  try {
-    const controller2 = new AbortController();
-    const t2 = setTimeout(() => controller2.abort(), 1e4);
-    const r2 = await fetch(`${ollamaBaseUrl}/api/tags`, { signal: controller2.signal });
-    clearTimeout(t2);
-    const data2 = await r2.json();
-    const models = (data2?.models || []).map((m) => ({ name: m.name, size: m.size, modified: m.modified_at }));
-    results.steps.models = { ok: true, count: models.length, list: models };
-  } catch (err) {
-    results.steps.models = { ok: false, error: err?.message || String(err) };
-  }
-  const detectedModel = results.steps.models?.list?.[0]?.name;
-  const testModel = req.query.model || detectedModel || "llama3.2:3b";
-  try {
-    const controller3 = new AbortController();
-    const t3 = setTimeout(() => controller3.abort(), 12e4);
-    const startMs = Date.now();
-    const r3 = await fetch(`${ollamaBaseUrl}/api/chat`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        model: testModel,
-        messages: [{ role: "user", content: "Ol\xE1, responda apenas: OK" }],
-        stream: false
-      }),
-      signal: controller3.signal
-    });
-    clearTimeout(t3);
-    const elapsedSec = ((Date.now() - startMs) / 1e3).toFixed(1);
-    if (!r3.ok) {
-      const errText = await r3.text().catch(() => "");
-      results.steps.inference = { ok: false, status: r3.status, error: errText, elapsedSec };
-    } else {
-      const data3 = await r3.json();
-      const output = (data3?.message?.content || "").trim();
-      results.steps.inference = { ok: true, model: testModel, response: output.slice(0, 300), elapsedSec };
-    }
-  } catch (err) {
-    const isTimeout = err?.name === "AbortError";
-    results.steps.inference = { ok: false, model: testModel, error: err?.message || String(err), isTimeout };
-  }
-  if (results.steps.connectivity?.ok && results.steps.models?.ok && results.steps.inference?.ok) {
-    results.diagnosis = "TUDO OK \u2014 Ollama acess\xEDvel, modelos listados e infer\xEAncia funcionando.";
-  } else if (results.steps.connectivity?.ok && results.steps.inference && !results.steps.inference.ok) {
-    results.diagnosis = "CONECTIVIDADE OK mas INFER\xCANCIA FALHOU \u2014 o Ollama responde mas o modelo pode n\xE3o estar carregado ou houve timeout.";
-  }
-  res.json(results);
 });
 app.post("/api/gemini/generate", async (req, res) => {
   const isStream = req.body?.stream === true || req.headers.accept && req.headers.accept.includes("text/event-stream");
