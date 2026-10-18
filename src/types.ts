@@ -56,14 +56,47 @@ export interface ModelOption {
 }
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-  // 1. PROVEDOR: GROQ (TEXTO CLÍNICO)
+  // 1. PROVEDOR: GROQ (TEXTO CLÍNICO & LPU DE ALTA VELOCIDADE)
+  {
+    id: 'groq:openai/gpt-oss-120b',
+    name: 'GPT OSS 120B (Groq - Alta Inteligência Clínica)',
+    badge: 'Groq / 120B',
+    description: 'Poderoso modelo de 120B parâmetros executado nos chips LPU da Groq com raciocínio clínico avançado e tempo de resposta instantâneo (~1.5s).',
+    speed: 'Ultra Rápido (~1.5s)',
+    recommendedFor: 'Prontuários SOAP, laudos periciais e alta complexidade',
+    provider: 'groq',
+    isAudioCapable: false,
+    contextWindow: '131k tokens',
+  },
+  {
+    id: 'groq:qwen/qwen3.8-27b',
+    name: 'Qwen 3.8 27B (Groq - Ultrarrápido)',
+    badge: 'Groq / 27B',
+    description: 'Modelo de 27B parâmetros com altíssima performance em síntese médica, velocidade instantânea e excelente português brasileiro.',
+    speed: 'Instantâneo (~1s)',
+    recommendedFor: 'Rotina ambulatorial e evolução rápida',
+    provider: 'groq',
+    isAudioCapable: false,
+    contextWindow: '131k tokens',
+  },
+  {
+    id: 'groq:llama-3.3-70b-versatile',
+    name: 'IA de Escrita Médica - Rápida (Groq)',
+    badge: 'Groq / LPU',
+    description: 'Processamento de linguagem natural focado na clínica. Transforma notas brutas em anamnese estruturada (SOAP) e resume históricos.',
+    speed: 'Ultra Rápido',
+    recommendedFor: 'Uso clínico e contingência',
+    provider: 'groq',
+    isAudioCapable: false,
+    contextWindow: '128k tokens',
+  },
   {
     id: 'llama-3.3-70b-versatile',
-    name: 'Llama 3.3 70B Versatile (Raciocínio Clínico Avançado)',
-    badge: 'Groq / Ultra Rápido',
-    description: 'Modelo Llama 3.3 70B de altíssima velocidade e capacidade analítica para geração de texto clínico e SOAP.',
+    name: 'Llama 3.3 70B Versatile (Groq LPU)',
+    badge: 'Groq / Rápido',
+    description: 'Execução de escrita médica acelerada por hardware Groq LPU com garantia de fallback interno para GPT OSS 120B.',
     speed: 'Ultra Rápido',
-    recommendedFor: 'Prontuários SOAP, laudos clínicos e raciocínio avançado',
+    recommendedFor: 'Prontuários SOAP, laudos clínicos e contingência',
     provider: 'groq',
     isAudioCapable: false,
     contextWindow: '128k tokens',

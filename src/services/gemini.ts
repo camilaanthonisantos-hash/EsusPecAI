@@ -24,6 +24,8 @@ export interface GenerateParams {
   userApiKey?: string;
   openaiApiKey?: string;
   openrouterApiKey?: string;
+  groqApiKey?: string;
+  ollamaBaseUrl?: string;
   sectionConfig?: SectionAIOrchestrationConfig;
   onStatusUpdate?: (status: GenerationStatusUpdate) => void;
 }
@@ -54,6 +56,10 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
     });
   }
 
+  const effectiveGroqApiKey =
+    params.groqApiKey ||
+    (typeof window !== 'undefined' ? localStorage.getItem('pec_groq_api_key') || undefined : undefined);
+
   const payload = {
     profession: params.professionName,
     modelName: params.modelName,
@@ -75,6 +81,8 @@ export async function generatePECRecord(params: GenerateParams): Promise<Generat
     userApiKey: params.userApiKey || undefined,
     openaiApiKey: params.openaiApiKey || undefined,
     openrouterApiKey: params.openrouterApiKey || undefined,
+    groqApiKey: effectiveGroqApiKey,
+    ollamaBaseUrl: params.ollamaBaseUrl || undefined,
     sectionConfig: params.sectionConfig || undefined,
     stream: true,
   };

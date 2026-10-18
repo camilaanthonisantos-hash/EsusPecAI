@@ -278,10 +278,10 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   const [isFilterDropdownOpen, setIsFilterDropdownOpen] = useState<boolean>(false);
   const [viewMode, setViewMode] = useState<'by_professional' | 'list'>('by_professional');
   const [dateScope, setDateScope] = useState<'today' | 'custom' | 'all'>('today');
+  const [selectedDates, setSelectedDates] = useState<string[]>(() => [getTodayDateString()]);
   const [customStartDate, setCustomStartDate] = useState<string>(() => getTodayDateString());
   const [customEndDate, setCustomEndDate] = useState<string>(() => getTodayDateString());
   const [isCalendarOpen, setIsCalendarOpen] = useState<boolean>(false);
-  const [calendarMode, setCalendarMode] = useState<'single' | 'range'>('single');
   const [calendarViewDate, setCalendarViewDate] = useState<Date>(() => new Date());
   const [selectedStatuses, setSelectedStatuses] = useState<('active' | 'completed' | 'cancelled')[]>(['active']);
   const [onlyMine, setOnlyMine] = useState<boolean>(false);
@@ -526,6 +526,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       return itemDate === todayStr;
     }
     if (dateScope === 'custom') {
+      if (selectedDates && selectedDates.length > 0) {
+        return selectedDates.includes(itemDate);
+      }
       if (!customStartDate && !customEndDate) return true;
       if (customStartDate && customEndDate) {
         const start = customStartDate <= customEndDate ? customStartDate : customEndDate;
@@ -714,7 +717,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return rankMap;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
+  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, todayStr]);
 
   // Filter items based on active UI filters
   const filteredItems = useMemo(() => {
@@ -770,7 +773,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return list;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
+  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery]);
 
   // Group filtered items by professional for structured individual queues
   const groupedByProf = useMemo(() => {
@@ -884,7 +887,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return groups;
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
+  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
 
   // Today's total count
   const countTodayTotal = useMemo(() => {
@@ -897,7 +900,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   // Active scope items for dynamic counts
   const scopeItems = useMemo(() => {
     return mergedAllQueueItems.filter(isItemInDateScope);
-  }, [mergedAllQueueItems, dateScope, customStartDate, customEndDate, todayStr]);
+  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, todayStr]);
 
   const countScopeTotal = scopeItems.length;
   const countAllTotal = mergedAllQueueItems.length;
@@ -1007,9 +1010,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       dateScope === 'today'
         ? `Hoje - ${formatBrazilianDate(todayStr)}`
         : dateScope === 'custom'
-        ? customStartDate === customEndDate
-          ? formatBrazilianDate(customStartDate)
-          : `${formatBrazilianDate(customStartDate)} a ${formatBrazilianDate(customEndDate)}`
+        ? selectedDates.length === 1
+          ? formatBrazilianDate(selectedDates[0])
+          : selectedDates.length === 2
+          ? `${formatBrazilianDate(selectedDates[0])} e ${formatBrazilianDate(selectedDates[1])}`
+          : `${selectedDates.map((d) => formatBrazilianDate(d).slice(0, 5)).join(', ')}`
         : 'Todas as Datas';
 
     openProfessionalQueueInNewTab(
@@ -1034,9 +1039,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       dateScope === 'today'
         ? `Hoje - ${formatBrazilianDate(todayStr)}`
         : dateScope === 'custom'
-        ? customStartDate === customEndDate
-          ? formatBrazilianDate(customStartDate)
-          : `${formatBrazilianDate(customStartDate)} a ${formatBrazilianDate(customEndDate)}`
+        ? selectedDates.length === 1
+          ? formatBrazilianDate(selectedDates[0])
+          : selectedDates.length === 2
+          ? `${formatBrazilianDate(selectedDates[0])} e ${formatBrazilianDate(selectedDates[1])}`
+          : `${selectedDates.map((d) => formatBrazilianDate(d).slice(0, 5)).join(', ')}`
         : 'Todas as Datas';
 
     const profName =
@@ -1287,33 +1294,49 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   };
 
   const handleCalendarDayClick = (dateStr: string) => {
-    if (calendarMode === 'single') {
-      setCustomStartDate(dateStr);
-      setCustomEndDate(dateStr);
-      if (dateStr === todayStr) {
+    setSelectedDates((prev) => {
+      let nextDates: string[];
+      if (dateScope !== 'custom') {
+        // Se estava em "Hoje" ou "Todas as datas", inicia uma nova seleção customizada com esta data
+        nextDates = [dateStr];
+      } else {
+        if (prev.includes(dateStr)) {
+          // Se já estava selecionado e há mais de 1 data, remove a data (toggle)
+          if (prev.length > 1) {
+            nextDates = prev.filter((d) => d !== dateStr);
+          } else {
+            nextDates = [dateStr];
+          }
+        } else {
+          // Permite selecionar mais de uma data clicando nos dias
+          nextDates = [...prev, dateStr].sort();
+        }
+      }
+
+      setCustomStartDate(nextDates[0]);
+      setCustomEndDate(nextDates[nextDates.length - 1]);
+      if (nextDates.length === 1 && nextDates[0] === todayStr) {
         setDateScope('today');
       } else {
         setDateScope('custom');
       }
-    } else {
-      if (customStartDate && customEndDate && customStartDate !== customEndDate) {
-        setCustomStartDate(dateStr);
-        setCustomEndDate(dateStr);
-        setDateScope('custom');
-      } else if (customStartDate && customEndDate === customStartDate) {
-        if (dateStr >= customStartDate) {
-          setCustomEndDate(dateStr);
-        } else {
-          setCustomEndDate(customStartDate);
-          setCustomStartDate(dateStr);
-        }
-        setDateScope('custom');
-      } else {
-        setCustomStartDate(dateStr);
-        setCustomEndDate(dateStr);
-        setDateScope('custom');
+      return nextDates;
+    });
+  };
+
+  const handleRemoveSelectedDate = (dateStr: string) => {
+    setSelectedDates((prev) => {
+      const nextDates = prev.filter((d) => d !== dateStr);
+      if (nextDates.length === 0) {
+        setCustomStartDate(todayStr);
+        setCustomEndDate(todayStr);
+        setDateScope('today');
+        return [todayStr];
       }
-    }
+      setCustomStartDate(nextDates[0]);
+      setCustomEndDate(nextDates[nextDates.length - 1]);
+      return nextDates;
+    });
   };
 
   const toggleGroupExpand = (groupId: string) => {
@@ -2371,9 +2394,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                 {dateScope === 'today'
                   ? 'Hoje'
                   : dateScope === 'custom'
-                  ? customStartDate === customEndDate
-                    ? formatDatePtBr(customStartDate)
-                    : `${formatDatePtBr(customStartDate).slice(0, 5)} a ${formatDatePtBr(customEndDate).slice(0, 5)}`
+                  ? selectedDates.length === 1
+                    ? formatDatePtBr(selectedDates[0])
+                    : selectedDates.length === 2
+                    ? `${formatDatePtBr(selectedDates[0]).slice(0, 5)}, ${formatDatePtBr(selectedDates[1]).slice(0, 5)}`
+                    : `${selectedDates.length} datas`
                   : 'Todas as Datas'}
                 )
               </span>
@@ -2417,6 +2442,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                         type="button"
                         onClick={() => {
                           setDateScope('today');
+                          setSelectedDates([todayStr]);
                           setCustomStartDate(todayStr);
                           setCustomEndDate(todayStr);
                         }}
@@ -2437,6 +2463,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                         setIsCalendarOpen((prev) => !prev);
                         if (dateScope === 'all') {
                           setDateScope('today');
+                          setSelectedDates([todayStr]);
                           setCustomStartDate(todayStr);
                           setCustomEndDate(todayStr);
                         }
@@ -2447,7 +2474,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           ? 'bg-teal-50 dark:bg-teal-950/60 border-teal-500 text-teal-900 dark:text-teal-100 ring-1 ring-teal-500/20 shadow-xs'
                           : 'bg-slate-50 dark:bg-slate-800/60 border-slate-200 dark:border-slate-700 text-slate-600 dark:text-slate-400 hover:bg-slate-100'
                       }`}
-                      title="Clique para abrir o calendário e escolher uma data ou intervalo"
+                      title="Clique para abrir o calendário e selecionar uma ou mais datas"
                     >
                       <div className="flex items-center gap-1.5 min-w-0">
                         <Calendar className="w-3.5 h-3.5 text-teal-600 shrink-0" />
@@ -2455,9 +2482,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           {dateScope === 'today'
                             ? 'Dia Vigente'
                             : dateScope === 'custom'
-                            ? customStartDate === customEndDate
-                              ? formatDatePtBr(customStartDate)
-                              : `${formatDatePtBr(customStartDate).slice(0, 5)} - ${formatDatePtBr(customEndDate).slice(0, 5)}`
+                            ? selectedDates.length === 1
+                              ? formatDatePtBr(selectedDates[0])
+                              : selectedDates.length === 2
+                              ? `${formatDatePtBr(selectedDates[0]).slice(0, 5)}, ${formatDatePtBr(selectedDates[1]).slice(0, 5)}`
+                              : `${selectedDates.length} dias selecionados`
                             : 'Dia Vigente'}
                         </span>
                       </div>
@@ -2492,113 +2521,90 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     </button>
                   </div>
 
-                  {/* Painel do Calendário (Data única ou Intervalo de Datas com Calendário Interativo) */}
+                  {/* Painel do Calendário (Seleção de Data Única ou Múltiplos Dias) */}
                   {isCalendarOpen && (
                     <div className="p-3 rounded-xl bg-slate-50 dark:bg-slate-800/80 border border-teal-500/30 space-y-3 animate-in fade-in zoom-in-95 duration-150">
-                      {/* Abas: Data Única vs Intervalo */}
+                      {/* Seleção de Datas */}
                       <div className="flex items-center justify-between border-b border-slate-200 dark:border-slate-700 pb-2">
-                        <div className="flex items-center gap-1 bg-white dark:bg-slate-900 p-0.5 rounded-lg border border-slate-200 dark:border-slate-700">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCalendarMode('single');
-                              setCustomEndDate(customStartDate);
-                              setDateScope(customStartDate === todayStr ? 'today' : 'custom');
-                            }}
-                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                              calendarMode === 'single'
-                                ? 'bg-teal-600 text-white shadow-xs'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            Data Única
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setCalendarMode('range');
-                              setDateScope('custom');
-                            }}
-                            className={`px-2.5 py-0.5 rounded-md text-[11px] font-bold transition-all cursor-pointer ${
-                              calendarMode === 'range'
-                                ? 'bg-teal-600 text-white shadow-xs'
-                                : 'text-slate-600 dark:text-slate-300 hover:text-slate-900 dark:hover:text-white'
-                            }`}
-                          >
-                            Intervalo
-                          </button>
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-[11px] font-extrabold text-slate-700 dark:text-slate-200">
+                            {selectedDates.length > 1
+                              ? `${selectedDates.length} datas selecionadas`
+                              : 'Filtrar por data'}
+                          </span>
+                          {selectedDates.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setSelectedDates([todayStr]);
+                                setCustomStartDate(todayStr);
+                                setCustomEndDate(todayStr);
+                                setDateScope('today');
+                              }}
+                              className="text-[10px] font-bold text-teal-600 dark:text-teal-400 hover:underline cursor-pointer"
+                            >
+                              Limpar
+                            </button>
+                          )}
                         </div>
                         <span className="text-[10px] font-extrabold text-teal-600 dark:text-teal-400">
                           {dateScope === 'today'
                             ? 'Hoje (Dia Vigente)'
-                            : customStartDate === customEndDate
-                            ? formatDatePtBr(customStartDate)
-                            : `${formatDatePtBr(customStartDate).slice(0, 5)} a ${formatDatePtBr(customEndDate).slice(0, 5)}`}
+                            : selectedDates.length === 1
+                            ? formatDatePtBr(selectedDates[0])
+                            : `${selectedDates.length} dias ativos`}
                         </span>
                       </div>
 
-                      {/* Campos para Digitar a Data Única ou Intervalo */}
-                      {calendarMode === 'single' ? (
+                      {/* Campo para Digitar a Data ou Visualizar Datas Selecionadas */}
+                      {selectedDates.length > 1 ? (
+                        <div className="space-y-1">
+                          <div className="flex items-center justify-between">
+                            <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
+                              Datas Selecionadas ({selectedDates.length})
+                            </label>
+                            <span className="text-[9.5px] text-slate-400">Clique no dia para adicionar/remover</span>
+                          </div>
+                          <div className="flex flex-wrap gap-1 max-h-20 overflow-y-auto p-1 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700/80">
+                            {selectedDates.map((d) => (
+                              <span
+                                key={d}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50 dark:bg-teal-950/60 border border-teal-300 dark:border-teal-700 text-teal-900 dark:text-teal-200 text-[11px] font-bold"
+                              >
+                                {formatDatePtBr(d)}
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveSelectedDate(d)}
+                                  className="hover:text-red-500 cursor-pointer"
+                                  title={`Remover ${formatDatePtBr(d)}`}
+                                >
+                                  <X className="w-3 h-3" />
+                                </button>
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : (
                         <div className="space-y-1">
                           <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
-                            Digitar Data
+                            Data da Fila
                           </label>
                           <input
                             type="date"
-                            value={customStartDate}
+                            value={selectedDates[0] || todayStr}
                             onChange={(e) => {
                               const val = e.target.value;
-                              setCustomStartDate(val);
-                              setCustomEndDate(val);
                               if (val) {
+                                setSelectedDates([val]);
+                                setCustomStartDate(val);
+                                setCustomEndDate(val);
                                 const [y, m] = val.split('-').map(Number);
                                 if (y && m) setCalendarViewDate(new Date(y, m - 1, 1));
-                              }
-                              if (val === todayStr) {
-                                setDateScope('today');
-                              } else {
-                                setDateScope('custom');
+                                setDateScope(val === todayStr ? 'today' : 'custom');
                               }
                             }}
                             className="w-full px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
                           />
-                        </div>
-                      ) : (
-                        <div className="grid grid-cols-2 gap-2">
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
-                              De (Início)
-                            </label>
-                            <input
-                              type="date"
-                              value={customStartDate}
-                              onChange={(e) => {
-                                const val = e.target.value;
-                                setCustomStartDate(val);
-                                if (val) {
-                                  const [y, m] = val.split('-').map(Number);
-                                  if (y && m) setCalendarViewDate(new Date(y, m - 1, 1));
-                                }
-                                setDateScope('custom');
-                              }}
-                              className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
-                            />
-                          </div>
-                          <div className="space-y-1">
-                            <label className="text-[10px] font-extrabold uppercase text-slate-500 dark:text-slate-400 block">
-                              Até (Fim)
-                            </label>
-                            <input
-                              type="date"
-                              value={customEndDate}
-                              min={customStartDate}
-                              onChange={(e) => {
-                                setCustomEndDate(e.target.value);
-                                setDateScope('custom');
-                              }}
-                              className="w-full px-2 py-1.5 rounded-lg bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-700 text-xs font-bold text-slate-800 dark:text-slate-200 focus:outline-hidden focus:ring-2 focus:ring-teal-500 cursor-pointer"
-                            />
-                          </div>
                         </div>
                       )}
 
@@ -2639,24 +2645,15 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                         {/* Grade de Dias */}
                         <div className="grid grid-cols-7 gap-1 text-center">
                           {calendarDays.map((item, idx) => {
-                            const isSelectedStart = item.dateStr === customStartDate;
-                            const isSelectedEnd = item.dateStr === customEndDate;
-                            const isInRange =
-                              calendarMode === 'range' &&
-                              customStartDate &&
-                              customEndDate &&
-                              item.dateStr >= customStartDate &&
-                              item.dateStr <= customEndDate;
+                            const isSelected = selectedDates.includes(item.dateStr);
                             const isToday = item.dateStr === todayStr;
 
                             let btnClasses = 'text-slate-700 dark:text-slate-300 hover:bg-teal-50 dark:hover:bg-teal-950/40 hover:text-teal-600';
                             if (!item.isCurrentMonth) {
                               btnClasses = 'text-slate-300 dark:text-slate-600 hover:bg-slate-100 dark:hover:bg-slate-800';
                             }
-                            if (isSelectedStart || isSelectedEnd) {
+                            if (isSelected) {
                               btnClasses = 'bg-teal-600 text-white font-black shadow-xs hover:bg-teal-500';
-                            } else if (isInRange) {
-                              btnClasses = 'bg-teal-100 dark:bg-teal-950/70 text-teal-900 dark:text-teal-200 font-bold';
                             }
 
                             return (
@@ -2665,9 +2662,9 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                                 type="button"
                                 onClick={() => handleCalendarDayClick(item.dateStr)}
                                 className={`h-6 text-[10.5px] rounded-md transition-all flex items-center justify-center relative cursor-pointer ${btnClasses} ${
-                                  isToday && !isSelectedStart && !isSelectedEnd ? 'ring-1 ring-teal-500 font-bold' : ''
+                                  isToday && !isSelected ? 'ring-1 ring-teal-500 font-bold' : ''
                                 }`}
-                                title={formatDatePtBr(item.dateStr)}
+                                title={`${formatDatePtBr(item.dateStr)}${isSelected ? ' (Selecionada - clique para remover)' : ' (Clique para selecionar)'}`}
                               >
                                 {item.day}
                               </button>

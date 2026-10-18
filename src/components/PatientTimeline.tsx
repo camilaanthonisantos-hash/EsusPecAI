@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Clock,
@@ -121,11 +121,17 @@ export const PatientTimeline: React.FC<PatientTimelineProps> = ({
   onOpenExamMedia,
   onDeleteExamMedia,
 }) => {
-  // Filter state
-  const [filterMode, setFilterMode] = useState<'all' | 'mine'>('all');
+  // Filter state: show logged-in professional attendances by default
+  const [filterMode, setFilterMode] = useState<'all' | 'mine'>('mine');
   const [selectedProfessionFilter, setSelectedProfessionFilter] = useState<string>('all');
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
+
+  // Quando visualiza a linha do tempo de um paciente, mostra por padrão os atendimentos do profissional logado
+  useEffect(() => {
+    setFilterMode('mine');
+    setSelectedProfessionFilter('all');
+  }, [patient.id]);
 
   // States for in-app deletion confirmations
   const [isConfirmingPatientDelete, setIsConfirmingPatientDelete] = useState(false);
@@ -158,25 +164,33 @@ export const PatientTimeline: React.FC<PatientTimelineProps> = ({
   );
   const isQueued = Boolean(queueItem);
 
+  // Helper to check if consultation was authored by current logged-in professional
+  const isMineConsultation = (c: Consultation) => {
+    const authId = c.authorId || (c as any).author_id;
+    const authProf = c.authorProfession || (c as any).author_profession || (c as any).profession;
+    const authName = c.authorName || (c as any).author || (c as any).author_name;
+    const curName = currentUser.name;
+    return Boolean(
+      (authId && currentUser.id && authId === currentUser.id) ||
+      (authProf && currentUser.profession && authProf === currentUser.profession) ||
+      (authName && curName && authName.trim().toLowerCase() === curName.trim().toLowerCase())
+    );
+  };
+
   // All consultations for this patient sorted by date desc
   const patientConsultations = consultations
     .filter((c) => isConsultationForPatient(c, patient))
     .sort((a, b) => b.timestamp - a.timestamp);
+
+  const allPatientConsultations = consultations.filter((c) => isConsultationForPatient(c, patient));
+  const myPatientConsultations = allPatientConsultations.filter(isMineConsultation);
 
   // Filter consultations based on active settings
   const filteredConsultations = consultations
     .filter((c) => isConsultationForPatient(c, patient))
     .filter((c) => {
       if (filterMode === 'mine') {
-        const authId = c.authorId || (c as any).author_id;
-        const authProf = c.authorProfession || (c as any).author_profession || (c as any).profession;
-        const authName = c.authorName || (c as any).author || (c as any).author_name;
-        const curName = currentUser.name;
-        return (
-          (authId && currentUser.id && authId === currentUser.id) ||
-          (authProf && currentUser.profession && authProf === currentUser.profession) ||
-          (authName && curName && authName.trim().toLowerCase() === curName.trim().toLowerCase())
-        );
+        return isMineConsultation(c);
       }
       return true;
     })
@@ -186,8 +200,6 @@ export const PatientTimeline: React.FC<PatientTimelineProps> = ({
       return authProf === selectedProfessionFilter;
     })
     .sort((a, b) => b.timestamp - a.timestamp); // Newest first for timeline
-
-  const allPatientConsultations = consultations.filter((c) => isConsultationForPatient(c, patient));
 
   const toggleExpand = (id: string) => {
     setExpandedCards((prev) => ({
@@ -497,6 +509,20 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
         <div className="flex items-center gap-1.5 bg-slate-200/80 dark:bg-slate-800/80 p-1 rounded-xl">
           <button
             type="button"
+            id="filter-my-consultations-btn"
+            onClick={() => setFilterMode('mine')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+              filterMode === 'mine'
+                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <UserCheck className="w-3.5 h-3.5" />
+            <span>Meus Atendimentos ({myPatientConsultations.length})</span>
+          </button>
+
+          <button
+            type="button"
             id="filter-all-team-btn"
             onClick={() => setFilterMode('all')}
             className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
@@ -507,20 +533,6 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
           >
             <Users className="w-3.5 h-3.5" />
             <span>Todos ({allPatientConsultations.length})</span>
-          </button>
-
-          <button
-            type="button"
-            id="filter-my-consultations-btn"
-            onClick={() => setFilterMode('mine')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterMode === 'mine'
-                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <UserCheck className="w-3.5 h-3.5" />
-            <span>Meus Atendimentos</span>
           </button>
         </div>
 
@@ -552,9 +564,22 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
             {filterMode === 'mine'
-              ? 'Você ainda não registrou nenhum atendimento para este paciente. Alterne para "Toda a Equipe" ou crie um novo atendimento.'
+              ? 'Você ainda não registrou nenhum atendimento para este paciente.'
               : 'Cadastre o primeiro atendimento clínico multiprofissional para este paciente.'}
           </p>
+
+          {filterMode === 'mine' && allPatientConsultations.length > 0 && (
+            <div className="pt-1">
+              <button
+                type="button"
+                onClick={() => setFilterMode('all')}
+                className="px-3.5 py-2 rounded-xl bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 dark:hover:bg-teal-900/60 text-teal-800 dark:text-teal-200 border border-teal-200 dark:border-teal-800 text-xs font-semibold inline-flex items-center gap-1.5 transition-colors cursor-pointer"
+              >
+                <Users className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                <span>Ver atendimentos de outros profissionais ({allPatientConsultations.length})</span>
+              </button>
+            </div>
+          )}
           <button
             type="button"
             onClick={() => {

@@ -153,6 +153,12 @@ export function isAllowedClinicalModel(modelId?: string, isAudio = false): boole
   if (!modelId || typeof modelId !== 'string') return false;
   const clean = modelId.trim().toLowerCase();
 
+  // Groq models (Texto clínico e transcrição)
+  if (clean.startsWith('groq:') || clean.includes('llama-3.3-70b-versatile')) {
+    if (clean.includes('whisper')) return isAudio;
+    return !isAudio;
+  }
+
   if (
     clean.startsWith('openrouter:') ||
     clean.startsWith('openai:') ||
@@ -164,7 +170,6 @@ export function isAllowedClinicalModel(modelId?: string, isAudio = false): boole
     clean.includes('o3') ||
     clean.includes('claude') ||
     clean.includes('deepseek') ||
-    clean.includes('qwen') ||
     clean.includes('mistral') ||
     clean.includes('liquid') ||
     clean.includes('poolside') ||
@@ -175,10 +180,6 @@ export function isAllowedClinicalModel(modelId?: string, isAudio = false): boole
 
   if (clean.includes('whisper')) {
     return isAudio;
-  }
-
-  if (clean.includes('llama-3.3-70b-versatile')) {
-    return true;
   }
 
   if (clean.startsWith('gemini-') || clean.startsWith('gemini:')) {

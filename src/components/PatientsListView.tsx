@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useMemo } from 'react';
 import { motion, AnimatePresence } from 'motion/react';
 import {
   Users,
@@ -27,7 +27,7 @@ import { SpecularButton } from './SpecularButton';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
 import { syncPatientsBatchToDb2, getDb2Config } from '../services/secondarySupabase';
 import { isConsultationForPatient } from '../services/firebase';
-
+import { TimelineDateRangePicker } from './TimelineDateRangePicker';
 
 interface PatientsListViewProps {
   patients: Patient[];
@@ -41,6 +41,59 @@ interface PatientsListViewProps {
   onDeletePatient?: (patient: Patient) => void;
   onNewConsultationForPatient: (patient: Patient) => void;
   onAddToQueue?: (patient: Patient) => void;
+}
+
+/**
+ * Safely extracts numerical timestamp (ms) from a consultation
+ */
+function getConsultationTimestamp(c: any): number {
+  if (!c) return 0;
+  if (typeof c.timestamp === 'number' && !isNaN(c.timestamp) && c.timestamp > 0) {
+    return c.timestamp;
+  }
+  if (typeof c.createdAt === 'number' && !isNaN(c.createdAt) && c.createdAt > 0) {
+    return c.createdAt;
+  }
+  if (typeof c.timestamp === 'string') {
+    const parsed = Date.parse(c.timestamp);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (typeof c.createdAt === 'string') {
+    const parsed = Date.parse(c.createdAt);
+    if (!isNaN(parsed)) return parsed;
+  }
+  if (c.raw_data) {
+    return getConsultationTimestamp(c.raw_data);
+  }
+  return 0;
+}
+
+/**
+ * Formats admission / registration date to dd/mm/aaaa
+ */
+function formatAdmissionDate(patient: Patient): string {
+  const raw = patient.createdAt || (patient as any).created_at;
+  if (!raw) return 'Não informada';
+  const d = typeof raw === 'number' ? new Date(raw) : new Date(String(raw));
+  if (isNaN(d.getTime())) return 'Não informada';
+  const day = String(d.getDate()).padStart(2, '0');
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const year = d.getFullYear();
+  return `${day}/${month}/${year}`;
+}
+
+/**
+ * Checks if a timestamp falls within a date range [startIso, endIso] inclusive
+ */
+function isTimestampInDateRange(ts: number, startIso: string, endIso: string): boolean {
+  if (!ts) return false;
+  const [sY, sM, sD] = startIso.split('-').map(Number);
+  const startEpoch = new Date(sY, sM - 1, sD, 0, 0, 0, 0).getTime();
+
+  const [eY, eM, eD] = endIso.split('-').map(Number);
+  const endEpoch = new Date(eY, eM - 1, eD, 23, 59, 59, 999).getTime();
+
+  return ts >= startEpoch && ts <= endEpoch;
 }
 
 export const PatientsListView: React.FC<PatientsListViewProps> = ({
@@ -57,6 +110,8 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
   onAddToQueue,
 }) => {
   const [searchTerm, setSearchTerm] = useState('');
+  const [dateFilterStart, setDateFilterStart] = useState<string | null>(null);
+  const [dateFilterEnd, setDateFilterEnd] = useState<string | null>(null);
   const [patientToDelete, setPatientToDelete] = useState<Patient | null>(null);
   const [selectedChatPatient, setSelectedChatPatient] = useState<Patient | null>(null);
   const [isSyncingDb2, setIsSyncingDb2] = useState(false);
@@ -101,19 +156,108 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
     }
   };
 
-  const filteredPatients = patients.filter((p) => {
-    const term = (searchTerm || '').toLowerCase();
-    return (
-      (p.fullName || '').toLowerCase().includes(term) ||
-      (p.cns && p.cns.includes(term)) ||
-      (p.cpf && p.cpf.includes(term)) ||
-      Boolean(p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term))
-    );
-  });
+  // Precompute patient timeline info for fast sorting and filtering
+  const patientTimelineMap = useMemo(() => {
+    const map = new Map<
+      string,
+      {
+        consultations: Consultation[];
+        latestConsultation: Consultation | null;
+        latestAttendanceTimestamp: number;
+        consultationsCount: number;
+      }
+    >();
+
+    patients.forEach((patient) => {
+      const patientConsultations = consultations
+        .filter((c) => isConsultationForPatient(c, patient))
+        .sort((a, b) => getConsultationTimestamp(b) - getConsultationTimestamp(a));
+
+      const latest = patientConsultations[0] || null;
+      // ONLY use real attendance timestamp (0 if patient has no attendances)
+      const latestAttendanceTs = latest ? getConsultationTimestamp(latest) : 0;
+
+      map.set(patient.id, {
+        consultations: patientConsultations,
+        latestConsultation: latest,
+        latestAttendanceTimestamp: latestAttendanceTs,
+        consultationsCount: patientConsultations.length,
+      });
+    });
+
+    return map;
+  }, [patients, consultations]);
+
+  // Filter and sort patients:
+  // Base strictly on the date of clinical attendance in the timeline:
+  // Patients with attendances are sorted descending (most recent attendance at the very top).
+  // Patients without any attendance appear at the bottom.
+  const filteredAndSortedPatients = useMemo(() => {
+    const term = (searchTerm || '').trim().toLowerCase();
+
+    // 1. Filter by search term and date range
+    const filtered = patients.filter((p) => {
+      if (term) {
+        const matchName = (p.fullName || '').toLowerCase().includes(term);
+        const matchCns = Boolean(p.cns && p.cns.includes(term));
+        const matchCpf = Boolean(p.cpf && p.cpf.includes(term));
+        const matchGuardian = Boolean(p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term));
+        if (!matchName && !matchCns && !matchCpf && !matchGuardian) {
+          return false;
+        }
+      }
+
+      // Filter by attendance date on timeline
+      if (dateFilterStart) {
+        const startIso = dateFilterStart;
+        const endIso = dateFilterEnd || dateFilterStart;
+        const info = patientTimelineMap.get(p.id);
+        const patConsultations = info?.consultations || [];
+
+        // Only include patient if they have an attendance within this date or date range
+        const hasConsultationInRange = patConsultations.some((c) => {
+          const ts = getConsultationTimestamp(c);
+          return isTimestampInDateRange(ts, startIso, endIso);
+        });
+
+        if (!hasConsultationInRange) {
+          return false;
+        }
+      }
+
+      return true;
+    });
+
+    // 2. Sort descending strictly by latest attendance timestamp on the timeline:
+    // Patients with attendances ALWAYS come first, ordered from most recent attendance to oldest.
+    // Patients with 0 attendances ALWAYS come after all attended patients.
+    return filtered.sort((a, b) => {
+      const infoA = patientTimelineMap.get(a.id);
+      const infoB = patientTimelineMap.get(b.id);
+      const tsA = infoA?.latestAttendanceTimestamp || 0;
+      const tsB = infoB?.latestAttendanceTimestamp || 0;
+
+      // Both have attendances on timeline: compare attendance dates descending
+      if (tsA > 0 && tsB > 0) {
+        if (tsB !== tsA) {
+          return tsB - tsA; // Most recent attendance at the top
+        }
+      }
+
+      // One has attendance, the other does not:
+      if (tsA > 0 && tsB === 0) return -1; // A comes first (has attendance)
+      if (tsB > 0 && tsA === 0) return 1;  // B comes first (has attendance)
+
+      // Neither has attendance on timeline: sort alphabetically by full name
+      return (a.fullName || '').localeCompare(b.fullName || '', 'pt-BR');
+    });
+  }, [patients, searchTerm, dateFilterStart, dateFilterEnd, patientTimelineMap]);
+
+  const hasActiveDateFilter = Boolean(dateFilterStart);
 
   return (
     <div className="space-y-6" id="patients-list-view">
-      {/* Top Banner & Action Controls */}
+      {/* 1. Top Banner & Action Controls */}
       <div className="p-5 sm:p-6 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 shadow-sm flex flex-col md:flex-row items-stretch md:items-center justify-between gap-4">
         <div>
           <div className="flex items-center gap-2.5">
@@ -160,67 +304,99 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
         </div>
       </div>
 
-      {/* Search Bar */}
-      <div className="relative">
-        <Search className="w-4 h-4 text-slate-400 absolute left-4 top-1/2 -translate-y-1/2" />
+      {/* 2. Search Bar & Date Filter Lado a Lado (CSS selector 3: div:nth-of-type(2) > input#patient-search-input:nth-of-type(1)) */}
+      <div className="relative flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
+        <Search className="w-4 h-4 text-slate-400 absolute left-4 top-3.5 sm:top-1/2 sm:-translate-y-1/2 pointer-events-none z-10" />
         <input
           type="text"
           id="patient-search-input"
           value={searchTerm}
           onChange={(e) => setSearchTerm(e.target.value)}
           placeholder="Buscar por Nome do Paciente, Cartão SUS (CNS), CPF ou Responsável Legal..."
-          className="w-full pl-11 pr-4 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none shadow-xs"
+          className="flex-1 min-w-0 w-full pl-11 pr-14 py-3 rounded-2xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 text-xs sm:text-sm text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none shadow-xs"
         />
+
         {searchTerm && (
           <SpecularButton
             type="button"
             onClick={() => setSearchTerm('')}
             size="sm"
             radius={8}
-            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-3 top-1/2 -translate-y-1/2 px-2 py-1 border-transparent"
+            className="text-xs text-slate-400 hover:text-slate-600 dark:hover:text-slate-200 absolute right-3 sm:right-[260px] top-3.5 sm:top-1/2 sm:-translate-y-1/2 px-2 py-1 border-transparent z-10"
           >
             Limpar
           </SpecularButton>
         )}
+
+        {/* Date Filter side-by-side with interactive calendar range picker */}
+        <TimelineDateRangePicker
+          startDate={dateFilterStart}
+          endDate={dateFilterEnd}
+          onChange={(start, end) => {
+            setDateFilterStart(start);
+            setDateFilterEnd(end);
+          }}
+          onClear={() => {
+            setDateFilterStart(null);
+            setDateFilterEnd(null);
+          }}
+          totalFilteredCount={filteredAndSortedPatients.length}
+        />
       </div>
 
-      {/* Patients List Grid */}
-      {filteredPatients.length === 0 ? (
+      {/* 3. Patients List Grid / Container (CSS selector 2: div:nth-of-type(3)) */}
+      {filteredAndSortedPatients.length === 0 ? (
         <div className="py-16 text-center bg-white dark:bg-slate-900 rounded-3xl border border-dashed border-slate-300 dark:border-slate-800 p-8 space-y-3">
           <Users className="w-10 h-10 text-slate-400 mx-auto opacity-50" />
           <h3 className="text-sm font-bold text-slate-800 dark:text-slate-200">
             Nenhum paciente encontrado.
           </h3>
           <p className="text-xs text-slate-500 dark:text-slate-400 max-w-sm mx-auto">
-            {searchTerm
-              ? 'Tente ajustar os termos de busca pelo nome ou número de documento.'
+            {searchTerm || hasActiveDateFilter
+              ? 'Tente ajustar os termos de busca ou o período de atendimento selecionado.'
               : 'Comece cadastrando o primeiro paciente para iniciar o registro clínico.'}
           </p>
-          <SpecularButton
-            type="button"
-            onClick={onOpenNewPatientModal}
-            size="sm"
-            radius={12}
-            className="mt-2 px-4 py-2 bg-teal-600 text-white hover:bg-teal-500 border-teal-500/40"
-          >
-            + Cadastrar Novo Paciente
-          </SpecularButton>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-1">
+            {(searchTerm || hasActiveDateFilter) && (
+              <SpecularButton
+                type="button"
+                onClick={() => {
+                  setSearchTerm('');
+                  setDateFilterStart(null);
+                  setDateFilterEnd(null);
+                }}
+                size="sm"
+                radius={12}
+                className="px-3.5 py-2 bg-slate-100 dark:bg-slate-800 text-slate-700 dark:text-slate-300 hover:bg-slate-200 border-transparent"
+              >
+                Limpar Filtros
+              </SpecularButton>
+            )}
+            <SpecularButton
+              type="button"
+              onClick={onOpenNewPatientModal}
+              size="sm"
+              radius={12}
+              className="px-4 py-2 bg-teal-600 text-white hover:bg-teal-500 border-teal-500/40"
+            >
+              + Cadastrar Novo Paciente
+            </SpecularButton>
+          </div>
         </div>
       ) : (
         <div className="grid grid-cols-1 gap-3.5">
-          {filteredPatients.map((patient, index) => {
+          {filteredAndSortedPatients.map((patient, index) => {
             const age = calculateChronologicalAge(patient.birthDate);
-            const patientConsultations = consultations.filter((c) => isConsultationForPatient(c, patient));
-            const latestConsultation = [...patientConsultations].sort(
-              (a, b) => b.timestamp - a.timestamp
-            )[0];
+            const info = patientTimelineMap.get(patient.id);
+            const patientConsultations = info?.consultations || [];
+            const latestConsultation = info?.latestConsultation || null;
 
             return (
               <motion.div
                 key={patient.id}
                 initial={{ opacity: 0, y: 8 }}
                 animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.15, delay: index * 0.03 }}
+                transition={{ duration: 0.15, delay: Math.min(index * 0.02, 0.3) }}
                 id={`patient-list-card-${patient.id}`}
                 className="p-5 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 hover:border-teal-500/50 dark:hover:border-teal-500/40 shadow-xs hover:shadow-md transition-all group"
               >
@@ -256,6 +432,17 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
                     </div>
 
                     <div className="flex flex-wrap items-center gap-x-5 gap-y-1 text-xs text-slate-600 dark:text-slate-400">
+                      {/* Data de Admissão do Paciente (Cadastro no Sistema) */}
+                      <div className="flex items-center gap-1.5">
+                        <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
+                        <span>
+                          Admissão:{' '}
+                          <strong className="text-slate-800 dark:text-slate-200 font-bold">
+                            {formatAdmissionDate(patient)}
+                          </strong>
+                        </span>
+                      </div>
+
                       <div className="flex items-center gap-1.5">
                         <Calendar className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400" />
                         <span>
@@ -292,7 +479,16 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
                       <div className="text-[11px] text-slate-500 dark:text-slate-400 pt-1">
                         Último atendimento:{' '}
                         <span className="font-semibold text-slate-700 dark:text-slate-300">
-                          {new Date(latestConsultation.timestamp).toLocaleDateString('pt-BR')}
+                          {new Date(getConsultationTimestamp(latestConsultation)).toLocaleDateString('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })}{' '}
+                          às{' '}
+                          {new Date(getConsultationTimestamp(latestConsultation)).toLocaleTimeString('pt-BR', {
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })}
                         </span>{' '}
                         por{' '}
                         <span className="font-semibold text-slate-700 dark:text-slate-300">

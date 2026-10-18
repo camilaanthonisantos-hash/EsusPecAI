@@ -179,10 +179,18 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [dataFilterType, setDataFilterType] = useState<'all' | 'patients' | 'consultations'>('all');
 
   // Settings form state
-  const [geminiApiKey, setGeminiApiKey] = useState(systemSettings.geminiApiKey || '');
-  const [openaiApiKey, setOpenaiApiKey] = useState(systemSettings.openaiApiKey || '');
-  const [openrouterApiKey, setOpenrouterApiKey] = useState(systemSettings.openrouterApiKey || '');
-  const [groqApiKey, setGroqApiKey] = useState(systemSettings.groqApiKey || '');
+  const [geminiApiKey, setGeminiApiKey] = useState(
+    systemSettings.geminiApiKey || (typeof window !== 'undefined' ? localStorage.getItem('pec_user_api_key') || '' : '')
+  );
+  const [openaiApiKey, setOpenaiApiKey] = useState(
+    systemSettings.openaiApiKey || (typeof window !== 'undefined' ? localStorage.getItem('pec_openai_api_key') || '' : '')
+  );
+  const [openrouterApiKey, setOpenrouterApiKey] = useState(
+    systemSettings.openrouterApiKey || (typeof window !== 'undefined' ? localStorage.getItem('pec_openrouter_api_key') || '' : '')
+  );
+  const [groqApiKey, setGroqApiKey] = useState(
+    systemSettings.groqApiKey || (typeof window !== 'undefined' ? localStorage.getItem('pec_groq_api_key') || '' : '')
+  );
   const [defaultModel, setDefaultModel] = useState<AIModelId>(() => {
     const saved = systemSettings.defaultModel;
     if (saved && isAllowedClinicalModel(saved, false)) {
@@ -296,7 +304,28 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
     if (Array.isArray(systemSettings.customModels)) {
       setCustomModels(systemSettings.customModels);
     }
-  }, [systemSettings.sectionsConfig, systemSettings.customModels]);
+    if (systemSettings.groqApiKey) {
+      setGroqApiKey(systemSettings.groqApiKey);
+    }
+    if (systemSettings.geminiApiKey) {
+      setGeminiApiKey(systemSettings.geminiApiKey);
+    }
+    if (systemSettings.openaiApiKey) {
+      setOpenaiApiKey(systemSettings.openaiApiKey);
+    }
+    if (systemSettings.openrouterApiKey) {
+      setOpenrouterApiKey(systemSettings.openrouterApiKey);
+    }
+    if (systemSettings.defaultModel && isAllowedClinicalModel(systemSettings.defaultModel, false)) {
+      setDefaultModel(systemSettings.defaultModel);
+    }
+    if (systemSettings.supabaseDb2Url) {
+      setSupabaseDb2Url(systemSettings.supabaseDb2Url);
+    }
+    if (systemSettings.supabaseDb2Key) {
+      setSupabaseDb2Key(systemSettings.supabaseDb2Key);
+    }
+  }, [systemSettings]);
   
   // Test states for all webhooks
   const [isTestingPixWebhook, setIsTestingPixWebhook] = useState(false);

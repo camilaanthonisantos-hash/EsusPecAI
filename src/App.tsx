@@ -848,6 +848,9 @@ export default function App() {
           if (liveSettings.geminiApiKey && !userApiKey) {
             setUserApiKey(liveSettings.geminiApiKey);
           }
+          if (liveSettings.groqApiKey) {
+            safeSetItem('pec_groq_api_key', liveSettings.groqApiKey);
+          }
           if (liveSettings.defaultModel) {
             setSelectedModel(liveSettings.defaultModel);
           }
@@ -1462,6 +1465,9 @@ export default function App() {
       setUserApiKey(newSettings.geminiApiKey);
       safeSetItem('pec_user_api_key', newSettings.geminiApiKey);
     }
+    if (newSettings.groqApiKey) {
+      safeSetItem('pec_groq_api_key', newSettings.groqApiKey);
+    }
     if (newSettings.defaultModel) {
       setSelectedModel(newSettings.defaultModel);
       safeSetItem('pec_model', newSettings.defaultModel);
@@ -1818,6 +1824,8 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         userApiKey: systemSettings.geminiApiKey || userApiKey,
         openaiApiKey: systemSettings.openaiApiKey,
         openrouterApiKey: systemSettings.openrouterApiKey,
+        groqApiKey: systemSettings.groqApiKey || safeGetString('pec_groq_api_key') || undefined,
+        ollamaBaseUrl: (systemSettings as any).ollamaBaseUrl || undefined,
         sectionConfig: systemSettings.sectionsConfig?.soapPec,
         onStatusUpdate: (status) => {
           setGenerationStatus(status);

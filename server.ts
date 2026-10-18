@@ -1,5 +1,6 @@
 import express from "express";
 import path from "path";
+import fs from "fs";
 import dns from "dns";
 import dotenv from "dotenv";
 import { GoogleGenAI } from "@google/genai";
@@ -96,8 +97,11 @@ function getFriendlyModelNameServer(modelId?: string): string {
     return `Ollama Local (${modelId.replace(/^ollama:\s*/i, '')})`;
   }
 
-  // Groq Texto (Llama 3.3)
-  if (clean.includes('llama-3.3-70b-versatile')) return 'Llama 3.3 70B Versatile (Raciocínio Clínico Avançado)';
+  // Groq Modelos LPU
+  if (clean.includes('gpt-oss-120b')) return 'GPT OSS 120B (Groq - Clínico)';
+  if (clean.includes('gpt-oss-20b')) return 'GPT OSS 20B (Groq - Ultrarrápido)';
+  if (clean.includes('qwen3.8-27b') || clean.includes('qwen/qwen3.8')) return 'Qwen 3.8 27B (Groq - Ultrarrápido)';
+  if (clean.includes('llama-3.3-70b-versatile')) return 'IA de Escrita Médica Rápida (Groq)';
 
   if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') return 'OpenRouter Free (Auto)';
   if (clean.includes('lfm-2.5-2.6b')) return 'Liquid LFM 2.5 2.6B (Free)';
@@ -289,12 +293,28 @@ async function executeMultiProviderWithFallback(
       cleanLower.includes("llama-3.3-70b-versatile") ||
       (cleanLower.includes("groq/") && !cleanLower.startsWith("openrouter:"))
     ) {
-      // 2. GROQ (Apenas texto clínico / Llama 3.3)
+      // 2. GROQ (Texto clínico / LPU de alta velocidade)
       provider = "groq";
       cleanSlug = candidate.replace(/^groq:\s*/i, "").trim();
       apiKey = (customGroqKey || systemSettings.groqApiKey || process.env.GROQ_API_KEY || "").trim();
+
+      // Hidratação sob demanda do Supabase se a chave ainda não estiver na memória/disco
+      if (!apiKey) {
+        try {
+          const { data: sbRow } = await supabaseServer.from("system_settings").select("data").eq("id", "global").maybeSingle();
+          if (sbRow?.data?.groqApiKey) {
+            apiKey = String(sbRow.data.groqApiKey).trim();
+          }
+        } catch {}
+      }
+
       baseURL = "https://api.groq.com/openai/v1";
       timeout = 25000;
+
+      // Mapeamento automático de slugs legados/descontinuados da Groq
+      if (cleanSlug === "llama-3.3-70b-versatile" || cleanSlug.includes("llama-3.3")) {
+        cleanSlug = "openai/gpt-oss-120b";
+      }
     } else if (
       cleanLower.startsWith("openrouter:") ||
       cleanLower.includes("inclusionai/") ||
@@ -427,6 +447,45 @@ async function executeMultiProviderWithFallback(
           }
         } catch (ollamaErr: any) {
           console.warn(`[AI Cascade] Fallback nativo Ollama falhou:`, ollamaErr?.message || ollamaErr);
+        }
+      }
+
+      // Fallback interno automático na Groq se o modelo retornar 404 (model_not_found)
+      if (provider === "groq") {
+        const errMsg = String(err?.message || "").toLowerCase();
+        if (err?.status === 404 || errMsg.includes("does not exist") || errMsg.includes("model_not_found")) {
+          console.warn(`[AI Cascade] Modelo Groq "${cleanSlug}" não disponível no catálogo atual (404). Tentando fallback automático interno na Groq com "openai/gpt-oss-120b" ou "qwen/qwen3.8-27b"...`);
+          for (const groqFallbackSlug of ["openai/gpt-oss-120b", "qwen/qwen3.8-27b", "openai/gpt-oss-20b"]) {
+            if (groqFallbackSlug === cleanSlug) continue;
+            try {
+              const fallbackClient = new OpenAI({
+                apiKey,
+                baseURL: "https://api.groq.com/openai/v1",
+                timeout: 25000,
+              });
+              const fbMessages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+              if (systemInstruction && systemInstruction.trim()) {
+                fbMessages.push({ role: "system", content: systemInstruction.trim() });
+              }
+              fbMessages.push({ role: "user", content: userPrompt });
+
+              const fallbackCompletion: any = await fallbackClient.chat.completions.create({
+                model: groqFallbackSlug,
+                temperature,
+                messages: fbMessages,
+                response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
+              });
+              const fbMsg = fallbackCompletion?.choices?.[0]?.message;
+              let fbOutput = (fbMsg?.content || "").trim();
+              if (!fbOutput && (fbMsg as any)?.reasoning) fbOutput = (fbMsg as any).reasoning.trim();
+              if (fbOutput) {
+                console.log(`[AI Cascade] ✅ Sucesso no fallback interno Groq (${groqFallbackSlug})!`);
+                return { text: fbOutput, modelUsed: `groq:${groqFallbackSlug}` };
+              }
+            } catch (fbErr: any) {
+              console.warn(`[AI Cascade] Fallback interno Groq ${groqFallbackSlug} falhou:`, fbErr?.message || fbErr);
+            }
+          }
         }
       }
 
@@ -4224,7 +4283,6 @@ app.post("/api/evolution/test", async (req, res) => {
 });
 
 // 7. Persistent Local & Server Database API (Full-Stack Data Synchronization Layer)
-import fs from "fs";
 
 // Non-blocking helper to mirror data updates to Supabase PostgreSQL
 async function syncItemToSupabase(collectionName: string, item: any, isDelete = false, deleteId?: string) {
@@ -4436,6 +4494,25 @@ function writeStoreData(collectionName: string, data: any): void {
     console.error(`[DataStore] Erro ao escrever ${collectionName}:`, err);
   }
 }
+
+// Hidratação automática das configurações globais do sistema a partir do Supabase PostgreSQL na inicialização
+async function syncSystemSettingsOnStartup() {
+  try {
+    const { data: sbData, error: sbErr } = await supabaseServer.from("system_settings").select("*");
+    if (!sbErr && sbData && sbData.length > 0) {
+      const globalRow = sbData.find((r: any) => r.id === "global") || sbData[0];
+      if (globalRow && globalRow.data) {
+        const local = readStoreData("settings", {});
+        const merged = sanitizeSettingsPayloadServer({ ...local, ...globalRow.data });
+        writeStoreData("settings", merged);
+        console.log("[Supabase Server] System settings hidratados com sucesso do Supabase PostgreSQL!");
+      }
+    }
+  } catch (err: any) {
+    console.debug("[Supabase Server] Aviso na hidratação de settings:", err?.message || err);
+  }
+}
+syncSystemSettingsOnStartup();
 
 // Supabase Status & Full Sync Endpoints
 app.get("/api/supabase/status", async (req, res) => {
@@ -5523,6 +5600,13 @@ function sanitizeForFirestoreServer(val: any): any {
 function isAllowedClinicalModelServer(modelId?: string, isAudio = false): boolean {
   if (!modelId || typeof modelId !== "string") return false;
   const clean = modelId.trim().toLowerCase();
+
+  // Groq models (Texto clínico e áudio)
+  if (clean.startsWith("groq:") || clean.includes("llama-3.3-70b-versatile")) {
+    if (clean.includes("whisper")) return isAudio;
+    return !isAudio;
+  }
+
   if (
     clean.startsWith("openrouter:") ||
     clean.startsWith("openai:") ||
@@ -5534,7 +5618,6 @@ function isAllowedClinicalModelServer(modelId?: string, isAudio = false): boolea
     clean.includes("o3") ||
     clean.includes("claude") ||
     clean.includes("deepseek") ||
-    clean.includes("qwen") ||
     clean.includes("mistral") ||
     clean.includes("liquid") ||
     clean.includes("poolside") ||
@@ -5543,7 +5626,6 @@ function isAllowedClinicalModelServer(modelId?: string, isAudio = false): boolea
     return false;
   }
   if (clean.includes("whisper")) return isAudio;
-  if (clean.includes("llama-3.3-70b-versatile")) return true;
   if (clean.startsWith("gemini-") || clean.startsWith("gemini:")) return true;
   return false;
 }

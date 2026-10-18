@@ -13,8 +13,11 @@ export function getFriendlyModelName(modelId?: string): string {
     return `Ollama Local (${modelId.replace(/^ollama:\s*/i, '')})`;
   }
 
-  // Groq Texto (Llama 3.3)
-  if (clean.includes('llama-3.3-70b-versatile')) return 'Llama 3.3 70B Versatile (Raciocínio Clínico Avançado)';
+  // Groq Modelos LPU
+  if (clean.includes('gpt-oss-120b')) return 'GPT OSS 120B (Groq - Clínico)';
+  if (clean.includes('gpt-oss-20b')) return 'GPT OSS 20B (Groq - Ultrarrápido)';
+  if (clean.includes('qwen3.8-27b') || clean.includes('qwen/qwen3.8')) return 'Qwen 3.8 27B (Groq - Ultrarrápido)';
+  if (clean.includes('llama-3.3-70b-versatile')) return 'IA de Escrita Médica Rápida (Groq)';
 
   // OpenRouter Free
   if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') {
