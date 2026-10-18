@@ -78,6 +78,7 @@ import {
   ensureSectionsConfig,
   getAvailableModelsForSection,
   sanitizeFallbackChain,
+  isAllowedClinicalModel,
 } from '../utils/aiOrchestrationConfig';
 import {
   getFriendlyModelName,
@@ -184,10 +185,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const [groqApiKey, setGroqApiKey] = useState(systemSettings.groqApiKey || '');
   const [defaultModel, setDefaultModel] = useState<AIModelId>(() => {
     const saved = systemSettings.defaultModel;
-    if (saved === 'gemini-3.1-pro-preview' || saved === 'gemini-2.5-pro' || saved === 'gemini-pro') {
-      return 'gemini-3.1-pro-preview';
+    if (saved && isAllowedClinicalModel(saved, false)) {
+      return saved;
     }
-    return 'gemini-3.7-flash';
+    return 'llama-3.3-70b-versatile';
   });
   const [defaultCiapCode, setDefaultCiapCode] = useState(systemSettings.defaultCiapCode || '-69');
   const [defaultSigtapCode, setDefaultSigtapCode] = useState(
@@ -485,10 +486,12 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
   const allModelsCatalog = useMemo(() => {
     const map = new Map<string, ModelOption>();
     for (const m of AVAILABLE_MODELS) {
-      map.set(m.id, m);
+      if (!m.id.includes('whisper') && isAllowedClinicalModel(m.id, false)) {
+        map.set(m.id, m);
+      }
     }
     for (const cm of customModels) {
-      if (cm && cm.id) map.set(cm.id, cm);
+      if (cm && cm.id && isAllowedClinicalModel(cm.id, false)) map.set(cm.id, cm);
     }
     return Array.from(map.values());
   }, [customModels]);
@@ -2639,10 +2642,10 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                       <div className="p-5 rounded-3xl bg-slate-50 dark:bg-slate-950/50 border border-slate-200 dark:border-slate-800 space-y-4">
                         <div className="flex items-center gap-2 text-sm font-bold text-slate-900 dark:text-slate-100">
                           <Key className="w-4 h-4 text-emerald-600" />
-                          <span>Chave de API da Groq (Whisper Large v3)</span>
+                          <span>Chave de API da Groq (Llama 3.3 70B & Whisper)</span>
                         </div>
                         <p className="text-xs text-slate-500 dark:text-slate-400">
-                          Utilizada para o ditado clínico por voz ultra-rápido com o modelo <strong className="text-emerald-600 dark:text-emerald-400 font-mono">whisper-large-v3</strong>.
+                          Utilizada para raciocínio clínico com o modelo <strong className="text-emerald-600 dark:text-emerald-400 font-mono">Llama 3.3 70B Versatile</strong> e ditado clínico por voz com o <strong className="text-emerald-600 dark:text-emerald-400 font-mono">Whisper Large v3</strong>.
                         </p>
 
                         <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
@@ -2851,50 +2854,31 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                             (m) => m.id !== currentSectionConfig.primaryModelId && !currentChain.includes(m.id)
                           );
 
-                          // Group models by category for clean, intuitive discovery
-                          // 1. Especializados em Saúde & Medicina (inclui Ling 3.0 Flash Santé)
-                          const medicalModels = sectionAvailableModels.filter(
-                            (m) => m.id.includes('sante') || m.badge?.toLowerCase().includes('médico') || m.badge?.toLowerCase().includes('saúde')
+                          // Group models by category: Groq, Google AI Studio (Gemini), Groq Whisper (Áudio)
+                          // 1. Provedor Groq (Texto Clínico Avançado)
+                          const groqTextModels = sectionAvailableModels.filter(
+                            (m) => (m.provider === 'groq' || m.id.includes('llama-3.3-70b-versatile')) && !m.id.includes('whisper')
                           );
-                          // 2. OpenRouter - Todos os modelos OpenRouter (inclui Ling 3.0 Santé e Ling 3.0 Flash)
-                          const openrouterModels = sectionAvailableModels.filter(
-                            (m) => m.provider === 'openrouter' || m.id.startsWith('openrouter:') || m.id.includes('sante')
-                          );
-                          // Subdivisão OpenRouter para navegação ágil
-                          const openrouterFreeModels = openrouterModels.filter(
-                            (m) => (m.id.endsWith(':free') || m.badge?.toLowerCase().includes('free') || m.id.includes('sante')) && !medicalModels.includes(m)
-                          );
-                          const openrouterProModels = openrouterModels.filter(
-                            (m) => !openrouterFreeModels.includes(m) && !medicalModels.includes(m)
-                          );
-                          // 3. Google Gemini (Nativo)
+                          // 2. Provedor Google AI Studio (Família Gemini)
                           const geminiModels = sectionAvailableModels.filter(
                             (m) => (m.provider === 'gemini' || m.id.startsWith('gemini')) && !m.id.startsWith('openrouter:')
                           );
-                          // 4. OpenAI (Nativo)
-                          const openaiModels = sectionAvailableModels.filter(
-                            (m) => (m.provider === 'openai' || m.id.startsWith('openai')) && !m.id.startsWith('openrouter:')
+                          // 3. Provedor Groq (Áudio / Voz Whisper)
+                          const groqVoiceModels = sectionAvailableModels.filter(
+                            (m) => m.id.includes('whisper')
                           );
-                          // 5. Groq (Áudio / Voz)
-                          const groqModels = sectionAvailableModels.filter(
-                            (m) => (m.provider === 'groq' || m.id.startsWith('groq') || m.id.includes('whisper'))
-                          );
-                          // 6. Modelos Personalizados cadastrados
+                          // 4. Modelos Personalizados ou Legados
                           const customOtherModels = sectionAvailableModels.filter(
                             (m) =>
-                              !openrouterModels.includes(m) &&
+                              !groqTextModels.includes(m) &&
                               !geminiModels.includes(m) &&
-                              !openaiModels.includes(m) &&
-                              !groqModels.includes(m)
+                              !groqVoiceModels.includes(m)
                           );
 
-                          // Same grouping for addable fallback models
-                          const addableMedical = addableModels.filter((m) => medicalModels.includes(m));
-                          const addableOpenRouterFree = addableModels.filter((m) => openrouterFreeModels.includes(m));
-                          const addableOpenRouterPro = addableModels.filter((m) => openrouterProModels.includes(m));
+                          // Groupings for addable fallback models
+                          const addableGroqText = addableModels.filter((m) => groqTextModels.includes(m));
                           const addableGemini = addableModels.filter((m) => geminiModels.includes(m));
-                          const addableOpenAI = addableModels.filter((m) => openaiModels.includes(m));
-                          const addableGroq = addableModels.filter((m) => groqModels.includes(m));
+                          const addableGroqVoice = addableModels.filter((m) => groqVoiceModels.includes(m));
                           const addableCustom = addableModels.filter((m) => customOtherModels.includes(m));
 
                           return (
@@ -2960,35 +2944,17 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                     }}
                                     className="flex-1 px-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-indigo-500 outline-none"
                                   >
-                                    {medicalModels.length > 0 && (
-                                      <optgroup label="🏥 Especializados em Saúde & Medicina (Recomendado)">
-                                        {medicalModels.map((m) => (
-                                          <option key={`primary-med-${m.id}`} value={m.id}>
-                                            ⭐ {m.name} — [{m.badge}] ({(m.provider || 'openrouter').toUpperCase()})
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    )}
-                                    {openrouterFreeModels.length > 0 && (
-                                      <optgroup label="🌐 OpenRouter — Gratuitos (Free Tier • Inclui Ling 3.0 Santé, Llama, DeepSeek)">
-                                        {openrouterFreeModels.map((m) => (
-                                          <option key={`primary-orf-${m.id}`} value={m.id}>
-                                            {m.id.includes('sante') ? '⭐ ' : ''}{m.name} — [{m.badge}]
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    )}
-                                    {openrouterProModels.length > 0 && (
-                                      <optgroup label="🌐 OpenRouter — Alta Performance & Raciocínio (Claude, Qwen, etc.)">
-                                        {openrouterProModels.map((m) => (
-                                          <option key={`primary-orp-${m.id}`} value={m.id}>
-                                            {m.name} — [{m.badge}]
+                                    {groqTextModels.length > 0 && (
+                                      <optgroup label="⚡ Groq (Raciocínio Clínico Avançado)">
+                                        {groqTextModels.map((m) => (
+                                          <option key={`primary-grq-${m.id}`} value={m.id}>
+                                            ⭐ {m.name} — [{m.badge}]
                                           </option>
                                         ))}
                                       </optgroup>
                                     )}
                                     {geminiModels.length > 0 && (
-                                      <optgroup label="⚡ Google Gemini (Nativo)">
+                                      <optgroup label="⚡ Google AI Studio (Família Gemini)">
                                         {geminiModels.map((m) => (
                                           <option key={`primary-gem-${m.id}`} value={m.id}>
                                             {m.name} — [{m.badge}]
@@ -2996,26 +2962,17 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                         ))}
                                       </optgroup>
                                     )}
-                                    {openaiModels.length > 0 && (
-                                      <optgroup label="🧠 OpenAI (Nativo)">
-                                        {openaiModels.map((m) => (
-                                          <option key={`primary-oai-${m.id}`} value={m.id}>
-                                            {m.name} — [{m.badge}]
-                                          </option>
-                                        ))}
-                                      </optgroup>
-                                    )}
-                                    {groqModels.length > 0 && (
-                                      <optgroup label="🎙️ Groq (Transcrição de Voz)">
-                                        {groqModels.map((m) => (
-                                          <option key={`primary-grq-${m.id}`} value={m.id}>
+                                    {groqVoiceModels.length > 0 && currentSectionMeta.key === 'audioTranscription' && (
+                                      <optgroup label="🎙️ Groq (Transcrição de Voz Whisper)">
+                                        {groqVoiceModels.map((m) => (
+                                          <option key={`primary-voice-${m.id}`} value={m.id}>
                                             {m.name} — [{m.badge}]
                                           </option>
                                         ))}
                                       </optgroup>
                                     )}
                                     {customOtherModels.length > 0 && (
-                                      <optgroup label="✨ Modelos Personalizados">
+                                      <optgroup label="✨ Outros / Personalizados">
                                         {customOtherModels.map((m) => (
                                           <option key={`primary-cst-${m.id}`} value={m.id}>
                                             {m.name} — [{m.badge}]
@@ -3204,35 +3161,17 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                         className="flex-1 px-3 py-2 rounded-lg bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs font-bold text-slate-900 dark:text-slate-100 outline-none"
                                       >
                                         <option value="">Selecione um modelo para adicionar à cascata...</option>
-                                        {addableMedical.length > 0 && (
-                                          <optgroup label="🏥 Especializados em Saúde & Medicina">
-                                            {addableMedical.map((m) => (
-                                              <option key={`fb-med-${m.id}`} value={m.id}>
+                                        {addableGroqText.length > 0 && (
+                                          <optgroup label="⚡ Groq (Raciocínio Clínico Avançado)">
+                                            {addableGroqText.map((m) => (
+                                              <option key={`fb-grq-${m.id}`} value={m.id}>
                                                 ⭐ {m.name} — [{m.badge}]
                                               </option>
                                             ))}
                                           </optgroup>
                                         )}
-                                        {addableOpenRouterFree.length > 0 && (
-                                          <optgroup label="🌐 OpenRouter — Gratuitos (Free Tier • Inclui Ling 3.0 Santé, Llama, DeepSeek)">
-                                            {addableOpenRouterFree.map((m) => (
-                                              <option key={`fb-orf-${m.id}`} value={m.id}>
-                                                {m.id.includes('sante') ? '⭐ ' : ''}{m.name} — [{m.badge}]
-                                              </option>
-                                            ))}
-                                          </optgroup>
-                                        )}
-                                        {addableOpenRouterPro.length > 0 && (
-                                          <optgroup label="🌐 OpenRouter — Alta Performance & Raciocínio (Claude, Qwen, etc.)">
-                                            {addableOpenRouterPro.map((m) => (
-                                              <option key={`fb-orp-${m.id}`} value={m.id}>
-                                                {m.name} — [{m.badge}]
-                                              </option>
-                                            ))}
-                                          </optgroup>
-                                        )}
                                         {addableGemini.length > 0 && (
-                                          <optgroup label="⚡ Google Gemini (Nativo)">
+                                          <optgroup label="⚡ Google AI Studio (Família Gemini)">
                                             {addableGemini.map((m) => (
                                               <option key={`fb-gem-${m.id}`} value={m.id}>
                                                 {m.name} — [{m.badge}]
@@ -3240,26 +3179,17 @@ export const SystemSettingsModal: React.FC<SystemSettingsModalProps> = ({
                                             ))}
                                           </optgroup>
                                         )}
-                                        {addableOpenAI.length > 0 && (
-                                          <optgroup label="🧠 OpenAI (Nativo)">
-                                            {addableOpenAI.map((m) => (
-                                              <option key={`fb-oai-${m.id}`} value={m.id}>
-                                                {m.name} — [{m.badge}]
-                                              </option>
-                                            ))}
-                                          </optgroup>
-                                        )}
-                                        {addableGroq.length > 0 && (
-                                          <optgroup label="🎙️ Groq (Transcrição de Voz)">
-                                            {addableGroq.map((m) => (
-                                              <option key={`fb-grq-${m.id}`} value={m.id}>
+                                        {addableGroqVoice.length > 0 && currentSectionMeta.key === 'audioTranscription' && (
+                                          <optgroup label="🎙️ Groq (Transcrição de Voz Whisper)">
+                                            {addableGroqVoice.map((m) => (
+                                              <option key={`fb-voice-${m.id}`} value={m.id}>
                                                 {m.name} — [{m.badge}]
                                               </option>
                                             ))}
                                           </optgroup>
                                         )}
                                         {addableCustom.length > 0 && (
-                                          <optgroup label="✨ Modelos Personalizados">
+                                          <optgroup label="✨ Outros / Personalizados">
                                             {addableCustom.map((m) => (
                                               <option key={`fb-cst-${m.id}`} value={m.id}>
                                                 {m.name} — [{m.badge}]

@@ -88,6 +88,17 @@ function getGeminiClient(userKey?: string): GoogleGenAI {
 function getFriendlyModelNameServer(modelId?: string): string {
   if (!modelId || typeof modelId !== 'string') return 'OpenRouter Free (Auto)';
   const clean = modelId.trim().toLowerCase();
+
+  // Ollama Local (MedLlama)
+  if (clean.startsWith('ollama:') || clean.includes('medllama')) {
+    if (clean.includes('medllama2') || clean.includes('medllama-2')) return 'MedLlama 2 (Ollama Local)';
+    if (clean.includes('med42')) return 'Llama 3 Med42 8B (Ollama Local)';
+    return `Ollama Local (${modelId.replace(/^ollama:\s*/i, '')})`;
+  }
+
+  // Groq Texto (Llama 3.3)
+  if (clean.includes('llama-3.3-70b-versatile')) return 'Llama 3.3 70B Versatile (Raciocínio Clínico Avançado)';
+
   if (clean.includes('openrouter/free') || clean === 'openrouter:openrouter/free') return 'OpenRouter Free (Auto)';
   if (clean.includes('lfm-2.5-2.6b')) return 'Liquid LFM 2.5 2.6B (Free)';
   if (clean.includes('laguna-s-2.1')) return 'Poolside Laguna S 2.1 (Free)';
@@ -132,13 +143,14 @@ function getFriendlyModelNameServer(modelId?: string): string {
   if (clean.includes('mistral-nemo') || clean.includes('mistral')) return 'Mistral Nemo (OpenRouter)';
   if (clean.includes('phi-3')) return 'Microsoft Phi-3 Medium (OpenRouter Free)';
   return modelId
-    .replace(/^(openai:|openrouter:|groq:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
+    .replace(/^(openai:|openrouter:|groq:|ollama:|google\/|meta-llama\/|anthropic\/|inclusionai\/|deepseek\/|qwen\/|mistralai\/|microsoft\/)/i, '')
     .split(/[-_]/)
     .map((w) => w.charAt(0).toUpperCase() + w.slice(1))
     .join(' ');
 }
 
-// Resilient multi-provider fallback executor (Groq / OpenRouter / OpenAI / Google Gemini)
+// Resilient universal model aggregator and fallback executor (OpenRouter / Groq / Google AI Studio Gemini / OpenAI / Ollama Local)
+// Powered exclusively by the official OpenAI client SDK with dynamic baseURL and apiKey switching
 interface MultiProviderFallbackParams {
   primaryModelId: string;
   fallbackChain?: string[];
@@ -150,6 +162,7 @@ interface MultiProviderFallbackParams {
   openaiApiKey?: string;
   openrouterApiKey?: string;
   groqApiKey?: string;
+  ollamaBaseUrl?: string;
   onModelTransition?: (info: { currentModel: string; previousModel?: string; isFallback: boolean; reason?: string }) => void;
 }
 
@@ -167,6 +180,7 @@ async function executeMultiProviderWithFallback(
     openaiApiKey: customOpenAiKey,
     openrouterApiKey: customOpenRouterKey,
     groqApiKey: customGroqKey,
+    ollamaBaseUrl: customOllamaUrl,
     onModelTransition,
   } = params;
 
@@ -174,8 +188,6 @@ async function executeMultiProviderWithFallback(
   const systemSettings = readStoreData("settings", {});
 
   const DEFUNCT_OR_INVALID_MODELS_SERVER = new Set([
-    "groq:llama-3.3-70b-versatile",
-    "llama-3.3-70b-versatile",
     "openrouter:inception/mercury-decide:free",
     "openrouter:google/gemini-2.0-flash-exp:free",
     "openrouter:nvidia/nemotron-3-ultra-550b-a55b:free",
@@ -217,7 +229,7 @@ async function executeMultiProviderWithFallback(
   for (const m of rawList) {
     if (typeof m === "string" && m.trim()) {
       const clean = m.trim();
-      // Skip known defunct / non-chat models
+      // Skip known defunct models
       if (DEFUNCT_OR_INVALID_MODELS_SERVER.has(clean)) {
         continue;
       }
@@ -254,208 +266,197 @@ async function executeMultiProviderWithFallback(
   for (let i = 0; i < candidateModels.length; i++) {
     const candidate = candidateModels[i];
     const previousModel = i > 0 ? candidateModels[i - 1] : undefined;
+    const cleanLower = candidate.toLowerCase().trim();
 
-    const isGroq = candidate.startsWith("groq:") || (candidate.includes("groq/") && !candidate.startsWith("openrouter:"));
-    const isOpenRouter = !isGroq && (candidate.startsWith("openrouter:") || candidate.includes("inclusionai/") || candidate.includes("meta-llama/") || candidate.includes("anthropic/") || candidate.includes("mistralai/") || candidate.includes("google/gemma") || candidate.includes("deepseek/") || candidate.includes("qwen/") || candidate.includes("microsoft/") || candidate.includes("openrouter/"));
-    const isOpenAI = !isGroq && !isOpenRouter && (candidate.startsWith("openai:") || candidate.startsWith("gpt-") || candidate.startsWith("o1") || candidate.startsWith("o3"));
-    const isGemini = !isGroq && !isOpenRouter && !isOpenAI;
+    // Determine provider & dynamic parameters
+    let provider: "ollama" | "groq" | "openrouter" | "gemini" | "openai";
+    let baseURL: string;
+    let apiKey: string;
+    let cleanSlug: string;
+    let defaultHeaders: Record<string, string> | undefined = undefined;
+    let timeout = 30000;
+
+    if (cleanLower.startsWith("ollama:") || cleanLower.includes("medllama") || cleanLower.includes("med42")) {
+      // 1. OLLAMA LOCAL (MedLlama)
+      provider = "ollama";
+      cleanSlug = candidate.replace(/^ollama:\s*/i, "").trim();
+      const rawOllamaBase = (customOllamaUrl || process.env.OLLAMA_BASE_URL || systemSettings.ollamaBaseUrl || "http://ollama:11434").trim().replace(/\/+$/, "");
+      baseURL = `${rawOllamaBase}/v1`;
+      apiKey = "ollama"; // Dummy key for official OpenAI SDK
+      timeout = 45000;
+    } else if (
+      cleanLower.startsWith("groq:") ||
+      cleanLower.includes("llama-3.3-70b-versatile") ||
+      (cleanLower.includes("groq/") && !cleanLower.startsWith("openrouter:"))
+    ) {
+      // 2. GROQ (Apenas texto clínico / Llama 3.3)
+      provider = "groq";
+      cleanSlug = candidate.replace(/^groq:\s*/i, "").trim();
+      apiKey = (customGroqKey || systemSettings.groqApiKey || process.env.GROQ_API_KEY || "").trim();
+      baseURL = "https://api.groq.com/openai/v1";
+      timeout = 25000;
+    } else if (
+      cleanLower.startsWith("openrouter:") ||
+      cleanLower.includes("inclusionai/") ||
+      cleanLower.includes("meta-llama/") ||
+      cleanLower.includes("anthropic/") ||
+      cleanLower.includes("mistralai/") ||
+      cleanLower.includes("google/gemma") ||
+      cleanLower.includes("deepseek/") ||
+      cleanLower.includes("qwen/") ||
+      cleanLower.includes("microsoft/") ||
+      cleanLower.includes("openrouter/") ||
+      cleanLower.includes("liquid/") ||
+      cleanLower.includes("poolside/")
+    ) {
+      // 3. OPENROUTER
+      provider = "openrouter";
+      cleanSlug = candidate.replace(/^openrouter:\s*/i, "").trim();
+      apiKey = (customOpenRouterKey || systemSettings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "").trim();
+      baseURL = "https://openrouter.ai/api/v1";
+      defaultHeaders = {
+        "HTTP-Referer": "https://esus-pec-multiprofissional.gov.br",
+        "X-Title": "e-SUS PEC Multiprofissional",
+      };
+      timeout = 30000;
+    } else if (cleanLower.startsWith("openai:") || cleanLower.startsWith("gpt-") || cleanLower.startsWith("o1") || cleanLower.startsWith("o3")) {
+      // 4. OPENAI OFICIAL
+      provider = "openai";
+      cleanSlug = candidate.replace(/^openai:\s*/i, "").trim();
+      apiKey = (customOpenAiKey || systemSettings.openaiApiKey || process.env.OPENAI_API_KEY || "").trim();
+      baseURL = "https://api.openai.com/v1";
+      timeout = 35000;
+    } else {
+      // 5. GOOGLE AI STUDIO (GEMINI via OpenAI-compatible endpoint)
+      provider = "gemini";
+      cleanSlug = candidate.replace(/^gemini:\s*/i, "").trim();
+      apiKey = (customGeminiKey || systemSettings.geminiApiKey || process.env.GEMINI_API_KEY || "").trim();
+      baseURL = "https://generativelanguage.googleapis.com/v1beta/openai/";
+      timeout = 30000;
+    }
 
     if (i > 0 && onModelTransition) {
       onModelTransition({
         currentModel: candidate,
         previousModel,
         isFallback: true,
-        reason: `Alternando para modelo de contingência (${getFriendlyModelNameServer(candidate)})`,
+        reason: `Alternando para contingência (${getFriendlyModelNameServer(candidate)}) via ${provider.toUpperCase()}`,
       });
     }
 
-    // 0. GROQ
-    if (isGroq) {
-      const effectiveKey = (customGroqKey || systemSettings.groqApiKey || process.env.GROQ_API_KEY || "").trim();
-      if (!effectiveKey) {
-        console.warn(`[AI Cascade] Chave de API do Groq não configurada. Pulando modelo ${candidate} imediatamente...`);
-        continue;
-      }
-
-      const cleanSlug = candidate.replace(/^groq:\s*/i, "").trim();
-      console.log(`[AI Cascade] Tentando Groq (${cleanSlug})...`);
-
-      try {
-        const client = new OpenAI({
-          apiKey: effectiveKey,
-          baseURL: "https://api.groq.com/openai/v1",
-          timeout: 15000,
-        });
-
-        const completion: any = await client.chat.completions.create({
-          model: cleanSlug,
-          temperature,
-          messages: [
-            ...(systemInstruction ? [{ role: "system" as const, content: systemInstruction }] : []),
-            { role: "user" as const, content: userPrompt },
-          ],
-          response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
-        });
-
-        const outputText = completion?.choices?.[0]?.message?.content || "";
-        if (outputText && outputText.trim().length > 0) {
-          console.log(`[AI Cascade] Sucesso com Groq (${cleanSlug})!`);
-          return { text: outputText, modelUsed: candidate };
-        }
-        if (completion?.error) {
-          throw new Error(completion.error.message || `Erro no modelo Groq ${cleanSlug}`);
-        }
-        throw new Error(`Groq retornou resposta vazia para o modelo ${cleanSlug}.`);
-      } catch (err: any) {
-        console.warn(`[AI Cascade] Groq (${cleanSlug}) falhou:`, err?.message || err);
-        lastError = err;
-        continue;
-      }
+    // Skip if external API key is missing
+    if (provider !== "ollama" && !apiKey) {
+      console.warn(`[AI Cascade] Chave de API do provedor "${provider}" não configurada para modelo ${candidate}. Pulando para o próximo...`);
+      continue;
     }
 
-    // 1. OPENROUTER
-    if (isOpenRouter) {
-      const effectiveKey = (customOpenRouterKey || systemSettings.openrouterApiKey || process.env.OPENROUTER_API_KEY || "").trim();
-      if (!effectiveKey) {
-        console.warn(`[AI Cascade] Chave de API do OpenRouter não configurada. Pulando modelo ${candidate} imediatamente...`);
-        continue;
+    console.log(`[AI Cascade] Tentando modelo "${cleanSlug}" via cliente OpenAI universal (${provider.toUpperCase()} | baseURL: ${baseURL})...`);
+
+    try {
+      // Instanciação dinâmica com o SDK oficial da OpenAI
+      const client = new OpenAI({
+        apiKey,
+        baseURL,
+        defaultHeaders,
+        timeout,
+      });
+
+      const messages: OpenAI.Chat.Completions.ChatCompletionMessageParam[] = [];
+      if (systemInstruction && systemInstruction.trim()) {
+        messages.push({ role: "system", content: systemInstruction.trim() });
+      }
+      messages.push({ role: "user", content: userPrompt });
+
+      const completion: any = await client.chat.completions.create({
+        model: cleanSlug,
+        temperature,
+        messages,
+        response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
+      });
+
+      const msg = completion?.choices?.[0]?.message;
+      let outputText = (msg?.content || "").trim();
+      if (!outputText && (msg as any)?.reasoning) {
+        outputText = (msg as any).reasoning.trim();
       }
 
-      // CRITICAL: Strip "openrouter:" prefix so OpenRouter API receives pure slug (e.g. "openrouter/free")
-      const cleanSlug = candidate.replace(/^openrouter:\s*/i, "").trim();
-      console.log(`[AI Cascade] Tentando OpenRouter (${cleanSlug})...`);
-
-      try {
-        const client = new OpenAI({
-          apiKey: effectiveKey,
-          baseURL: "https://openrouter.ai/api/v1",
-          defaultHeaders: {
-            "HTTP-Referer": "https://esus-pec-multiprofissional.gov.br",
-            "X-Title": "e-SUS PEC Multiprofissional",
-          },
-          timeout: 10000,
-        });
-
-        const completion: any = await client.chat.completions.create({
-          model: cleanSlug,
-          temperature,
-          messages: [
-            ...(systemInstruction ? [{ role: "system" as const, content: systemInstruction }] : []),
-            { role: "user" as const, content: userPrompt },
-          ],
-          response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
-        });
-
-        const msg = completion?.choices?.[0]?.message;
-        let outputText = (msg?.content || "").trim();
-        if (!outputText && msg?.reasoning) {
-          outputText = msg.reasoning.trim();
-        }
-
-        if (outputText && outputText.length > 0) {
-          console.log(`[AI Cascade] Sucesso com OpenRouter (${cleanSlug})!`);
-          return { text: outputText, modelUsed: candidate };
-        }
-        if (completion?.error) {
-          throw new Error(completion.error.message || `Erro no modelo ${cleanSlug}`);
-        }
-        throw new Error(`OpenRouter retornou resposta vazia para o modelo ${cleanSlug}.`);
-      } catch (err: any) {
-        console.warn(`[AI Cascade] OpenRouter (${cleanSlug}) falhou:`, err?.message || err);
-        lastError = err;
-        continue;
-      }
-    } else if (isOpenAI) {
-      // 2. OPENAI
-      const effectiveKey = (customOpenAiKey || systemSettings.openaiApiKey || process.env.OPENAI_API_KEY || "").trim();
-      if (!effectiveKey) {
-        console.warn(`[AI Cascade] Chave de API da OpenAI não configurada. Pulando modelo ${candidate} imediatamente...`);
-        continue;
+      if (outputText && outputText.length > 0) {
+        console.log(`[AI Cascade] ✅ Sucesso com ${provider.toUpperCase()} (${cleanSlug})!`);
+        return { text: outputText, modelUsed: candidate };
       }
 
-      const cleanSlug = candidate.replace(/^openai:\s*/i, "").trim();
-      console.log(`[AI Cascade] Tentando OpenAI (${cleanSlug})...`);
-
-      try {
-        const client = new OpenAI({
-          apiKey: effectiveKey,
-          timeout: 30000,
-        });
-
-        const completion: any = await client.chat.completions.create({
-          model: cleanSlug,
-          temperature,
-          messages: [
-            ...(systemInstruction ? [{ role: "system" as const, content: systemInstruction }] : []),
-            { role: "user" as const, content: userPrompt },
-          ],
-          response_format: responseMimeType === "application/json" ? { type: "json_object" } : undefined,
-        });
-
-        const outputText = completion?.choices?.[0]?.message?.content || "";
-        if (outputText && outputText.trim().length > 0) {
-          console.log(`[AI Cascade] Sucesso com OpenAI (${cleanSlug})!`);
-          return { text: outputText, modelUsed: candidate };
-        }
-      } catch (err: any) {
-        console.warn(`[AI Cascade] OpenAI (${cleanSlug}) falhou:`, err?.message || err);
-        lastError = err;
-        continue;
+      if (completion?.error) {
+        throw new Error(completion.error.message || `Erro no modelo ${cleanSlug} via ${provider}`);
       }
-    } else {
-      // 3. GEMINI
-      const effectiveKey = (customGeminiKey || systemSettings.geminiApiKey || process.env.GEMINI_API_KEY || "").trim();
-      if (!effectiveKey) {
-        console.warn(`[AI Cascade] Chave de API do Gemini não configurada. Pulando modelo ${candidate}...`);
-        continue;
+      throw new Error(`Provedor ${provider} (${cleanSlug}) retornou resposta vazia.`);
+    } catch (err: any) {
+      // Fallback nativo imediato para Ollama (/api/chat) se a rota /v1 falhar
+      if (provider === "ollama") {
+        try {
+          const rawOllamaBase = (customOllamaUrl || process.env.OLLAMA_BASE_URL || systemSettings.ollamaBaseUrl || "http://ollama:11434").trim().replace(/\/+$/, "");
+          console.log(`[AI Cascade] Tentando fallback nativo Ollama (${rawOllamaBase}/api/chat) para "${cleanSlug}"...`);
+          const ollamaMessages = [];
+          if (systemInstruction && systemInstruction.trim()) {
+            ollamaMessages.push({ role: "system", content: systemInstruction.trim() });
+          }
+          ollamaMessages.push({ role: "user", content: userPrompt });
+
+          const controller = new AbortController();
+          const timer = setTimeout(() => controller.abort(), 35000);
+          const nativeResp = await fetch(`${rawOllamaBase}/api/chat`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({
+              model: cleanSlug,
+              messages: ollamaMessages,
+              stream: false,
+              format: responseMimeType === "application/json" ? "json" : undefined,
+              options: { temperature },
+            }),
+            signal: controller.signal,
+          });
+          clearTimeout(timer);
+
+          if (nativeResp.ok) {
+            const data: any = await nativeResp.json();
+            const nativeText = (data?.message?.content || "").trim();
+            if (nativeText) {
+              console.log(`[AI Cascade] ✅ Sucesso com Ollama nativo (/api/chat) (${cleanSlug})!`);
+              return { text: nativeText, modelUsed: candidate };
+            }
+          }
+        } catch (ollamaErr: any) {
+          console.warn(`[AI Cascade] Fallback nativo Ollama falhou:`, ollamaErr?.message || ollamaErr);
+        }
       }
 
-      const cleanSlug = candidate.replace(/^gemini:\s*/i, "").trim();
-      console.log(`[AI Cascade] Tentando Gemini (${cleanSlug})...`);
+      console.warn(`[AI Cascade] ⚠️ Modelo ${candidate} (${provider}) falhou:`, err?.message || err);
+      lastError = err;
 
-      try {
-        const ai = getGeminiClient(effectiveKey);
-        const resp = await ai.models.generateContent({
-          model: cleanSlug,
-          contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-          config: {
-            systemInstruction,
-            temperature,
-            responseMimeType,
-          },
-        });
-
-        const outputText = resp.text || "";
-        if (outputText && outputText.trim().length > 0) {
-          console.log(`[AI Cascade] Sucesso com Gemini (${cleanSlug})!`);
-          return { text: outputText, modelUsed: candidate };
-        }
-      } catch (err: any) {
-        console.warn(`[AI Cascade] Gemini (${cleanSlug}) falhou:`, err?.message || err);
-        lastError = err;
-
-        const errMsg = String(err?.message || "").toLowerCase();
-        // If Gemini API key is invalid (400 INVALID_ARGUMENT API_KEY_INVALID, 401, 403), skip other Gemini models
-        if (
-          errMsg.includes("api_key_invalid") ||
+      // Se a chave do Gemini for inválida, pula os demais modelos Gemini para não perder tempo
+      const errMsg = String(err?.message || "").toLowerCase();
+      if (
+        provider === "gemini" &&
+        (errMsg.includes("api_key_invalid") ||
           errMsg.includes("api key not valid") ||
           errMsg.includes("invalid api key") ||
           err?.status === 400 ||
           err?.status === 401 ||
-          err?.status === 403
+          err?.status === 403)
+      ) {
+        console.warn(`[AI Cascade] Chave de API do Gemini inválida ou sem permissão. Pulando demais modelos Gemini na cascata.`);
+        while (
+          i + 1 < candidateModels.length &&
+          !candidateModels[i + 1].toLowerCase().startsWith("ollama:") &&
+          !candidateModels[i + 1].toLowerCase().startsWith("groq:") &&
+          !candidateModels[i + 1].toLowerCase().startsWith("openrouter:") &&
+          !candidateModels[i + 1].toLowerCase().startsWith("openai:")
         ) {
-          console.warn(`[AI Cascade] Chave de API do Gemini inválida ou sem permissão. Pulando demais modelos Gemini na cascata.`);
-          while (
-            i + 1 < candidateModels.length &&
-            !candidateModels[i + 1].startsWith("groq:") &&
-            !candidateModels[i + 1].startsWith("openrouter:") &&
-            !candidateModels[i + 1].startsWith("openai:")
-          ) {
-            i++;
-          }
+          i++;
         }
-        continue;
       }
+
+      continue;
     }
   }
 
@@ -804,6 +805,8 @@ app.post("/api/gemini/generate", async (req, res) => {
     const userApiKey = typeof req.body.userApiKey === "string" ? req.body.userApiKey : undefined;
     const openaiApiKey = typeof req.body.openaiApiKey === "string" ? req.body.openaiApiKey : undefined;
     const openrouterApiKey = typeof req.body.openrouterApiKey === "string" ? req.body.openrouterApiKey : undefined;
+    const groqApiKey = typeof req.body.groqApiKey === "string" ? req.body.groqApiKey : undefined;
+    const ollamaBaseUrl = typeof req.body.ollamaBaseUrl === "string" ? req.body.ollamaBaseUrl : undefined;
 
     if (!rawNotes && !audioData && (!images || images.length === 0)) {
       if (isStream) {
@@ -994,6 +997,8 @@ app.post("/api/gemini/generate", async (req, res) => {
           geminiApiKey: userApiKey,
           openaiApiKey,
           openrouterApiKey,
+          groqApiKey,
+          ollamaBaseUrl,
           onModelTransition,
         });
 
@@ -1467,6 +1472,9 @@ async function generateLongitudinalEvolutionWithCascade(params: {
   appointments?: any[];
   userApiKey?: string;
   openaiApiKey?: string;
+  openrouterApiKey?: string;
+  groqApiKey?: string;
+  ollamaBaseUrl?: string;
   previousEvolution?: any;
   forceFullReanalysis?: boolean;
 }): Promise<{ parsedEvolution: any; modelUsed: string; skippedAi?: boolean }> {
@@ -1476,6 +1484,9 @@ async function generateLongitudinalEvolutionWithCascade(params: {
     appointments: customAppointments,
     userApiKey,
     openaiApiKey: customOpenAiKey,
+    openrouterApiKey: customOpenRouterKey,
+    groqApiKey: customGroqKey,
+    ollamaBaseUrl: customOllamaUrl,
     forceFullReanalysis,
   } = params;
 
@@ -1799,6 +1810,9 @@ Por favor, elabore a análise clínica longitudinal completa, profunda e rigoros
       temperature: timelineSectionConfig?.temperature ?? 0.25,
       geminiApiKey: userApiKey,
       openaiApiKey: customOpenAiKey,
+      openrouterApiKey: customOpenRouterKey,
+      groqApiKey: customGroqKey,
+      ollamaBaseUrl: customOllamaUrl,
     });
     markdownOutput = execResult.text;
     modelUsed = execResult.modelUsed;
@@ -1880,7 +1894,17 @@ app.get("/api/gemini/evolution/:patientId", async (req, res) => {
 // Com suporte a atualização incremental focada em atendimentos pendentes de análise para economia de tokens
 app.post("/api/gemini/evolution", async (req, res) => {
   try {
-    const { patient, consultations = [], userApiKey, openaiApiKey, forceRegenerate, forceFullReanalysis } = req.body;
+    const {
+      patient,
+      consultations = [],
+      userApiKey,
+      openaiApiKey,
+      openrouterApiKey,
+      groqApiKey,
+      ollamaBaseUrl,
+      forceRegenerate,
+      forceFullReanalysis,
+    } = req.body;
 
     if (!patient || !consultations || consultations.length === 0) {
       return res.status(400).json({
@@ -1919,6 +1943,9 @@ app.post("/api/gemini/evolution", async (req, res) => {
       consultations,
       userApiKey,
       openaiApiKey,
+      openrouterApiKey,
+      groqApiKey,
+      ollamaBaseUrl,
       previousEvolution: existing,
       forceFullReanalysis: Boolean(forceFullReanalysis),
     });
@@ -2037,6 +2064,10 @@ Por favor, elabore o laudo médico profissional em JSON conforme a instrução.`
       temperature: reportSectionConfig?.temperature ?? 0.2,
       responseMimeType: "application/json",
       geminiApiKey: userApiKey,
+      openaiApiKey: req.body.openaiApiKey,
+      openrouterApiKey: req.body.openrouterApiKey,
+      groqApiKey: req.body.groqApiKey,
+      ollamaBaseUrl: req.body.ollamaBaseUrl,
     });
     let parsed: any;
     try {
@@ -2134,6 +2165,10 @@ Por favor, elabore a justificativa clínica estruturada (sem nome e sem idade do
       temperature: 0.2,
       responseMimeType: "application/json",
       geminiApiKey: userApiKey,
+      openaiApiKey: req.body.openaiApiKey,
+      openrouterApiKey: req.body.openrouterApiKey,
+      groqApiKey: req.body.groqApiKey,
+      ollamaBaseUrl: req.body.ollamaBaseUrl,
     });
 
     let parsed: any = {};
@@ -2243,6 +2278,10 @@ Por favor, gere as recomendações clínicas para o atestado médico em JSON.`;
       temperature: certSectionConfig?.temperature ?? 0.3,
       responseMimeType: "application/json",
       geminiApiKey: userApiKey,
+      openaiApiKey: req.body.openaiApiKey,
+      openrouterApiKey: req.body.openrouterApiKey,
+      groqApiKey: req.body.groqApiKey,
+      ollamaBaseUrl: req.body.ollamaBaseUrl,
     });
     let parsed: any;
     try {
@@ -5481,10 +5520,117 @@ function sanitizeForFirestoreServer(val: any): any {
   return clean;
 }
 
+function isAllowedClinicalModelServer(modelId?: string, isAudio = false): boolean {
+  if (!modelId || typeof modelId !== "string") return false;
+  const clean = modelId.trim().toLowerCase();
+  if (
+    clean.startsWith("openrouter:") ||
+    clean.startsWith("openai:") ||
+    clean.startsWith("ollama:") ||
+    clean.includes("medllama") ||
+    clean.includes("med42") ||
+    clean.includes("gpt-") ||
+    clean.includes("o1") ||
+    clean.includes("o3") ||
+    clean.includes("claude") ||
+    clean.includes("deepseek") ||
+    clean.includes("qwen") ||
+    clean.includes("mistral") ||
+    clean.includes("liquid") ||
+    clean.includes("poolside") ||
+    clean.includes("nemotron")
+  ) {
+    return false;
+  }
+  if (clean.includes("whisper")) return isAudio;
+  if (clean.includes("llama-3.3-70b-versatile")) return true;
+  if (clean.startsWith("gemini-") || clean.startsWith("gemini:")) return true;
+  return false;
+}
+
+function sanitizeSettingsPayloadServer(settingsObj: any): any {
+  if (!settingsObj || typeof settingsObj !== "object") return settingsObj;
+  const sanitized = { ...settingsObj };
+
+  // Sanitize defaultModel
+  if (!isAllowedClinicalModelServer(sanitized.defaultModel, false)) {
+    sanitized.defaultModel = "llama-3.3-70b-versatile";
+  }
+
+  // Filter customModels
+  if (Array.isArray(sanitized.customModels)) {
+    sanitized.customModels = sanitized.customModels.filter((m: any) =>
+      m && m.id && isAllowedClinicalModelServer(m.id, false)
+    );
+  }
+
+  // Sanitize sectionsConfig
+  const defaultSections: Record<string, { primary: string; fallback: string[] }> = {
+    soapPec: {
+      primary: "llama-3.3-70b-versatile",
+      fallback: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.7-flash", "gemini-2.0-flash"],
+    },
+    timelineLongitudinal: {
+      primary: "llama-3.3-70b-versatile",
+      fallback: ["gemini-2.5-flash", "gemini-2.5-pro", "gemini-3.7-flash"],
+    },
+    officialReports: {
+      primary: "llama-3.3-70b-versatile",
+      fallback: ["gemini-2.5-pro", "gemini-2.5-flash", "gemini-3.7-flash"],
+    },
+    medicalCertificates: {
+      primary: "llama-3.3-70b-versatile",
+      fallback: ["gemini-2.5-flash", "gemini-2.0-flash"],
+    },
+    examResults: {
+      primary: "llama-3.3-70b-versatile",
+      fallback: ["gemini-2.5-flash", "gemini-2.5-pro"],
+    },
+    audioTranscription: {
+      primary: "groq:whisper-large-v3-turbo",
+      fallback: ["groq:whisper-large-v3", "gemini-2.5-flash"],
+    },
+  };
+
+  const secConfig = typeof sanitized.sectionsConfig === "object" && sanitized.sectionsConfig ? { ...sanitized.sectionsConfig } : {};
+  for (const [secKey, defVal] of Object.entries(defaultSections)) {
+    const currentSec = secConfig[secKey];
+    const isAudio = secKey === "audioTranscription";
+    if (!currentSec || typeof currentSec !== "object") {
+      secConfig[secKey] = {
+        primaryModelId: defVal.primary,
+        fallbackChain: [...defVal.fallback],
+        temperature: isAudio ? 0 : 0.2,
+      };
+    } else {
+      let primaryId = currentSec.primaryModelId;
+      if (!isAllowedClinicalModelServer(primaryId, isAudio)) {
+        primaryId = defVal.primary;
+      }
+      let chain = Array.isArray(currentSec.fallbackChain) ? currentSec.fallbackChain : defVal.fallback;
+      chain = chain.filter((id: string) => id && id !== primaryId && isAllowedClinicalModelServer(id, isAudio));
+      if (!isAudio && !chain.includes("gemini-2.5-flash") && primaryId !== "gemini-2.5-flash") {
+        chain.push("gemini-2.5-flash");
+      }
+      secConfig[secKey] = {
+        ...currentSec,
+        primaryModelId: primaryId,
+        fallbackChain: Array.from(new Set(chain)),
+      };
+    }
+  }
+  sanitized.sectionsConfig = secConfig;
+
+  return sanitized;
+}
+
 // GET all items in collection (Supabase PostgreSQL primary source of truth merged with local store)
 app.get("/api/db/:collection", async (req, res) => {
   const { collection } = req.params;
-  const localData = readStoreData(collection, collection === "settings" ? {} : []);
+  let localData = readStoreData(collection, collection === "settings" ? {} : []);
+  if (collection === "settings" || collection === "system_settings") {
+    localData = sanitizeSettingsPayloadServer(localData);
+  }
 
   // 1. Check Supabase PostgreSQL first
   let supabaseItems: any[] = [];
@@ -5498,7 +5644,7 @@ app.get("/api/db/:collection", async (req, res) => {
       if (sbTable === "system_settings") {
         const globalRow = sbData.find((r: any) => r.id === "global") || sbData[0];
         if (globalRow && globalRow.data) {
-          const mergedSettings = { ...localData, ...globalRow.data };
+          const mergedSettings = sanitizeSettingsPayloadServer({ ...localData, ...globalRow.data });
           writeStoreData("settings", mergedSettings);
           return res.json({ success: true, collection, data: mergedSettings });
         }
@@ -5611,7 +5757,7 @@ app.post("/api/db/:collection", async (req, res) => {
 
   if (collection === "settings") {
     const current = readStoreData("settings", {});
-    const updated = { ...current, ...item, updatedAt: Date.now() };
+    const updated = sanitizeSettingsPayloadServer({ ...current, ...item, updatedAt: Date.now() });
     writeStoreData("settings", updated);
 
     // Sync to Supabase PostgreSQL

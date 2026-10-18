@@ -29,47 +29,16 @@ export interface ProfessionConfig {
 }
 
 export type AIModelId =
+  | 'llama-3.3-70b-versatile'
   | 'gemini-3.7-flash'
   | 'gemini-3.8-flash'
   | 'gemini-3.6-flash'
   | 'gemini-3.1-flash-lite'
   | 'gemini-3.1-pro-preview'
   | 'gemini-2.5-flash'
+  | 'gemini-2.5-pro'
   | 'gemini-2.0-flash'
   | 'gemini-2.0-flash-lite'
-  | 'openai:gpt-4o'
-  | 'openai:gpt-4o-mini'
-  | 'openai:o1'
-  | 'openai:o1-preview'
-  | 'openai:o1-mini'
-  | 'openai:o3-mini'
-  | 'openrouter:openrouter/free'
-  | 'openrouter:liquid/lfm-2.5-2.6b:free'
-  | 'openrouter:poolside/laguna-xs-2.1:free'
-  | 'openrouter:poolside/laguna-s-2.1:free'
-  | 'openrouter:nvidia/nemotron-3.5-lightning:free'
-  | 'openrouter:inclusionai/ling-3.0-flash-sante:free'
-  | 'openrouter:inclusionai/ling-3.0-flash:free'
-  | 'openrouter:anthropic/claude-3.5-sonnet'
-  | 'openrouter:anthropic/claude-3.5-haiku'
-  | 'openrouter:deepseek/deepseek-r1:free'
-  | 'openrouter:deepseek/deepseek-chat:free'
-  | 'openrouter:meta-llama/llama-3.3-70b-instruct:free'
-  | 'openrouter:meta-llama/llama-3.3-70b-instruct'
-  | 'openrouter:meta-llama/llama-3.1-8b-instruct:free'
-  | 'openrouter:meta-llama/llama-3.1-8b-instruct'
-  | 'openrouter:meta-llama/llama-3.2-3b-instruct:free'
-  | 'openrouter:meta-llama/llama-3.2-1b-instruct:free'
-  | 'openrouter:meta-llama/llama-3.1-70b-instruct:free'
-  | 'openrouter:qwen/qwen-2.5-72b-instruct'
-  | 'openrouter:qwen/qwen-2.5-72b-instruct:free'
-  | 'openrouter:qwen/qwen-2.5-coder-32b-instruct:free'
-  | 'openrouter:google/gemma-2-9b-it'
-  | 'openrouter:mistralai/mistral-nemo'
-  | 'openrouter:mistralai/mistral-small-24b-instruct-2501:free'
-  | 'openrouter:mistralai/mistral-7b-instruct:free'
-  | 'openrouter:openai/gpt-4o-mini'
-  | 'openrouter:openai/o3-mini'
   | 'groq:whisper-large-v3-turbo'
   | 'groq:whisper-large-v3'
   | string;
@@ -81,48 +50,37 @@ export interface ModelOption {
   description: string;
   speed: string;
   recommendedFor: string;
-  provider?: 'gemini' | 'openai' | 'openrouter' | 'groq';
+  provider?: 'gemini' | 'openai' | 'openrouter' | 'groq' | 'ollama';
   isAudioCapable?: boolean;
   contextWindow?: string;
 }
 
 export const AVAILABLE_MODELS: ModelOption[] = [
-  // 1. OPENROUTER ESPECIALIZADO EM SAÚDE & MEDICINA (FREE)
+  // 1. PROVEDOR: GROQ (TEXTO CLÍNICO)
   {
-    id: 'openrouter:openrouter/free',
-    name: 'OpenRouter Free (Auto-Roteador)',
-    badge: '100% Free / Estável',
-    description: 'Roteamento automático inteligente para o melhor modelo gratuito disponível no OpenRouter.',
-    speed: 'Rápido',
-    recommendedFor: 'Prontuários SOAP, laudos e contingência sem custos',
-    provider: 'openrouter',
+    id: 'llama-3.3-70b-versatile',
+    name: 'Llama 3.3 70B Versatile (Raciocínio Clínico Avançado)',
+    badge: 'Groq / Ultra Rápido',
+    description: 'Modelo Llama 3.3 70B de altíssima velocidade e capacidade analítica para geração de texto clínico e SOAP.',
+    speed: 'Ultra Rápido',
+    recommendedFor: 'Prontuários SOAP, laudos clínicos e raciocínio avançado',
+    provider: 'groq',
     isAudioCapable: false,
     contextWindow: '128k tokens',
   },
-  {
-    id: 'openrouter:liquid/lfm-2.5-2.6b:free',
-    name: 'Liquid LFM 2.5 2.6B (Free)',
-    badge: 'Ultra Rápido',
-    description: 'Modelo leve e responsivo via OpenRouter para SOAP e diagnósticos.',
-    speed: 'Muito Rápido',
-    recommendedFor: 'Prontuários SOAP e retorno rápido',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '65k tokens',
-  },
-  {
-    id: 'openrouter:poolside/laguna-s-2.1:free',
-    name: 'Poolside Laguna S 2.1 (Free)',
-    badge: 'Free / Rápido',
-    description: 'Excelente para raciocínio clínico e contingência sem limites severos.',
-    speed: 'Rápido',
-    recommendedFor: 'Contingência e planos terapêuticos',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '262k tokens',
-  },
 
-  // 2. GOOGLE GEMINI (NATIVO)
+  // 2. PROVEDOR: GOOGLE AI STUDIO (FAMÍLIA GEMINI)
+  {
+    id: 'gemini-3.7-flash',
+    name: 'Gemini 3.7 Flash',
+    badge: 'Google AI Studio',
+    description: 'Modelo veloz de raciocínio híbrido e alta precisão para consultas clínicas.',
+    speed: 'Ultra Rápido',
+    recommendedFor: 'Evolução clínica diária, SOAP e laudos completos',
+    provider: 'gemini',
+    isAudioCapable: true,
+    contextWindow: '1M tokens',
+  },
   {
     id: 'gemini-2.5-flash',
     name: 'Gemini 2.5 Flash',
@@ -148,10 +106,10 @@ export const AVAILABLE_MODELS: ModelOption[] = [
   {
     id: 'gemini-3.6-flash',
     name: 'Gemini 3.6 Flash',
-    badge: 'Rápido',
+    badge: 'Google AI Studio',
     description: 'Alternativa rápida e estável para estruturação clínica.',
     speed: 'Rápido',
-    recommendedFor: 'Alternativa em caso de instabilidade do 3.7',
+    recommendedFor: 'Alternativa rápida de alta estabilidade',
     provider: 'gemini',
     isAudioCapable: true,
     contextWindow: '1M tokens',
@@ -162,7 +120,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     badge: 'Econômico',
     description: 'Ideal para tarefas simples com menor consumo de cota.',
     speed: 'Rápido',
-    recommendedFor: 'Consultas rápidas e testes de quota',
+    recommendedFor: 'Consultas rápidas e economia de quota',
     provider: 'gemini',
     isAudioCapable: true,
     contextWindow: '1M tokens',
@@ -201,200 +159,7 @@ export const AVAILABLE_MODELS: ModelOption[] = [
     contextWindow: '1M tokens',
   },
 
-  // 3. OPENROUTER - OUTROS MODELOS GRATUITOS ATIVOS (FREE TIER)
-  {
-    id: 'openrouter:poolside/laguna-xs-2.1:free',
-    name: 'Poolside Laguna XS 2.1 (Free)',
-    badge: 'Ultra Rápido / Free',
-    description: 'Modelo de contingência de baixíssima latência e excelente raciocínio.',
-    speed: 'Ultra Rápido',
-    recommendedFor: 'Triagens, validações e contingência imediata',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '262k tokens',
-  },
-  {
-    id: 'openrouter:nvidia/nemotron-3.5-lightning:free',
-    name: 'Nvidia Nemotron 3.5 Lightning (Free)',
-    badge: 'Nvidia Free',
-    description: 'Modelo de alta velocidade para tarefas clínicas rápidas.',
-    speed: 'Rápido',
-    recommendedFor: 'Resumos clínicos e triagem',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-
-  // 4. OPENROUTER - MODELOS AVANÇADOS / PRO
-  {
-    id: 'openrouter:anthropic/claude-3.5-sonnet',
-    name: 'Claude 3.5 Sonnet (OpenRouter)',
-    badge: 'Escrita Natural',
-    description: 'Texto mais humano e focado em nuances clínicas.',
-    speed: 'Rápido',
-    recommendedFor: 'Textos longos e evoluções',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '200k tokens',
-  },
-  {
-    id: 'openrouter:anthropic/claude-3.5-haiku',
-    name: 'Claude 3.5 Haiku (OpenRouter)',
-    badge: 'Ultra Rápido',
-    description: 'Velocidade extrema e alta qualidade de escrita da Anthropic.',
-    speed: 'Ultra Rápido',
-    recommendedFor: 'Consultas ambulatoriais e triagem',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '200k tokens',
-  },
-  {
-    id: 'openrouter:qwen/qwen-2.5-72b-instruct',
-    name: 'Qwen 2.5 72B Instruct (OpenRouter)',
-    badge: 'Alta Precisão',
-    description: 'Excelente modelo multilíngue de alta capacidade para medicina.',
-    speed: 'Moderado',
-    recommendedFor: 'Consultas complexas e farmacoterapia',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openrouter:meta-llama/llama-3.3-70b-instruct',
-    name: 'Llama 3.3 70B (OpenRouter)',
-    badge: 'Avançado / Open Source',
-    description: 'Poderoso modelo open source de alto desempenho.',
-    speed: 'Moderado',
-    recommendedFor: 'Consultas detalhadas',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openrouter:meta-llama/llama-3.1-8b-instruct',
-    name: 'Llama 3.1 8B (OpenRouter)',
-    badge: 'Rápido',
-    description: 'Modelo ágil e acessível para análises rápidas.',
-    speed: 'Muito Rápido',
-    recommendedFor: 'Consultas de rotina',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openrouter:google/gemma-2-9b-it',
-    name: 'Google Gemma 2 9B (OpenRouter)',
-    badge: 'Balanceado',
-    description: 'Eficiência e precisão com o padrão de qualidade Google.',
-    speed: 'Rápido',
-    recommendedFor: 'Atendimentos de saúde primária',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '8k tokens',
-  },
-  {
-    id: 'openrouter:mistralai/mistral-nemo',
-    name: 'Mistral Nemo (OpenRouter)',
-    badge: 'Eficiente',
-    description: 'Alto desempenho para compreensão contextual clínica.',
-    speed: 'Rápido',
-    recommendedFor: 'Prontuários e resumos clínicos',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openrouter:openai/gpt-4o-mini',
-    name: 'GPT-4o Mini (OpenRouter)',
-    badge: 'Rápido / OpenAI via OR',
-    description: 'Acesso ao GPT-4o Mini através da infraestrutura OpenRouter.',
-    speed: 'Muito Rápido',
-    recommendedFor: 'Consultas padrão',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openrouter:openai/o3-mini',
-    name: 'OpenAI o3-mini (OpenRouter)',
-    badge: 'Raciocínio via OR',
-    description: 'Modelo o3-mini com alta precisão de raciocínio lógico via OpenRouter.',
-    speed: 'Rápido',
-    recommendedFor: 'Diagnósticos e casos complexos',
-    provider: 'openrouter',
-    isAudioCapable: false,
-    contextWindow: '200k tokens',
-  },
-
-  // 5. OPENAI (NATIVO)
-  {
-    id: 'openai:gpt-4o',
-    name: 'OpenAI GPT-4o',
-    badge: 'Poderoso',
-    description: 'Excelente para raciocínio clínico e transcrições complexas.',
-    speed: 'Moderado',
-    recommendedFor: 'Estruturação de casos detalhados',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openai:gpt-4o-mini',
-    name: 'OpenAI GPT-4o Mini',
-    badge: 'Rápido',
-    description: 'Alternativa rápida e econômica da OpenAI.',
-    speed: 'Muito Rápido',
-    recommendedFor: 'Consultas padrão',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openai:o1',
-    name: 'OpenAI o1',
-    badge: 'Raciocínio Máximo',
-    description: 'O mais potente modelo de raciocínio e auditoria clínica da OpenAI.',
-    speed: 'Lento',
-    recommendedFor: 'Casos médicos raros, diagnósticos difíceis e auditorias',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '200k tokens',
-  },
-  {
-    id: 'openai:o1-preview',
-    name: 'OpenAI o1 Preview',
-    badge: 'Alta Complexidade',
-    description: 'Modelo avançado da OpenAI focado em raciocínio complexo.',
-    speed: 'Lento',
-    recommendedFor: 'Casos clínicos extremamente complexos',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openai:o1-mini',
-    name: 'OpenAI o1 Mini',
-    badge: 'Raciocínio Rápido',
-    description: 'Excelente capacidade analítica com maior agilidade.',
-    speed: 'Moderado',
-    recommendedFor: 'Diagnósticos diferenciais',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '128k tokens',
-  },
-  {
-    id: 'openai:o3-mini',
-    name: 'OpenAI o3-mini',
-    badge: 'Raciocínio Avançado',
-    description: 'Modelo de raciocínio lógico de ponta com alta precisão diagnóstica.',
-    speed: 'Rápido',
-    recommendedFor: 'Casos clínicos complexos e diagnósticos diferenciais',
-    provider: 'openai',
-    isAudioCapable: false,
-    contextWindow: '200k tokens',
-  },
-
-  // 6. GROQ (VOZ & ÁUDIO CLÍNICO)
+  // 3. GROQ (VOZ & ÁUDIO CLÍNICO - SPEECH TO TEXT)
   {
     id: 'groq:whisper-large-v3-turbo',
     name: 'Groq Whisper Large v3 Turbo',

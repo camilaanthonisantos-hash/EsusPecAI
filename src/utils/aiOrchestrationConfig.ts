@@ -6,53 +6,52 @@ import { getFriendlyModelName, getModelProvider } from './aiModelHelper';
  */
 export const DEFAULT_SECTIONS_CONFIG: AppAISectionsConfig = {
   soapPec: {
-    primaryModelId: 'openrouter:openrouter/free',
+    primaryModelId: 'llama-3.3-70b-versatile',
     fallbackChain: [
-      'openrouter:liquid/lfm-2.5-2.6b:free',
-      'openrouter:poolside/laguna-s-2.1:free',
       'gemini-2.5-flash',
-      'openai:gpt-4o-mini',
+      'gemini-2.5-pro',
+      'gemini-3.7-flash',
+      'gemini-2.0-flash',
     ],
     temperature: 0.2,
   },
   timelineLongitudinal: {
-    primaryModelId: 'openrouter:openrouter/free',
+    primaryModelId: 'llama-3.3-70b-versatile',
     fallbackChain: [
-      'openrouter:liquid/lfm-2.5-2.6b:free',
       'gemini-2.5-flash',
-      'openai:gpt-4o',
+      'gemini-2.5-pro',
+      'gemini-3.7-flash',
     ],
     temperature: 0.2,
   },
   officialReports: {
-    primaryModelId: 'openrouter:openrouter/free',
+    primaryModelId: 'llama-3.3-70b-versatile',
     fallbackChain: [
-      'openrouter:liquid/lfm-2.5-2.6b:free',
+      'gemini-2.5-pro',
       'gemini-2.5-flash',
-      'openai:gpt-4o-mini',
+      'gemini-3.7-flash',
     ],
     temperature: 0.2,
   },
   medicalCertificates: {
-    primaryModelId: 'openrouter:openrouter/free',
+    primaryModelId: 'llama-3.3-70b-versatile',
     fallbackChain: [
-      'openrouter:liquid/lfm-2.5-2.6b:free',
       'gemini-2.5-flash',
+      'gemini-2.0-flash',
     ],
     temperature: 0.3,
   },
   examResults: {
-    primaryModelId: 'openrouter:openrouter/free',
+    primaryModelId: 'llama-3.3-70b-versatile',
     fallbackChain: [
-      'openrouter:liquid/lfm-2.5-2.6b:free',
       'gemini-2.5-flash',
+      'gemini-2.5-pro',
     ],
     temperature: 0.2,
   },
   audioTranscription: {
     primaryModelId: 'groq:whisper-large-v3-turbo',
     fallbackChain: [
-      'openrouter:openrouter/free',
       'groq:whisper-large-v3',
       'gemini-2.5-flash',
     ],
@@ -146,21 +145,67 @@ export const DEFUNCT_OR_INVALID_MODELS = new Set([
 ]);
 
 /**
+ * Validador estrito de modelos permitidos para a clínica:
+ * Apenas Groq (Llama 3.3 70B e Whisper para áudio) e Google AI Studio (Família Gemini).
+ * Remove qualquer menção a OpenRouter, OpenAI ou Ollama.
+ */
+export function isAllowedClinicalModel(modelId?: string, isAudio = false): boolean {
+  if (!modelId || typeof modelId !== 'string') return false;
+  const clean = modelId.trim().toLowerCase();
+
+  if (
+    clean.startsWith('openrouter:') ||
+    clean.startsWith('openai:') ||
+    clean.startsWith('ollama:') ||
+    clean.includes('medllama') ||
+    clean.includes('med42') ||
+    clean.includes('gpt-') ||
+    clean.includes('o1') ||
+    clean.includes('o3') ||
+    clean.includes('claude') ||
+    clean.includes('deepseek') ||
+    clean.includes('qwen') ||
+    clean.includes('mistral') ||
+    clean.includes('liquid') ||
+    clean.includes('poolside') ||
+    clean.includes('nemotron')
+  ) {
+    return false;
+  }
+
+  if (clean.includes('whisper')) {
+    return isAudio;
+  }
+
+  if (clean.includes('llama-3.3-70b-versatile')) {
+    return true;
+  }
+
+  if (clean.startsWith('gemini-') || clean.startsWith('gemini:')) {
+    return true;
+  }
+
+  return false;
+}
+
+/**
  * Sanitiza a lista de fallback garantindo:
  * 1. Não conter IDs nulos ou vazios
  * 2. Não conter o modelo primário (evita loop redundante)
  * 3. Não conter itens duplicados
  * 4. Filtrar modelos descontinuados ou incompatíveis com chat
+ * 5. Manter estritamente modelos permitidos (Groq e Gemini)
  */
-export function sanitizeFallbackChain(primaryModelId: string, fallbackChain?: string[]): string[] {
-  if (!Array.isArray(fallbackChain)) return ['openrouter:openrouter/free'];
+export function sanitizeFallbackChain(primaryModelId: string, fallbackChain?: string[], isAudio = false): string[] {
+  const defaultFallback = isAudio ? ['groq:whisper-large-v3', 'gemini-2.5-flash'] : ['gemini-2.5-flash'];
+  if (!Array.isArray(fallbackChain)) return defaultFallback;
   const cleanPrimary = (primaryModelId || '').trim();
   const filtered = fallbackChain
     .map((id) => (typeof id === 'string' ? id.trim() : ''))
-    .filter((id) => id && id !== cleanPrimary && !DEFUNCT_OR_INVALID_MODELS.has(id));
+    .filter((id) => id && id !== cleanPrimary && isAllowedClinicalModel(id, isAudio) && !DEFUNCT_OR_INVALID_MODELS.has(id));
 
-  if (!filtered.includes('openrouter:openrouter/free') && cleanPrimary !== 'openrouter:openrouter/free') {
-    filtered.unshift('openrouter:openrouter/free');
+  if (!isAudio && !filtered.includes('gemini-2.5-flash') && cleanPrimary !== 'gemini-2.5-flash') {
+    filtered.push('gemini-2.5-flash');
   }
   return Array.from(new Set(filtered));
 }
@@ -189,17 +234,16 @@ export function ensureSectionsConfig(loadedConfig?: Partial<AppAISectionsConfig>
       ? rawSection.primaryModelId.trim()
       : defaultSection.primaryModelId;
 
-    if (DEFUNCT_OR_INVALID_MODELS.has(primaryModelId)) {
-      primaryModelId = defaultSection.primaryModelId.startsWith('openrouter:')
-        ? 'openrouter:openrouter/free'
-        : defaultSection.primaryModelId;
+    const isAudio = key === 'audioTranscription';
+    if (!isAllowedClinicalModel(primaryModelId, isAudio) || DEFUNCT_OR_INVALID_MODELS.has(primaryModelId)) {
+      primaryModelId = defaultSection.primaryModelId;
     }
 
     const rawChain = Array.isArray(rawSection.fallbackChain)
       ? rawSection.fallbackChain
       : defaultSection.fallbackChain;
 
-    const fallbackChain = sanitizeFallbackChain(primaryModelId, rawChain);
+    const fallbackChain = sanitizeFallbackChain(primaryModelId, rawChain, isAudio);
 
     return {
       primaryModelId,
@@ -222,25 +266,28 @@ export function ensureSectionsConfig(loadedConfig?: Partial<AppAISectionsConfig>
 
 /**
  * Retorna os modelos compatíveis com uma determinada seção clínica,
- * combinando os modelos do catálogo, modelos customizados cadastrados
- * e modelos atualmente ativos na configuração para garantir que nenhum modelo seja perdido.
+ * combinando os modelos do catálogo oficial, modelos customizados
+ * e modelos atualmente ativos na configuração, aplicando o filtro especialista.
  */
 export function getAvailableModelsForSection(
   sectionKey: string,
   customModels?: ModelOption[],
   activeModelsInUse?: string[]
 ): ModelOption[] {
+  const isAudioSection = sectionKey === 'audioTranscription';
   const modelMap = new Map<string, ModelOption>();
 
-  // 1. Catálogo oficial pré-configurado
+  // 1. Catálogo oficial pré-configurado filtrado
   for (const m of AVAILABLE_MODELS) {
-    modelMap.set(m.id, m);
+    if (isAllowedClinicalModel(m.id, isAudioSection)) {
+      modelMap.set(m.id, m);
+    }
   }
 
-  // 2. Modelos customizados/persistidos no sistema
+  // 2. Modelos customizados/persistidos no sistema (apenas permitidos)
   if (Array.isArray(customModels)) {
     for (const cm of customModels) {
-      if (cm && cm.id) {
+      if (cm && cm.id && isAllowedClinicalModel(cm.id, isAudioSection)) {
         modelMap.set(cm.id, {
           ...cm,
           provider: cm.provider || getModelProvider(cm.id),
@@ -249,14 +296,14 @@ export function getAvailableModelsForSection(
     }
   }
 
-  // 3. Modelos atualmente em uso na seção (para nunca ficarem ausentes do dropdown)
+  // 3. Modelos atualmente em uso na seção (apenas permitidos)
   if (Array.isArray(activeModelsInUse)) {
     for (const mId of activeModelsInUse) {
-      if (mId && typeof mId === 'string' && !modelMap.has(mId)) {
+      if (mId && typeof mId === 'string' && isAllowedClinicalModel(mId, isAudioSection) && !modelMap.has(mId)) {
         modelMap.set(mId, {
           id: mId,
           name: getFriendlyModelName(mId),
-          badge: mId.includes('sante') ? 'Saúde / Médico' : 'Customizado',
+          badge: getModelProvider(mId) === 'groq' ? 'Groq' : 'Google AI Studio',
           description: `Modelo ativo no sistema (${mId})`,
           speed: 'Rápido',
           recommendedFor: 'Configuração do usuário',
@@ -268,10 +315,10 @@ export function getAvailableModelsForSection(
   }
 
   const allCombined = Array.from(modelMap.values()).filter(
-    (m) => !DEFUNCT_OR_INVALID_MODELS.has(m.id)
+    (m) => !DEFUNCT_OR_INVALID_MODELS.has(m.id) && isAllowedClinicalModel(m.id, isAudioSection)
   );
 
-  if (sectionKey === 'audioTranscription') {
+  if (isAudioSection) {
     return allCombined.filter((m) => m.isAudioCapable === true || m.id.includes('whisper') || m.id.includes('gemini'));
   }
 

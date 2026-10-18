@@ -255,9 +255,9 @@ export const Header: React.FC<HeaderProps> = ({
                   onChange={(e) => onSelectModel(e.target.value as AIModelId)}
                   className="px-2.5 py-1.5 rounded-xl bg-slate-100 dark:bg-slate-800 border border-slate-200 dark:border-slate-700 text-xs font-semibold text-slate-700 dark:text-slate-300 focus:ring-2 focus:ring-indigo-500 outline-none cursor-pointer"
                 >
-                  {AVAILABLE_MODELS.map((m) => (
+                  {AVAILABLE_MODELS.filter((m) => !m.id.includes('whisper')).map((m) => (
                     <option key={m.id} value={m.id}>
-                      {(m?.name || m?.id || '').replace('Gemini 2.5 ', '')}
+                      {m.name}
                     </option>
                   ))}
                 </select>

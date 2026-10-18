@@ -71,6 +71,7 @@ import { OFFICIAL_SUS_MEDICATIONS } from './data/susMedications';
 import { OFFICIAL_SUS_EXAMS } from './data/susExams';
 import { generatePECRecord, GenerationStatusUpdate } from './services/gemini';
 import { getFriendlyModelName } from './utils/aiModelHelper';
+import { isAllowedClinicalModel } from './utils/aiOrchestrationConfig';
 import { generateClinicalEvolution, getStoredClinicalEvolution } from './services/geminiEvolution';
 import {
   subscribeToPatients,
@@ -393,11 +394,11 @@ export default function App() {
   });
 
   const [selectedModel, setSelectedModel] = useState<AIModelId>(() => {
-    const saved = safeGetString('pec_model', 'gemini-3.7-flash');
-    if (saved === 'gemini-3.1-pro-preview' || saved === 'gemini-2.5-pro' || saved === 'gemini-pro') {
-      return 'gemini-3.1-pro-preview';
+    const saved = safeGetString('pec_model', 'llama-3.3-70b-versatile');
+    if (saved && isAllowedClinicalModel(saved, false)) {
+      return saved as AIModelId;
     }
-    return 'gemini-3.7-flash';
+    return 'llama-3.3-70b-versatile';
   });
 
   const [userApiKey, setUserApiKey] = useState<string>(() => {
