@@ -1,4 +1,4 @@
-import { Appointment, PixTransactionRecord, SystemSettings } from '../types';
+import { Appointment, Patient, PixTransactionRecord, SystemSettings } from '../types';
 import { cleanDuplicateSignatureLines } from '../utils/textFormatters';
 
 export type NotificationEventType =
@@ -22,13 +22,39 @@ export interface NotificationPayload {
   timestamp: number;
   appointmentId: string;
   instance?: string;
+  // Campos de Vínculo Territorial e Atenção Básica no nível raiz para nós do n8n
+  referenceUbs?: string;
+  referenceUbsContact?: string;
+  acsName?: string;
+  acsContact?: string;
+  ubsReferencia?: string;
+  ubsContato?: string;
+  acs?: string;
+  acsContato?: string;
+  reference_ubs?: string;
+  reference_ubs_contact?: string;
+  acs_name?: string;
+  acs_contact?: string;
   patient: {
+    id?: string;
     name: string;
     phone: string;
     phoneWhatsApp: string; // E.164 without '+' (e.g. 5511999998888)
     cpf?: string;
     cns?: string;
     email?: string;
+    referenceUbs?: string;
+    referenceUbsContact?: string;
+    acsName?: string;
+    acsContact?: string;
+    ubsReferencia?: string;
+    ubsContato?: string;
+    acs?: string;
+    acsContato?: string;
+    reference_ubs?: string;
+    reference_ubs_contact?: string;
+    acs_name?: string;
+    acs_contact?: string;
   };
   appointment: {
     id: string;
@@ -110,18 +136,24 @@ export function buildNotificationPayload(
   data: {
     appointment?: Partial<Appointment>;
     pixOrder?: Partial<PixTransactionRecord>;
+    patient?: Partial<Patient>;
     unitName?: string;
     instance?: string;
   }
 ): NotificationPayload {
-  const { appointment, pixOrder, unitName = 'Unidade de Atendimento de Saúde', instance = 'Typebot_curso_tec' } = data;
+  const { appointment, pixOrder, patient: customPatient, unitName = 'Unidade de Atendimento de Saúde', instance = 'Typebot_curso_tec' } = data;
 
   const apptId = appointment?.id || pixOrder?.id || `app-${Date.now()}`;
-  const patientName = appointment?.patientName || pixOrder?.patientName || 'Paciente';
-  const rawPhone = appointment?.patientPhone || pixOrder?.patientPhone || '';
+  const patientName = appointment?.patientName || pixOrder?.patientName || customPatient?.fullName || 'Paciente';
+  const rawPhone = appointment?.patientPhone || pixOrder?.patientPhone || customPatient?.phone || '';
   const phoneWhatsApp = formatPhoneForWhatsApp(rawPhone);
-  const patientCpf = appointment?.patientCpf || pixOrder?.patientCpf;
-  const patientEmail = appointment?.patientEmail || pixOrder?.patientEmail;
+  const patientCpf = appointment?.patientCpf || pixOrder?.patientCpf || customPatient?.cpf;
+  const patientEmail = appointment?.patientEmail || pixOrder?.patientEmail || customPatient?.email;
+
+  const refUbs = (appointment?.patientReferenceUbs || customPatient?.referenceUbs || (appointment as any)?.referenceUbs || '').trim();
+  const refUbsContact = (appointment?.patientReferenceUbsContact || customPatient?.referenceUbsContact || (appointment as any)?.referenceUbsContact || '').trim();
+  const acs = (appointment?.patientAcsName || customPatient?.acsName || (appointment as any)?.acsName || '').trim();
+  const acsCont = (appointment?.patientAcsContact || customPatient?.acsContact || (appointment as any)?.acsContact || '').trim();
 
   const rawDate = appointment?.date || pixOrder?.date || '';
   const dateFormatted = formatDateBR(rawDate);
@@ -289,13 +321,39 @@ export function buildNotificationPayload(
     timestamp: Date.now(),
     appointmentId: apptId,
     instance,
+    // Vínculo Territorial e Atenção Básica (n8n root level)
+    referenceUbs: refUbs || undefined,
+    referenceUbsContact: refUbsContact || undefined,
+    acsName: acs || undefined,
+    acsContact: acsCont || undefined,
+    ubsReferencia: refUbs || undefined,
+    ubsContato: refUbsContact || undefined,
+    acs: acs || undefined,
+    acsContato: acsCont || undefined,
+    reference_ubs: refUbs || undefined,
+    reference_ubs_contact: refUbsContact || undefined,
+    acs_name: acs || undefined,
+    acs_contact: acsCont || undefined,
     patient: {
+      id: customPatient?.id || (appointment as any)?.patientId,
       name: patientName,
       phone: rawPhone,
       phoneWhatsApp,
       cpf: patientCpf,
-      cns: appointment?.patientCns,
+      cns: appointment?.patientCns || customPatient?.cns,
       email: patientEmail,
+      referenceUbs: refUbs || undefined,
+      referenceUbsContact: refUbsContact || undefined,
+      acsName: acs || undefined,
+      acsContact: acsCont || undefined,
+      ubsReferencia: refUbs || undefined,
+      ubsContato: refUbsContact || undefined,
+      acs: acs || undefined,
+      acsContato: acsCont || undefined,
+      reference_ubs: refUbs || undefined,
+      reference_ubs_contact: refUbsContact || undefined,
+      acs_name: acs || undefined,
+      acs_contact: acsCont || undefined,
     },
     appointment: {
       id: apptId,

@@ -20,6 +20,9 @@ import {
   Mail,
   Globe,
   Layers,
+  Building2,
+  Phone,
+  UserCheck,
 } from 'lucide-react';
 import { Patient, KinshipType } from '../types';
 import {
@@ -29,7 +32,7 @@ import {
   formatCNS,
   validateCNS,
 } from '../utils/dateCalculator';
-import { formatName } from '../utils/textFormatters';
+import { formatName, formatPhoneBR } from '../utils/textFormatters';
 import { syncPatientToDb2, fetchStreetTypesCatalogFromDb2 } from '../services/secondarySupabase';
 import { DEFAULT_STREET_TYPES, StreetTypeItem } from '../data/streetTypes';
 
@@ -67,10 +70,19 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
   const [birthDate, setBirthDate] = useState('');
   const [gender, setGender] = useState<'Feminino' | 'Masculino' | 'Outro'>('Feminino');
   const [phone, setPhone] = useState('');
-  const [address, setAddress] = useState('');
   const [legalGuardianName, setLegalGuardianName] = useState('');
   const [guardianKinship, setGuardianKinship] = useState<KinshipType>('Mãe');
   const [guardianKinshipCustom, setGuardianKinshipCustom] = useState('');
+
+  // Novos campos: UBS Referência, Contato e ACS, Contato
+  const [referenceUbs, setReferenceUbs] = useState('');
+  const [referenceUbsContact, setReferenceUbsContact] = useState('');
+  const [acsName, setAcsName] = useState('');
+  const [acsContact, setAcsContact] = useState('');
+  const [isUbsOpen, setIsUbsOpen] = useState(false);
+  const [isAcsOpen, setIsAcsOpen] = useState(false);
+  const ubsRef = useRef<HTMLDivElement>(null);
+  const acsRef = useRef<HTMLDivElement>(null);
 
   // Campos estendidos para SUS / BPA-I e Banco 2
   const [email, setEmail] = useState('');
@@ -95,7 +107,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
   const streetTypeRef = useRef<HTMLDivElement>(null);
   const streetCodeRef = useRef<HTMLDivElement>(null);
 
-  // Fecha as listas suspensas de logradouro ao clicar fora sem bloquear cliques nos outros campos
+  // Fecha as listas suspensas (Logradouro, UBS, ACS) ao clicar fora sem bloquear cliques nos outros campos
   useEffect(() => {
     const handleClickOutside = (event: MouseEvent) => {
       if (streetTypeRef.current && !streetTypeRef.current.contains(event.target as Node)) {
@@ -104,14 +116,20 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       if (streetCodeRef.current && !streetCodeRef.current.contains(event.target as Node)) {
         setIsStreetCodeOpen(false);
       }
+      if (ubsRef.current && !ubsRef.current.contains(event.target as Node)) {
+        setIsUbsOpen(false);
+      }
+      if (acsRef.current && !acsRef.current.contains(event.target as Node)) {
+        setIsAcsOpen(false);
+      }
     };
-    if (isStreetTypeOpen || isStreetCodeOpen) {
+    if (isStreetTypeOpen || isStreetCodeOpen || isUbsOpen || isAcsOpen) {
       document.addEventListener('mousedown', handleClickOutside);
     }
     return () => {
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [isStreetTypeOpen, isStreetCodeOpen]);
+  }, [isStreetTypeOpen, isStreetCodeOpen, isUbsOpen, isAcsOpen]);
   const [isExtendedSectionOpen, setIsExtendedSectionOpen] = useState(false);
   const [isSearchingCep, setIsSearchingCep] = useState(false);
 
@@ -150,11 +168,16 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       setCpf(patientToEdit.cpf || '');
       setBirthDate(patientToEdit.birthDate || '');
       setGender(patientToEdit.gender || 'Feminino');
-      setPhone(patientToEdit.phone || '');
-      setAddress(patientToEdit.address || '');
+      setPhone(formatPhoneBR(patientToEdit.phone || ''));
       setLegalGuardianName(patientToEdit.legalGuardianName || '');
       setGuardianKinship(patientToEdit.guardianKinship || 'Mãe');
       setGuardianKinshipCustom(patientToEdit.guardianKinshipCustom || '');
+      setReferenceUbs(patientToEdit.referenceUbs || '');
+      setReferenceUbsContact(formatPhoneBR(patientToEdit.referenceUbsContact || ''));
+      setAcsName(patientToEdit.acsName || '');
+      setAcsContact(formatPhoneBR(patientToEdit.acsContact || ''));
+      setIsUbsOpen(false);
+      setIsAcsOpen(false);
       setEmail(patientToEdit.email || '');
       setNationality(patientToEdit.nationality || 'Brasileira');
       setRace(patientToEdit.race || 'Branca');
@@ -178,10 +201,15 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       setBirthDate('');
       setGender('Feminino');
       setPhone('');
-      setAddress('');
       setLegalGuardianName('');
       setGuardianKinship('Mãe');
       setGuardianKinshipCustom('');
+      setReferenceUbs('');
+      setReferenceUbsContact('');
+      setAcsName('');
+      setAcsContact('');
+      setIsUbsOpen(false);
+      setIsAcsOpen(false);
       setEmail('');
       setNationality('Brasileira');
       setRace('Branca');
@@ -298,6 +326,70 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       });
   }, [streetTypesCatalog, streetCodeFilter]);
 
+  // Busca inteligente para UBS Referência: lista com valores já cadastrados em outros pacientes
+  const registeredUbsOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    (patients || []).forEach((p) => {
+      const name = (p.referenceUbs || '').trim();
+      if (name) {
+        if (!map.has(name) || (!map.get(name) && p.referenceUbsContact)) {
+          map.set(name, p.referenceUbsContact?.trim() || '');
+        }
+      }
+    });
+    return Array.from(map.entries())
+      .map(([name, contact]) => ({ name, contact }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [patients]);
+
+  const filteredUbsOptions = useMemo(() => {
+    const query = referenceUbs.trim();
+    if (!query) return registeredUbsOptions;
+    const normalize = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const normQ = normalize(query);
+    return registeredUbsOptions.filter((opt) => normalize(opt.name).includes(normQ));
+  }, [registeredUbsOptions, referenceUbs]);
+
+  // Busca inteligente para ACS: lista com valores já cadastrados em outros pacientes
+  const registeredAcsOptions = useMemo(() => {
+    const map = new Map<string, string>();
+    (patients || []).forEach((p) => {
+      const name = (p.acsName || '').trim();
+      if (name) {
+        if (!map.has(name) || (!map.get(name) && p.acsContact)) {
+          map.set(name, p.acsContact?.trim() || '');
+        }
+      }
+    });
+    return Array.from(map.entries())
+      .map(([name, contact]) => ({ name, contact }))
+      .sort((a, b) => a.name.localeCompare(b.name, 'pt-BR'));
+  }, [patients]);
+
+  const filteredAcsOptions = useMemo(() => {
+    const query = acsName.trim();
+    if (!query) return registeredAcsOptions;
+    const normalize = (t: string) => t.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+    const normQ = normalize(query);
+    return registeredAcsOptions.filter((opt) => normalize(opt.name).includes(normQ));
+  }, [registeredAcsOptions, acsName]);
+
+  const handleSelectUbs = (opt: { name: string; contact: string }) => {
+    setReferenceUbs(opt.name);
+    if (opt.contact && !referenceUbsContact.trim()) {
+      setReferenceUbsContact(formatPhoneBR(opt.contact));
+    }
+    setIsUbsOpen(false);
+  };
+
+  const handleSelectAcs = (opt: { name: string; contact: string }) => {
+    setAcsName(opt.name);
+    if (opt.contact && !acsContact.trim()) {
+      setAcsContact(formatPhoneBR(opt.contact));
+    }
+    setIsAcsOpen(false);
+  };
+
   const calculatedAge = calculateChronologicalAge(birthDate);
 
   const handleCpfChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -377,15 +469,16 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       birthDate,
       gender,
       phone: phone.trim(),
-      address:
-        address.trim() ||
-        (street ? `${streetType} ${street}, ${number || 'S/N'} - ${neighborhood || ''} ${city || ''}`.trim() : ''),
       legalGuardianName: calculatedAge.isMinor || legalGuardianName.trim() ? legalGuardianName.trim() : undefined,
       guardianKinship: calculatedAge.isMinor || legalGuardianName.trim() ? guardianKinship : undefined,
       guardianKinshipCustom:
         guardianKinship === 'Outro' && guardianKinshipCustom.trim()
           ? guardianKinshipCustom.trim()
           : undefined,
+      referenceUbs: referenceUbs.trim() || undefined,
+      referenceUbsContact: referenceUbsContact.trim() || undefined,
+      acsName: acsName.trim() || undefined,
+      acsContact: acsContact.trim() || undefined,
       email: email.trim() || undefined,
       nationality: nationality.trim() || 'Brasileira',
       race: race.trim() || 'Branca',
@@ -757,33 +850,272 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                 )}
               </div>
 
-              {/* Endereço e Contato (Opcional) */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Telefone de Contato
-                  </label>
+              {/* Telefone de Contato */}
+              <div>
+                <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                  Telefone de Contato
+                </label>
+                <div className="relative">
+                  <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
                   <input
                     type="text"
+                    id="patient-phone-input"
                     value={phone}
-                    onChange={(e) => setPhone(e.target.value)}
-                    placeholder="(11) 98765-4321"
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                    onChange={(e) => setPhone(formatPhoneBR(e.target.value))}
+                    placeholder="(91) 98595-8041"
+                    maxLength={15}
+                    className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none font-mono"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
-                    Endereço / Microárea
-                  </label>
-                  <input
-                    type="text"
-                    value={address}
-                    onChange={(e) => setAddress(e.target.value)}
-                    onBlur={(e) => setAddress(formatName(e.target.value))}
-                    placeholder="Rua, Número - Bairro / Microárea"
-                    className="w-full px-3.5 py-2 rounded-xl bg-slate-50 dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
-                  />
+              {/* Vínculo Territorial: UBS Referência, Contato e ACS, Contato */}
+              <div className="p-4 rounded-2xl bg-slate-50 dark:bg-slate-950 border border-slate-200 dark:border-slate-800 space-y-3">
+                <div className="flex items-center gap-2">
+                  <Building2 className="w-4 h-4 text-teal-600 dark:text-teal-400" />
+                  <h4 className="text-xs font-bold text-slate-900 dark:text-slate-100">
+                    Vínculo Territorial e Atenção Primária
+                  </h4>
+                </div>
+
+                {/* Linha 1: UBS Referência (Busca Inteligente) e Contato */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Campo de Busca Inteligente: UBS Referência */}
+                  <div ref={ubsRef} className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                        UBS Referência
+                      </label>
+                      {registeredUbsOptions.length > 0 && (
+                        <span className="text-[10px] text-teal-600 dark:text-teal-400 font-medium">
+                          {registeredUbsOptions.length} cadastrada(s)
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <Building2 className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        id="patient-reference-ubs-input"
+                        value={referenceUbs}
+                        onChange={(e) => {
+                          setReferenceUbs(e.target.value);
+                          setIsUbsOpen(true);
+                        }}
+                        onFocus={() => {
+                          setIsUbsOpen(true);
+                          setIsAcsOpen(false);
+                        }}
+                        onClick={() => {
+                          setIsUbsOpen(true);
+                          setIsAcsOpen(false);
+                        }}
+                        placeholder="Buscar ou cadastrar nova UBS..."
+                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsUbsOpen((prev) => !prev);
+                          setIsAcsOpen(false);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        tabIndex={-1}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Dropdown de Busca Inteligente da UBS */}
+                    {isUbsOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 py-1 text-xs divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredUbsOptions.length > 0 ? (
+                          filteredUbsOptions.map((opt) => {
+                            const isSelected = referenceUbs.trim().toLowerCase() === opt.name.toLowerCase();
+                            return (
+                              <button
+                                key={`ubs-opt-${opt.name}`}
+                                type="button"
+                                onClick={() => handleSelectUbs(opt)}
+                                className={`w-full text-left px-3 py-2 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-teal-50/90 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-semibold'
+                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="truncate">{opt.name}</span>
+                                {opt.contact && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono shrink-0">
+                                    {opt.contact}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-2 text-slate-400 text-xs italic">
+                            Nenhuma UBS encontrada com esse nome.
+                          </div>
+                        )}
+
+                        {/* Opção para cadastrar novo dado digitado se não estiver na lista */}
+                        {referenceUbs.trim().length > 0 &&
+                          !registeredUbsOptions.some(
+                            (o) => o.name.toLowerCase() === referenceUbs.trim().toLowerCase()
+                          ) && (
+                            <button
+                              type="button"
+                              onClick={() => setIsUbsOpen(false)}
+                              className="w-full text-left px-3 py-2 text-teal-600 dark:text-teal-400 hover:bg-teal-50 dark:hover:bg-teal-950/30 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
+                                Cadastrar nova: <strong>"{referenceUbs.trim()}"</strong>
+                              </span>
+                            </button>
+                          )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Campo de Contato da UBS */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Contato
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        id="patient-reference-ubs-contact-input"
+                        value={referenceUbsContact}
+                        onChange={(e) => setReferenceUbsContact(formatPhoneBR(e.target.value))}
+                        placeholder="(91) 98595-8041"
+                        maxLength={15}
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none font-mono"
+                      />
+                    </div>
+                  </div>
+                </div>
+
+                {/* Linha 2: ACS (Busca Inteligente) e Contato */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  {/* Campo de Busca Inteligente: ACS */}
+                  <div ref={acsRef} className="relative">
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block">
+                        ACS
+                      </label>
+                      {registeredAcsOptions.length > 0 && (
+                        <span className="text-[10px] text-emerald-600 dark:text-emerald-400 font-medium">
+                          {registeredAcsOptions.length} cadastrado(s)
+                        </span>
+                      )}
+                    </div>
+                    <div className="relative">
+                      <UserCheck className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        id="patient-acs-name-input"
+                        value={acsName}
+                        onChange={(e) => {
+                          setAcsName(e.target.value);
+                          setIsAcsOpen(true);
+                        }}
+                        onFocus={() => {
+                          setIsAcsOpen(true);
+                          setIsUbsOpen(false);
+                        }}
+                        onClick={() => {
+                          setIsAcsOpen(true);
+                          setIsUbsOpen(false);
+                        }}
+                        placeholder="Buscar ou cadastrar novo(a) ACS..."
+                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setIsAcsOpen((prev) => !prev);
+                          setIsUbsOpen(false);
+                        }}
+                        className="absolute right-2.5 top-1/2 -translate-y-1/2 text-slate-400 hover:text-slate-600 dark:hover:text-slate-200"
+                        tabIndex={-1}
+                      >
+                        <ChevronDown className="w-4 h-4" />
+                      </button>
+                    </div>
+
+                    {/* Dropdown de Busca Inteligente de ACS */}
+                    {isAcsOpen && (
+                      <div className="absolute left-0 right-0 top-full mt-1 max-h-48 overflow-y-auto bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 rounded-xl shadow-2xl z-50 py-1 text-xs divide-y divide-slate-100 dark:divide-slate-800">
+                        {filteredAcsOptions.length > 0 ? (
+                          filteredAcsOptions.map((opt) => {
+                            const isSelected = acsName.trim().toLowerCase() === opt.name.toLowerCase();
+                            return (
+                              <button
+                                key={`acs-opt-${opt.name}`}
+                                type="button"
+                                onClick={() => handleSelectAcs(opt)}
+                                className={`w-full text-left px-3 py-2 flex items-center justify-between gap-2 transition-colors cursor-pointer ${
+                                  isSelected
+                                    ? 'bg-emerald-50/90 dark:bg-emerald-950/40 text-emerald-700 dark:text-emerald-300 font-semibold'
+                                    : 'text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800'
+                                }`}
+                              >
+                                <span className="truncate">{opt.name}</span>
+                                {opt.contact && (
+                                  <span className="text-[10px] px-1.5 py-0.5 rounded-md bg-slate-100 dark:bg-slate-800 text-slate-500 font-mono shrink-0">
+                                    {opt.contact}
+                                  </span>
+                                )}
+                              </button>
+                            );
+                          })
+                        ) : (
+                          <div className="px-3 py-2 text-slate-400 text-xs italic">
+                            Nenhum ACS encontrado com esse nome.
+                          </div>
+                        )}
+
+                        {/* Opção para cadastrar novo dado digitado se não estiver na lista */}
+                        {acsName.trim().length > 0 &&
+                          !registeredAcsOptions.some(
+                            (o) => o.name.toLowerCase() === acsName.trim().toLowerCase()
+                          ) && (
+                            <button
+                              type="button"
+                              onClick={() => setIsAcsOpen(false)}
+                              className="w-full text-left px-3 py-2 text-emerald-600 dark:text-emerald-400 hover:bg-emerald-50 dark:hover:bg-emerald-950/30 font-semibold flex items-center gap-1.5 transition-colors cursor-pointer"
+                            >
+                              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+                              <span className="truncate">
+                                Cadastrar novo(a): <strong>"{acsName.trim()}"</strong>
+                              </span>
+                            </button>
+                          )}
+                      </div>
+                    )}
+                  </div>
+
+                  {/* Campo de Contato do ACS */}
+                  <div>
+                    <label className="text-xs font-bold text-slate-700 dark:text-slate-300 block mb-1">
+                      Contato
+                    </label>
+                    <div className="relative">
+                      <Phone className="w-4 h-4 text-slate-400 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+                      <input
+                        type="text"
+                        id="patient-acs-contact-input"
+                        value={acsContact}
+                        onChange={(e) => setAcsContact(formatPhoneBR(e.target.value))}
+                        placeholder="(91) 98595-8041"
+                        maxLength={15}
+                        className="w-full pl-10 pr-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none font-mono"
+                      />
+                    </div>
+                  </div>
                 </div>
               </div>
 

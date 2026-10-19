@@ -60,12 +60,18 @@ CREATE TABLE IF NOT EXISTS public.patients (
   birth_date TEXT,
   gender TEXT,
   mother_name TEXT,
-  address TEXT,
   balance NUMERIC(10, 2) DEFAULT 0,
+  reference_ubs TEXT,
+  reference_ubs_contact TEXT,
+  acs_name TEXT,
+  acs_contact TEXT,
   raw_data JSONB,
   created_at BIGINT,
   updated_at BIGINT
 );
+
+CREATE INDEX IF NOT EXISTS idx_patients_reference_ubs ON public.patients (reference_ubs);
+CREATE INDEX IF NOT EXISTS idx_patients_acs_name ON public.patients (acs_name);
 
 -- 3. Consultas e Prontuários (PEC SOAP)
 CREATE TABLE IF NOT EXISTS public.consultations (
@@ -297,6 +303,26 @@ BEGIN
     ALTER PUBLICATION supabase_realtime ADD TABLE public.collective_actions;
   END IF;
 END $$;
+`;
+
+// Script SQL pronto para adicionar as novas colunas de UBS e ACS na tabela patients do Supabase (BD1)
+export const PATIENTS_UBS_ACS_MIGRATION_SQL = `-- ADICIONAR COLUNAS DE UBS REFERÊNCIA E ACS NA TABELA PATIENTS (BANCO DE DADOS 1 - SUPABASE)
+-- Execute no SQL Editor do seu projeto Supabase (https://supabase.com/dashboard/project/_/sql):
+
+-- 1. Cria as novas colunas caso ainda não existam
+ALTER TABLE public.patients 
+  ADD COLUMN IF NOT EXISTS reference_ubs TEXT,
+  ADD COLUMN IF NOT EXISTS reference_ubs_contact TEXT,
+  ADD COLUMN IF NOT EXISTS acs_name TEXT,
+  ADD COLUMN IF NOT EXISTS acs_contact TEXT;
+
+-- 2. Remove a coluna legada address (o endereço fica nos dados cadastrais complementares e no raw_data)
+ALTER TABLE public.patients 
+  DROP COLUMN IF EXISTS address;
+
+-- 3. Cria índices para busca inteligente e filtragem rápida
+CREATE INDEX IF NOT EXISTS idx_patients_reference_ubs ON public.patients (reference_ubs);
+CREATE INDEX IF NOT EXISTS idx_patients_acs_name ON public.patients (acs_name);
 `;
 
 // Helper: Verifica se a tabela collective_actions já existe e está acessível no Supabase

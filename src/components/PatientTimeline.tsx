@@ -396,6 +396,40 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
                 </span>
               </div>
             )}
+
+            {patient.referenceUbs && (
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <Building className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                <span>
+                  UBS:{' '}
+                  <strong className="text-slate-800 dark:text-slate-200 font-medium">
+                    {patient.referenceUbs}
+                  </strong>
+                  {patient.referenceUbsContact && (
+                    <span className="text-slate-500 text-[11px] ml-1">
+                      ({patient.referenceUbsContact})
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
+
+            {patient.acsName && (
+              <div className="flex items-center gap-1.5 whitespace-nowrap">
+                <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                <span>
+                  ACS:{' '}
+                  <strong className="text-slate-800 dark:text-slate-200 font-medium">
+                    {patient.acsName}
+                  </strong>
+                  {patient.acsContact && (
+                    <span className="text-slate-500 text-[11px] ml-1">
+                      ({patient.acsContact})
+                    </span>
+                  )}
+                </span>
+              </div>
+            )}
           </div>
         </div>
 

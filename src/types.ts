@@ -438,6 +438,10 @@ export interface ReceptionQueueItem {
   patientBirthDate?: string;
   patientGender?: string;
   patientPhone?: string;
+  patientReferenceUbs?: string;
+  patientReferenceUbsContact?: string;
+  patientAcsName?: string;
+  patientAcsContact?: string;
 
   // Target Destination Professional
   professionalId: string;
@@ -491,6 +495,10 @@ export interface Appointment {
   patientEmail?: string;
   patientCns?: string;
   patientBirthDate?: string;
+  patientReferenceUbs?: string;
+  patientReferenceUbsContact?: string;
+  patientAcsName?: string;
+  patientAcsContact?: string;
   professionalId: string;
   professionalName: string;
   professionalEmail: string;
@@ -700,6 +708,11 @@ export interface Patient {
   guardianKinship?: KinshipType;
   guardianKinshipCustom?: string;
   balance?: number; // Saldo em carteira (R$) decorrente de pagamentos PIX
+  // Vínculo Territorial e Atenção Básica (e-SUS APS)
+  referenceUbs?: string; // UBS Referência
+  referenceUbsContact?: string; // Contato (UBS)
+  acsName?: string; // ACS (Agente Comunitário de Saúde)
+  acsContact?: string; // Contato (ACS)
   // Campos SUS / BPA-I e Sincronização com Banco 2
   email?: string;
   nationality?: string;

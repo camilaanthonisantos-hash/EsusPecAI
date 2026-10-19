@@ -19,6 +19,7 @@ import {
   MessageSquare,
   Database,
   RefreshCw,
+  Building2,
 } from 'lucide-react';
 import { Patient, Consultation, User as UserModel, SystemSettings } from '../types';
 import { calculateChronologicalAge } from '../utils/dateCalculator';
@@ -202,7 +203,9 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
         const matchCns = Boolean(p.cns && p.cns.includes(term));
         const matchCpf = Boolean(p.cpf && p.cpf.includes(term));
         const matchGuardian = Boolean(p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term));
-        if (!matchName && !matchCns && !matchCpf && !matchGuardian) {
+        const matchUbs = Boolean(p.referenceUbs && p.referenceUbs.toLowerCase().includes(term));
+        const matchAcs = Boolean(p.acsName && p.acsName.toLowerCase().includes(term));
+        if (!matchName && !matchCns && !matchCpf && !matchGuardian && !matchUbs && !matchAcs) {
           return false;
         }
       }
@@ -461,6 +464,40 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
                             <strong className="text-slate-800 dark:text-slate-200 font-semibold">
                               {patient.legalGuardianName} ({patient.guardianKinship || 'Responsável'})
                             </strong>
+                          </span>
+                        </div>
+                      )}
+
+                      {patient.referenceUbs && (
+                        <div className="flex items-center gap-1.5">
+                          <Building2 className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 shrink-0" />
+                          <span>
+                            UBS:{' '}
+                            <strong className="text-slate-800 dark:text-slate-200 font-semibold">
+                              {patient.referenceUbs}
+                            </strong>
+                            {patient.referenceUbsContact && (
+                              <span className="text-slate-500 text-[11px] ml-1">
+                                ({patient.referenceUbsContact})
+                              </span>
+                            )}
+                          </span>
+                        </div>
+                      )}
+
+                      {patient.acsName && (
+                        <div className="flex items-center gap-1.5">
+                          <UserCheck className="w-3.5 h-3.5 text-emerald-600 dark:text-emerald-400 shrink-0" />
+                          <span>
+                            ACS:{' '}
+                            <strong className="text-slate-800 dark:text-slate-200 font-semibold">
+                              {patient.acsName}
+                            </strong>
+                            {patient.acsContact && (
+                              <span className="text-slate-500 text-[11px] ml-1">
+                                ({patient.acsContact})
+                              </span>
+                            )}
                           </span>
                         </div>
                       )}

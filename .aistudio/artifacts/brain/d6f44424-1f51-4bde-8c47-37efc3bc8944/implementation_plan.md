@@ -1,80 +1,95 @@
-# Plano de Implementação: Organização da Fila & Seleção Dinâmica de Horários por Grade Profissional
+# Plano de Implementação: Painel de Chamada em Tempo Real (Smart TV & Múltiplos Dispositivos)
 
-Adequar a ordenação da Fila de Atendimento por data, hora e minuto (ordem cronológica) e restringir a seleção de horários nos agendamentos/adicição à fila apenas aos horários configurados na Gestão de Agenda de cada profissional, ocultando automaticamente os horários já ocupados.
-
-## Decisões Confirmadas do Usuário
-
-- **Exibição de Horários Ocupados**: Horários já agendados ou presentes na fila para o profissional no dia selecionado serão **totalmente ocultados** da listagem de seleção.
-- **Ordenação da Fila**: Fila ordenada cronologicamente por **data e horário agendado (data, hora, minuto)**, preservando a reordenação manual (drag-and-drop) via `orderIndex`.
-- **Grade Padrão de Fallback**: Caso o profissional não tenha configurado uma grade semanal customizada para determinado dia da semana, o sistema carrega a grade padrão da profissão/sistema com intervalos de 15 a 30 min.
+Ajuste e aprimoramento completo do Painel de Chamada da Fila de Atendimento para que, quando um profissional de saúde clicar na ação **"Chamar no Painel (TV)"** na lista da recepção ou no modal de chamada, o painel exibido em outros equipamentos (Smart TV, monitores de sala de espera ou abas dedicadas `/?painel=chamada`) reaja instantaneamente com o destaque visual em tela cheia do paciente chamado, alerta sonoro de hospital e síntese de voz (TTS - Text-To-Speech) em português.
 
 ---
 
-## 1. Visão Geral & Conceito Core
+### User Review & Critical Decisions
 
-1. **Fila de Atendimento Organizada Cronologicamente**:
-   - A ordenação base da fila reflete fielmente a data e horário agendado de cada paciente (`scheduledDate` + `scheduledTime`), garantindo que a sequência (1º, 2º, 3º...) acompanhe os horários em ordem (ex: 19/10 08:00 antes de 19/10 08:20 e 20/10 08:00).
-   - Pacientes adicionados manualmente ou reordenados por drag & drop continuam com suporte ao `orderIndex` sem perder a consistência de data/hora.
+> [!IMPORTANT]
+> A funcionalidade utilizará uma arquitetura de sincronização tripla em tempo real (Supabase Realtime PostgreSQL + Web API BroadcastChannel + LocalStorage Event Listener) para garantir **latência zero (<10ms entre abas e <200ms entre dispositivos na rede)** sem perda de dados cadastrais do paciente.
 
-2. **Seleção Dinâmica de Horários Disponíveis**:
-   - Ao abrir o modal "Adicionar à Fila" (`AddToQueueModal`) ou criar agendamentos (`AppointmentsManagementView`, `PublicBookingPortal`), o sistema consulta a grade do profissional selecionado (`user.scheduleConfig.weeklySchedule`).
-   - Calcula os horários da grade para o dia da semana específico (0=Domingo, 1=Segunda, ..., 6=Sábado).
-   - Cruza a grade do profissional com todos os agendamentos e itens de fila já existentes para aquele profissional naquela data.
-   - Remove da lista qualquer horário que já esteja ocupado.
+- **Integridade dos Dados na Chamada**: Garantia de que a alteração de status para `calling` realize a fusão (*deep merge*) dos atributos do paciente (`patientName`, `professionalName`, `professionalProfession`, `riskClassification`, `scheduledDate`), impedindo que objetos parciais cheguem à Smart TV.
+- **Notificação Sonora & Voz na Smart TV**: Execução automática do carrilhão hospitalar (*D5 -> A5*) e do anúncio em síntese de voz em 3 ciclos com contagem regressiva, seguido da atualização do status para em atendimento.
+- **Resiliência a Políticas de Autoplay de Áudio**: Banner interativo de autorização de som caso o navegador da Smart TV bloqueie a reprodução sem interação inicial do usuário.
 
 ---
 
-## 2. Experiência do Usuário & Fluxo Visual
+### 1. Visão Geral & Conceito Principal
 
-1. **Modal Adicionar à Fila / Agendamento**:
-   - Seleção de Profissional -> Atualização da Data -> Carregamento instantâneo dos chips/pills de horários disponíveis.
-   - Apenas os horários vagos pertencentes à grade configurada daquele profissional (ex: 15:00, 15:15, 15:30...) são exibidos para escolha.
-   - Caso todos os horários do dia estejam ocupados, exibe uma mensagem informativa e limpa a seleção.
-
-2. **Fila de Atendimento (`ReceptionQueueView`)**:
-   - Exibição sequencial 1º, 2º, 3º... rigidamente alinhada ao horário agendado de atendimento.
-   - Indicadores visuais claros de data e horário (ex: `19/10/26 [Segunda-feira] às 08:00`).
+- **O que faz**: Habilita o envio e a exibição em tempo real das chamadas de pacientes para qualquer tela de Smart TV ou monitor da sala de espera conectado ao endereço do painel (`/?painel=chamada`).
+- **Público-Alvo**: Recepção, triagem, equipes multiprofissionais, médicos e cidadãos na sala de espera do posto de saúde ou CAPS.
+- **Valor Agregado**: Elimina a necessidade de chamadas manuais ou falhas de comunicação, garante conformidade com as diretrizes de acessibilidade e regulação do SUS e proporciona uma experiência fluida para unidades de saúde.
 
 ---
 
-## 3. Arquitetura Técnica & Componentes
+### 2. Fluxo do Usuário & Design Visual
 
 ```
-┌────────────────────────────────────────────────────────────────────────┐
-│                        Dados de Profissionais                          │
-│               (user.scheduleConfig / DEFAULT_WEEKLY_SCHEDULE)          │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                   Helper: getAvailableSlotsForProfessional             │
-│   (Filtra grade do dia da semana e remove horários ocupados na data)   │
-└───────────────────────────────────┬────────────────────────────────────┘
-                                    │
-          ┌─────────────────────────┴────────────────────────┐
-          ▼                                                  ▼
-┌───────────────────────────────────┐      ┌─────────────────────────────┐
-│       AddToQueueModal.tsx         │      │ AppointmentsManagementView  │
-│  Chips dinâmicos de horários      │      │ Seletor de horários livres  │
-│  livres para a data escolhida     │      │ sem duplicidade             │
-└───────────────────────────────────┘      └─────────────────────────────┘
-
-                                    │
-                                    ▼
-┌────────────────────────────────────────────────────────────────────────┐
-│                      ReceptionQueueView.tsx                            │
-│  Ordenação getItemOrderValue(item):                                    │
-│  1. orderIndex (se reordenado manualmente)                             │
-│  2. timestamp exato de (scheduledDate + scheduledTime)                 │
-└────────────────────────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                       PAINEL DE RECEPÇÃO / CONSULTÓRIO                      │
+│   Profissional Clica em "Chamar no Painel (TV)" / CallPatientModal          │
+└──────────────────────────────────────┬──────────────────────────────────────┘
+                                       │
+                    ┌──────────────────┴──────────────────┐
+                    │                                     │
+                    ▼                                     ▼
+      ┌───────────────────────────┐         ┌───────────────────────────┐
+      │  Supabase & Server Database│         │ Web API BroadcastChannel  │
+      │  updateQueueItemStatus    │         │ & LocalStorage Event Sync │
+      └─────────────┬─────────────┘         └─────────────┬─────────────┘
+                    │                                     │
+                    └──────────────────┬──────────────────┘
+                                       │ Sincronização Instantânea
+                                       ▼
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                      TELA DE CHAMADA DA TV / SALA DE ESPERA                 │
+│                      PublicQueueCallScreen (/?painel=chamada)               │
+│                                                                             │
+│   1. Destaque Visual em Tela Cheia (Nome, Profissional, Risco, Idade)       │
+│   2. Som de Alerta Hospitalar + Anúncio de Voz (TTS pt-BR)                 │
+│   3. Loop de 3 Ciclos com Contagem Regressiva                              │
+└─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-### Componentes Chave Envolvidos
-1. `src/utils/dateCalculator.ts` ou novo helper `src/utils/scheduleHelper.ts`:
-   - Função utilitária para extrair os horários disponíveis de um profissional em determinada data, filtrando ocupações na fila (`queueItems`) e na agenda (`appointments`).
-2. `src/components/AddToQueueModal.tsx`:
-   - Substituir os `quickSlots` estáticos pelo seletor dinâmico baseado na grade do profissional e disponibilidade na data.
-3. `src/components/AppointmentsManagementView.tsx`:
-   - Aplicar a mesma restrição de horários disponíveis ao realizar novos agendamentos na visão de agenda.
-4. `src/components/ReceptionQueueView.tsx`:
-   - Refinar `getItemOrderValue` para calcular o valor de ordenação usando a combinação exata de `scheduledDate` + `scheduledTime` (ou `timestamp` ajustado), permitindo que os pacientes sejam ordenados no ranking 1º, 2º, 3º de forma rigorosamente cronológica por data/hora/minuto.
+- **Fluxo do Profissional**:
+  1. No painel da Recepção / Fila de Atendimento, o profissional escolhe a ação **"Chamar no Painel (TV)"** na lista do paciente.
+  2. O status do paciente transita para `calling` e dispara o sinal instantâneo de chamada em tempo real.
+- **Fluxo da Smart TV / Tela de Espera (`/?painel=chamada`)**:
+  1. O painel capta a chamada via canal em tempo real.
+  2. A animação da lista é interrompida suavemente e exibe o **Spotlight de Chamada** em destaque centralizado com fundo escuro e bordas verdes pulsantes.
+  3. Toca o carrilhão hospitalar (*D5 -> A5*) e a voz sintetizada anuncia: *"Atenção: [Nome do Paciente], favor dirigir-se ao consultório de [Nome do Profissional]"*.
+  4. O painel executa 3 repetições cronometradas do anúncio e, após a conclusão, redireciona o status para em atendimento.
+
+---
+
+### 3. Decisões do Produto & Estratégia Técnica
+
+- **Estratégia Tripla de Transmissão**:
+  - *Supabase Realtime Postgres Changes*: Sincronização entre diferentes dispositivos e redes.
+  - *Web BroadcastChannel (`pec_queue_call_channel`)*: Comunicação instantânea (<10ms) entre abas e monitores no mesmo computador.
+  - *LocalStorage Storage Event*: Fallback nativo para Smart TVs e navegadores em modo kiosk.
+- **Fusão de Objetos no Banco (`apiDbSave`)**:
+  - Ajuste no envio de atualizações parciais do status da fila para buscar e integrar os dados cadastrais completos antes de gravar no Supabase/Servidor.
+
+---
+
+### 4. Plano de Alterações em Arquivos
+
+1. **`src/services/firebase.ts`**:
+   - Corrigir `updateQueueItemStatusInFirestore` para mesclar (*merge*) os dados completos do item existente com o novo status (`calling`), garantindo que `patientName` e `professionalName` sejam mantidos no `raw_data` do Supabase.
+2. **`src/components/ReceptionQueueView.tsx`**:
+   - Atualizar `handleCall` para emitir mensagem instantânea via `BroadcastChannel` e evento de `localStorage` imediatamente ao acionar o botão "Chamar".
+3. **`src/components/PublicQueueCallScreen.tsx`**:
+   - Adicionar receptores para o `BroadcastChannel` e eventos de `storage` para reação imediata na tela do painel.
+   - Tratar a inicialização do contexto de áudio em Smart TVs.
+4. **`src/components/CallPatientModal.tsx`**:
+   - Garantir que a ação de rechamar no modal retransmita o evento para o painel da TV.
+
+---
+
+### 5. Passos de Verificação do Resultado
+
+1. Executar `compile_applet` para confirmar a ausência de erros de build e TypeScript.
+2. Abrir o sistema em duas janelas (uma com a Fila de Atendimento e outra em `/?painel=chamada`).
+3. Clicar em "Chamar no Painel (TV)" para um paciente e verificar se o painel da TV responde instantaneamente ativando a chamada visual e sonora.

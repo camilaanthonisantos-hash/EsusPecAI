@@ -121,3 +121,20 @@ export const cleanDuplicateSignatureLines = (text?: string): string => {
 
   return resultLines.join('\n');
 };
+
+/**
+ * Formata telefone brasileiro com máscara:
+ * Ex: [91985958041] -> (91) 98595-8041 (DDD + 9º dígito + 8 números)
+ * Fixos de 10 dígitos: (XX) XXXX-XXXX
+ */
+export const formatPhoneBR = (value?: string): string => {
+  if (!value) return '';
+  const digits = String(value).replace(/\D/g, '').slice(0, 11);
+  if (digits.length === 0) return '';
+  if (digits.length <= 2) return `(${digits}`;
+  if (digits.length <= 6) return `(${digits.slice(0, 2)}) ${digits.slice(2)}`;
+  if (digits.length <= 10) {
+    return `(${digits.slice(0, 2)}) ${digits.slice(2, 6)}-${digits.slice(6)}`;
+  }
+  return `(${digits.slice(0, 2)}) ${digits.slice(2, 7)}-${digits.slice(7, 11)}`;
+};

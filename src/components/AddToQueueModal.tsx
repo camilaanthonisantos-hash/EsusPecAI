@@ -267,6 +267,10 @@ export const AddToQueueModal: React.FC<AddToQueueModalProps> = ({
       patientBirthDate: activePatient.birthDate,
       patientGender: activePatient.gender,
       patientPhone: activePatient.phone,
+      patientReferenceUbs: activePatient.referenceUbs,
+      patientReferenceUbsContact: activePatient.referenceUbsContact,
+      patientAcsName: activePatient.acsName,
+      patientAcsContact: activePatient.acsContact,
 
       professionalId: selectedProf.id,
       professionalName: selectedProf.name,

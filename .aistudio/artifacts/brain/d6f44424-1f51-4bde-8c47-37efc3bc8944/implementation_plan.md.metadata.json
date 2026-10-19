@@ -1,6 +1,6 @@
 {
-  "summary": "Plano de implementação para organização da fila de atendimento por data/hora/minuto e integração do agendamento/fila com as grades de horários configuradas dos profissionais.",
-  "updatedAt": "2026-10-16T14:23:58.808900710Z",
+  "summary": "Plano de implementação detalhado e revisado para o Painel de Chamada em Tempo Real (Smart TV e Múltiplos Dispositivos) com Sincronização Instantânea e Anúncio de Voz.",
+  "updatedAt": "2026-10-18T22:19:12.864022510Z",
   "requestFeedback": true,
   "userFacing": true
 }

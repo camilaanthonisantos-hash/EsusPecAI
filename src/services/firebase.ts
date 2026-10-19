@@ -160,6 +160,10 @@ export async function fetchFromSupabaseDirect<T>(colName: string): Promise<T | n
         result.phone = result.phone || row.phone || '';
         result.birthDate = result.birthDate || result.birth_date || row.birth_date || '';
         result.gender = result.gender || row.gender || '';
+        result.referenceUbs = result.referenceUbs || row.reference_ubs || row.referenceUbs || '';
+        result.referenceUbsContact = result.referenceUbsContact || row.reference_ubs_contact || row.referenceUbsContact || '';
+        result.acsName = result.acsName || row.acs_name || row.acsName || '';
+        result.acsContact = result.acsContact || row.acs_contact || row.acsContact || '';
         result.createdAt = Number(result.createdAt || result.created_at || row.created_at || Date.now());
       } else if (tableName === 'users') {
         result.name = result.name || row.name;
@@ -227,6 +231,10 @@ export async function saveToSupabaseDirect(colName: string, item: any): Promise<
         birth_date: item.birthDate || item.birth_date || null,
         gender: item.gender || null,
         balance: item.balance || 0,
+        reference_ubs: item.referenceUbs || null,
+        reference_ubs_contact: item.referenceUbsContact || null,
+        acs_name: item.acsName || null,
+        acs_contact: item.acsContact || null,
         created_at: item.createdAt || Date.now(),
       };
     }
@@ -1135,6 +1143,18 @@ export async function saveAppointmentToFirestore(appointment: Appointment): Prom
         paymentStatus: appointment.paymentStatus || 'isento',
         status: appointment.status || 'agendado',
         source: appointment.source || 'portal_publico',
+        referenceUbs: appointment.patientReferenceUbs || (appointment as any).referenceUbs || null,
+        referenceUbsContact: appointment.patientReferenceUbsContact || (appointment as any).referenceUbsContact || null,
+        acsName: appointment.patientAcsName || (appointment as any).acsName || null,
+        acsContact: appointment.patientAcsContact || (appointment as any).acsContact || null,
+        ubsReferencia: appointment.patientReferenceUbs || (appointment as any).referenceUbs || null,
+        ubsContato: appointment.patientReferenceUbsContact || (appointment as any).referenceUbsContact || null,
+        acs: appointment.patientAcsName || (appointment as any).acsName || null,
+        acsContato: appointment.patientAcsContact || (appointment as any).acsContact || null,
+        reference_ubs: appointment.patientReferenceUbs || (appointment as any).referenceUbs || null,
+        reference_ubs_contact: appointment.patientReferenceUbsContact || (appointment as any).referenceUbsContact || null,
+        acs_name: appointment.patientAcsName || (appointment as any).acsName || null,
+        acs_contact: appointment.patientAcsContact || (appointment as any).acsContact || null,
       };
 
       fetch('https://n8n.mentoriajrs.com/webhook/pec-appointment-events', {

@@ -34,8 +34,6 @@ import {
   QrCode,
   History,
   GripVertical,
-  ArrowUp,
-  ArrowDown,
   ChevronUp,
   Pencil,
   Lock,
@@ -1248,51 +1246,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   };
 
-  const handleQuickMove = (item: ReceptionQueueItem, direction: 'top' | 'up' | 'down' | 'bottom') => {
-    const profKey = item.professionalId || item.professionalName || 'geral';
-    const itemDate = extractItemDate(item);
-    const profGroupItems = mergedAllQueueItems
-      .filter((i) => {
-        const pKey = i.professionalId || i.professionalName || 'geral';
-        const pDate = extractItemDate(i);
-        return pKey === profKey && pDate === itemDate;
-      })
-      .sort(compareQueueItems);
-
-    const currentIndex = profGroupItems.findIndex((i) => i.id === item.id);
-    if (currentIndex === -1) return;
-
-    let targetIndex = currentIndex;
-    if (direction === 'top') targetIndex = 0;
-    else if (direction === 'up') targetIndex = Math.max(0, currentIndex - 1);
-    else if (direction === 'down') targetIndex = Math.min(profGroupItems.length - 1, currentIndex + 1);
-    else if (direction === 'bottom') targetIndex = profGroupItems.length - 1;
-
-    if (targetIndex === currentIndex) return;
-
-    const reorderedList = [...profGroupItems];
-    const [moved] = reorderedList.splice(currentIndex, 1);
-    reorderedList.splice(targetIndex, 0, moved);
-
-    const reorderedResults = reorderedList.map((it, idx) => ({
-      ...it,
-      orderIndex: (idx + 1) * 10,
-      updatedAt: Date.now(),
-    }));
-
-    if (onReorderQueue) {
-      onReorderQueue(reorderedResults);
-    }
-
-    if (onShowToast) {
-      onShowToast(
-        'success',
-        `"${item.patientName}" reposicionado(a) para o ${targetIndex + 1}º lugar da fila.`,
-        'Posição Atualizada'
-      );
-    }
-  };
-
   const handleCalendarDayClick = (dateStr: string) => {
     setSelectedDates((prev) => {
       let nextDates: string[];
@@ -1923,26 +1876,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   </div>
                 </button>
 
-                {/* 1.5. Editar Data e Horário */}
-                <button
-                  type="button"
-                  id={`dropdown-edit-datetime-${item.id}`}
-                  onClick={() => {
-                    handleOpenEditDateTime(item);
-                    setOpenDropdownId(null);
-                  }}
-                  className="w-full text-left px-3.5 py-2.5 text-xs font-bold flex items-center gap-2.5 text-teal-700 dark:text-teal-300 hover:bg-teal-50 dark:hover:bg-teal-950/40 transition-colors"
-                  title="Alterar data e horário deste paciente na fila"
-                >
-                  <Calendar className="w-4 h-4 text-teal-600 dark:text-teal-400 shrink-0" />
-                  <div className="flex flex-col min-w-0">
-                    <span>Editar Data e Horário</span>
-                    <span className="text-[10px] text-slate-400 font-normal">
-                      Reagendar ou ajustar horário na fila
-                    </span>
-                  </div>
-                </button>
-
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 
                 {/* 2. Chamar */}
@@ -2087,88 +2020,6 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                     </div>
                   </button>
                 )}
-
-                <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
-
-                {/* Reposicionamento Rápido na Fila */}
-                <div className="px-3.5 py-1.5 bg-slate-50 dark:bg-slate-800/60 border-t border-b border-slate-100 dark:border-slate-800 text-[10px] text-slate-500 dark:text-slate-400 font-bold uppercase tracking-wider flex items-center justify-between">
-                  <span>Reposicionar Fila</span>
-                  <span className="text-teal-600 font-black">#{rankInfo.profOrder}º de {rankInfo.profTotal}</span>
-                </div>
-
-                <div className="grid grid-cols-2 gap-1 p-1.5 bg-slate-50/60 dark:bg-slate-900/60">
-                  <button
-                    type="button"
-                    disabled={rankInfo.profOrder <= 1}
-                    onClick={() => {
-                      handleQuickMove(item, 'up');
-                      setOpenDropdownId(null);
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      rankInfo.profOrder <= 1
-                        ? 'opacity-30 cursor-not-allowed text-slate-400'
-                        : 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 border border-teal-200 dark:border-teal-800'
-                    }`}
-                    title="Subir 1 posição na fila"
-                  >
-                    <ChevronUp className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Subir 1</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={rankInfo.profOrder >= rankInfo.profTotal}
-                    onClick={() => {
-                      handleQuickMove(item, 'down');
-                      setOpenDropdownId(null);
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      rankInfo.profOrder >= rankInfo.profTotal
-                        ? 'opacity-30 cursor-not-allowed text-slate-400'
-                        : 'text-teal-700 dark:text-teal-300 bg-teal-50 dark:bg-teal-950/60 hover:bg-teal-100 border border-teal-200 dark:border-teal-800'
-                    }`}
-                    title="Descer 1 posição na fila"
-                  >
-                    <ChevronDown className="w-3.5 h-3.5 text-teal-600" />
-                    <span>Descer 1</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={rankInfo.profOrder <= 1}
-                    onClick={() => {
-                      handleQuickMove(item, 'top');
-                      setOpenDropdownId(null);
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      rankInfo.profOrder <= 1
-                        ? 'opacity-30 cursor-not-allowed text-slate-400'
-                        : 'text-indigo-700 dark:text-indigo-300 bg-indigo-50 dark:bg-indigo-950/60 hover:bg-indigo-100 border border-indigo-200 dark:border-indigo-800'
-                    }`}
-                    title="Mover diretamente para o 1º lugar"
-                  >
-                    <ArrowUp className="w-3.5 h-3.5 text-indigo-600" />
-                    <span>Mover ao Topo</span>
-                  </button>
-
-                  <button
-                    type="button"
-                    disabled={rankInfo.profOrder >= rankInfo.profTotal}
-                    onClick={() => {
-                      handleQuickMove(item, 'bottom');
-                      setOpenDropdownId(null);
-                    }}
-                    className={`px-2 py-1.5 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer ${
-                      rankInfo.profOrder >= rankInfo.profTotal
-                        ? 'opacity-30 cursor-not-allowed text-slate-400'
-                        : 'text-slate-700 dark:text-slate-300 bg-slate-100 dark:bg-slate-800 hover:bg-slate-200 border border-slate-200 dark:border-slate-700'
-                    }`}
-                    title="Mover para o último lugar da fila"
-                  >
-                    <ArrowDown className="w-3.5 h-3.5 text-slate-600" />
-                    <span>Ao Final</span>
-                  </button>
-                </div>
 
                 <div className="my-1 border-t border-slate-100 dark:border-slate-800" />
 

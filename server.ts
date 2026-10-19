@@ -3134,6 +3134,70 @@ app.post("/api/appointments/notify-event", async (req, res) => {
       }
     }
 
+    // Enriquecimento com dados cadastrais de UBS Referência e ACS do Paciente
+    let matchedPatientReferenceUbs = "";
+    let matchedPatientReferenceUbsContact = "";
+    let matchedPatientAcsName = "";
+    let matchedPatientAcsContact = "";
+
+    const patientsList: any[] = readStoreData("patients", []);
+    let patientObj: any = null;
+    if (matchedPatientId) {
+      patientObj = patientsList.find((p) => p && p.id === matchedPatientId);
+    }
+    if (!patientObj && (body.patientId || payload?.patient?.id)) {
+      const pid = body.patientId || payload?.patient?.id;
+      patientObj = patientsList.find((p) => p && p.id === pid);
+    }
+    if (!patientObj && (body.patientPhone || payload?.patient?.phone)) {
+      const c = String(body.patientPhone || payload?.patient?.phone).replace(/\D/g, "").slice(-8);
+      if (c.length >= 8) {
+        patientObj = patientsList.find((p) => p && p.phone && p.phone.replace(/\D/g, "").includes(c));
+      }
+    }
+    if (!patientObj && (matchedPatientName || body.patientName || payload?.patient?.name)) {
+      const pName = String(matchedPatientName || body.patientName || payload?.patient?.name).trim().toLowerCase();
+      if (pName) {
+        patientObj = patientsList.find((p) => p && p.fullName && p.fullName.trim().toLowerCase() === pName);
+      }
+    }
+
+    matchedPatientReferenceUbs = (
+      patientObj?.referenceUbs ||
+      payload?.referenceUbs ||
+      payload?.patient?.referenceUbs ||
+      body.referenceUbs ||
+      body.patient?.referenceUbs ||
+      ""
+    ).trim();
+
+    matchedPatientReferenceUbsContact = (
+      patientObj?.referenceUbsContact ||
+      payload?.referenceUbsContact ||
+      payload?.patient?.referenceUbsContact ||
+      body.referenceUbsContact ||
+      body.patient?.referenceUbsContact ||
+      ""
+    ).trim();
+
+    matchedPatientAcsName = (
+      patientObj?.acsName ||
+      payload?.acsName ||
+      payload?.patient?.acsName ||
+      body.acsName ||
+      body.patient?.acsName ||
+      ""
+    ).trim();
+
+    matchedPatientAcsContact = (
+      patientObj?.acsContact ||
+      payload?.acsContact ||
+      payload?.patient?.acsContact ||
+      body.acsContact ||
+      body.patient?.acsContact ||
+      ""
+    ).trim();
+
     // Não salva mensagens disparadas pelo CRM no banco de dados (função exclusiva do n8n)
     let rawMsgText = body.messageText || payload?.suggestedMessage || payload?.messageText || "";
     if (rawMsgText && typeof rawMsgText === "string") {
@@ -3335,7 +3399,20 @@ app.post("/api/appointments/notify-event", async (req, res) => {
       sender_type: senderType,
       channel: "whatsapp",
 
-      // Telefones e Paciente
+      // Telefones e Paciente com Enriquecimento de UBS Referência e ACS para o n8n
+      referenceUbs: matchedPatientReferenceUbs || undefined,
+      referenceUbsContact: matchedPatientReferenceUbsContact || undefined,
+      acsName: matchedPatientAcsName || undefined,
+      acsContact: matchedPatientAcsContact || undefined,
+      ubsReferencia: matchedPatientReferenceUbs || undefined,
+      ubsContato: matchedPatientReferenceUbsContact || undefined,
+      acs: matchedPatientAcsName || undefined,
+      acsContato: matchedPatientAcsContact || undefined,
+      reference_ubs: matchedPatientReferenceUbs || undefined,
+      reference_ubs_contact: matchedPatientReferenceUbsContact || undefined,
+      acs_name: matchedPatientAcsName || undefined,
+      acs_contact: matchedPatientAcsContact || undefined,
+
       patientPhone: fullPhone || cleanPhone,
       phone: fullPhone || cleanPhone,
       patientName: matchedPatientName || payload?.patient?.name || body.patientName || "Paciente",
@@ -3343,7 +3420,19 @@ app.post("/api/appointments/notify-event", async (req, res) => {
         ...(payload?.patient || {}),
         name: matchedPatientName || payload?.patient?.name || body.patientName || "Paciente",
         phone: fullPhone || cleanPhone,
-        id: matchedPatientId || payload?.patient?.id || null,
+        id: matchedPatientId || payload?.patient?.id || patientObj?.id || null,
+        referenceUbs: matchedPatientReferenceUbs || undefined,
+        referenceUbsContact: matchedPatientReferenceUbsContact || undefined,
+        acsName: matchedPatientAcsName || undefined,
+        acsContact: matchedPatientAcsContact || undefined,
+        ubsReferencia: matchedPatientReferenceUbs || undefined,
+        ubsContato: matchedPatientReferenceUbsContact || undefined,
+        acs: matchedPatientAcsName || undefined,
+        acsContato: matchedPatientAcsContact || undefined,
+        reference_ubs: matchedPatientReferenceUbs || undefined,
+        reference_ubs_contact: matchedPatientReferenceUbsContact || undefined,
+        acs_name: matchedPatientAcsName || undefined,
+        acs_contact: matchedPatientAcsContact || undefined,
       },
 
       // Endpoint de Retorno do PEC-CAPS para os Botões (resposta à dúvida do agente n8n)
@@ -4339,6 +4428,10 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
         birth_date: item.birthDate || null,
         gender: item.gender || null,
         balance: item.balance || 0,
+        reference_ubs: item.referenceUbs || null,
+        reference_ubs_contact: item.referenceUbsContact || null,
+        acs_name: item.acsName || null,
+        acs_contact: item.acsContact || null,
         created_at: item.createdAt || Date.now(),
       };
     } else if (collectionName === "consultations") {
@@ -5273,6 +5366,31 @@ app.post("/api/whatsapp/messages", async (req, res) => {
       }
     }
 
+    // Busca dados do paciente para enriquecimento com UBS Referência e ACS
+    const patientsListCRM: any[] = readStoreData("patients", []);
+    let targetPatient: any = null;
+    if (patientId) {
+      targetPatient = patientsListCRM.find((p) => p && p.id === patientId);
+    }
+    if (!targetPatient && targetAppt?.patientId) {
+      targetPatient = patientsListCRM.find((p) => p && p.id === targetAppt.patientId);
+    }
+    if (!targetPatient && cleanPhone) {
+      const c = cleanPhone.slice(-8);
+      if (c.length >= 8) {
+        targetPatient = patientsListCRM.find((p) => p && p.phone && p.phone.replace(/\D/g, "").includes(c));
+      }
+    }
+    if (!targetPatient && (patientName || targetAppt?.patientName)) {
+      const pName = String(patientName || targetAppt?.patientName).trim().toLowerCase();
+      targetPatient = patientsListCRM.find((p) => p && p.fullName && p.fullName.trim().toLowerCase() === pName);
+    }
+
+    const crmRefUbs = (targetPatient?.referenceUbs || targetAppt?.patientReferenceUbs || req.body.referenceUbs || "").trim();
+    const crmRefUbsContact = (targetPatient?.referenceUbsContact || targetAppt?.patientReferenceUbsContact || req.body.referenceUbsContact || "").trim();
+    const crmAcsName = (targetPatient?.acsName || targetAppt?.patientAcsName || req.body.acsName || "").trim();
+    const crmAcsContact = (targetPatient?.acsContact || targetAppt?.patientAcsContact || req.body.acsContact || "").trim();
+
     const payload = {
       event: "whatsapp_manual_message",
       appointmentId: appointmentId || null,
@@ -5284,6 +5402,20 @@ app.post("/api/whatsapp/messages", async (req, res) => {
         serviceName: targetAppt.serviceName,
         professionalName: targetAppt.professionalName,
       } : null,
+
+      // Vínculo Territorial e Atenção Básica (UBS e ACS)
+      referenceUbs: crmRefUbs || undefined,
+      referenceUbsContact: crmRefUbsContact || undefined,
+      acsName: crmAcsName || undefined,
+      acsContact: crmAcsContact || undefined,
+      ubsReferencia: crmRefUbs || undefined,
+      ubsContato: crmRefUbsContact || undefined,
+      acs: crmAcsName || undefined,
+      acsContato: crmAcsContact || undefined,
+      reference_ubs: crmRefUbs || undefined,
+      reference_ubs_contact: crmRefUbsContact || undefined,
+      acs_name: crmAcsName || undefined,
+      acs_contact: crmAcsContact || undefined,
 
       // Diferenciação Clara de Perfil de Interação (Humanizada pelo CRM)
       perfil_interacao: "humanizada",
@@ -5304,15 +5436,27 @@ app.post("/api/whatsapp/messages", async (req, res) => {
       channel: "whatsapp",
 
       // Paciente e Telefones
-      patientId: patientId || targetAppt?.patientId || null,
+      patientId: patientId || targetAppt?.patientId || targetPatient?.id || null,
       patientPhone: fullPhone || cleanPhone,
       phone: fullPhone || cleanPhone,
-      patientName: patientName || targetAppt?.patientName || "Paciente",
+      patientName: patientName || targetAppt?.patientName || targetPatient?.fullName || "Paciente",
       patient: {
-        id: patientId || targetAppt?.patientId || null,
+        id: patientId || targetAppt?.patientId || targetPatient?.id || null,
         phone: fullPhone || cleanPhone,
-        name: patientName || targetAppt?.patientName || "Paciente",
-        cpf: targetAppt?.patientCpf || null,
+        name: patientName || targetAppt?.patientName || targetPatient?.fullName || "Paciente",
+        cpf: targetAppt?.patientCpf || targetPatient?.cpf || null,
+        referenceUbs: crmRefUbs || undefined,
+        referenceUbsContact: crmRefUbsContact || undefined,
+        acsName: crmAcsName || undefined,
+        acsContact: crmAcsContact || undefined,
+        ubsReferencia: crmRefUbs || undefined,
+        ubsContato: crmRefUbsContact || undefined,
+        acs: crmAcsName || undefined,
+        acsContato: crmAcsContact || undefined,
+        reference_ubs: crmRefUbs || undefined,
+        reference_ubs_contact: crmRefUbsContact || undefined,
+        acs_name: crmAcsName || undefined,
+        acs_contact: crmAcsContact || undefined,
       },
 
       messageText: messageText.trim(),
