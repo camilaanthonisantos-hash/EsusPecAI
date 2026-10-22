@@ -282,7 +282,14 @@ export default function App() {
   const [isPublicCallScreenOpen, setIsPublicCallScreenOpen] = useState(isInitiallyPublicCallTv);
 
   // Reception Queue State
-  const [queueItems, setQueueItems] = useState<ReceptionQueueItem[]>([]);
+  const [queueItems, setQueueItems] = useState<ReceptionQueueItem[]>(() => {
+    try {
+      const saved = safeGetItem<ReceptionQueueItem[]>('pec_queue_items', []);
+      return (saved || []).filter((q) => !isMockQueueItem(q));
+    } catch {
+      return [];
+    }
+  });
   const [isAddToQueueModalOpen, setIsAddToQueueModalOpen] = useState(false);
   const [patientForQueue, setPatientForQueue] = useState<Patient | null>(null);
   const [isCallPatientModalOpen, setIsCallPatientModalOpen] = useState(false);
@@ -896,14 +903,28 @@ export default function App() {
     const unsubQueue = subscribeToReceptionQueue(
       (liveQueue) => {
         if (liveQueue) {
-          const cleaned = (liveQueue || []).filter((q) => {
-            if (isMockQueueItem(q)) {
-              deleteQueueItemFromFirestore(q.id).catch(() => {});
-              return false;
-            }
-            return true;
+          const cleaned = (liveQueue || []).filter((q) => !isMockQueueItem(q));
+          setQueueItems((prevLocal) => {
+            const map = new Map<string, ReceptionQueueItem>();
+            // 1. Add server live queue items
+            cleaned.forEach((q) => {
+              if (q && q.id) map.set(q.id, q);
+            });
+            // 2. Preserve any local queue items in memory/localStorage not yet on remote server
+            (prevLocal || []).forEach((q) => {
+              if (q && q.id && !map.has(q.id) && !isMockQueueItem(q)) {
+                map.set(q.id, q);
+                saveQueueItemToFirestore(q).catch(() => {});
+              }
+            });
+            const merged = Array.from(map.values()).sort((a, b) => {
+              const orderA = a.orderIndex !== undefined ? a.orderIndex : (Number(a.timestamp) || 0);
+              const orderB = b.orderIndex !== undefined ? b.orderIndex : (Number(b.timestamp) || 0);
+              return orderA - orderB;
+            });
+            safeSetItem('pec_queue_items', merged);
+            return merged;
           });
-          setQueueItems(cleaned);
         }
       }
     );
@@ -921,6 +942,11 @@ export default function App() {
       unsubQueue();
     };
   }, []);
+
+  // Sync reception queue items to localStorage
+  useEffect(() => {
+    safeSetItem('pec_queue_items', queueItems);
+  }, [queueItems]);
 
   // Sync current user to localStorage
   useEffect(() => {

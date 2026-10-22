@@ -411,27 +411,58 @@ export function isMockPatient(p: Partial<Patient> | null | undefined, docId?: st
 export function isMockQueueItem(q: Partial<ReceptionQueueItem> | null | undefined, docId?: string): boolean {
   if (!q) return false;
   const id = (q.id || docId || '').toLowerCase().trim();
-  if (id.includes('profissional da unidade') || id === 'profissional da unidade') return true;
-  const patName = (q.patientName || '').toLowerCase().trim();
-  if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || patName === 'profissional da unidade') return true;
+  if (
+    id.includes('profissional da unidade') ||
+    id === 'profissional da unidade' ||
+    id.startsWith('mock-queue') ||
+    id.startsWith('queue-mock') ||
+    id === 'queue-lucas-1' ||
+    id === 'queue-maria-1'
+  ) {
+    return true;
+  }
+  const patId = (q.patientId || '').toLowerCase().trim();
+  if (['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza'].includes(patId)) {
+    return true;
+  }
   const profName = (q.professionalName || '').toLowerCase().trim();
   const profId = (q.professionalId || '').toLowerCase().trim();
-  if (profName === 'profissional da unidade' || profId === 'profissional da unidade' || profId === 'user-profissional-da-unidade' || profId === 'profissional-da-unidade') return true;
-  // Exclude items assigned to administrative profiles
-  if (q.professionalProfession === 'administrativo') return true;
+  if (
+    profName === 'profissional da unidade' ||
+    profId === 'profissional da unidade' ||
+    profId === 'user-profissional-da-unidade' ||
+    profId === 'profissional-da-unidade'
+  ) {
+    return true;
+  }
   return false;
 }
 
 export function isMockAppointment(a: Partial<Appointment> | null | undefined, docId?: string): boolean {
   if (!a) return false;
   const id = (a.id || docId || '').toLowerCase().trim();
-  if (id.includes('profissional da unidade') || id === 'profissional da unidade') return true;
-  const patName = (a.patientName || '').toLowerCase().trim();
-  if (!patName || patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identificado' || patName === 'profissional da unidade') return true;
+  if (
+    id.includes('profissional da unidade') ||
+    id === 'profissional da unidade' ||
+    id.startsWith('mock-appointment') ||
+    id.startsWith('appt-mock')
+  ) {
+    return true;
+  }
+  const patId = (a.patientId || '').toLowerCase().trim();
+  if (['pat-lucas-oliveira', 'pat-maria-aparecida', 'pat-gabriel-souza'].includes(patId)) {
+    return true;
+  }
   const profName = (a.professionalName || '').toLowerCase().trim();
   const profId = (a.professionalId || '').toLowerCase().trim();
-  if (profName === 'profissional da unidade' || profId === 'profissional da unidade' || profId === 'user-profissional-da-unidade' || profId === 'profissional-da-unidade') return true;
-  if (a.professionalProfession === 'administrativo') return true;
+  if (
+    profName === 'profissional da unidade' ||
+    profId === 'profissional da unidade' ||
+    profId === 'user-profissional-da-unidade' ||
+    profId === 'profissional-da-unidade'
+  ) {
+    return true;
+  }
   return false;
 }
 
@@ -1406,6 +1437,17 @@ export async function saveQueueItemToFirestore(item: ReceptionQueueItem): Promis
     updatedAt: Date.now(),
     createdAt: item.createdAt || Date.now(),
   };
+  try {
+    const existing = safeGetItem<ReceptionQueueItem[]>('pec_queue_items', []);
+    const idx = existing.findIndex((q) => q.id === data.id);
+    if (idx >= 0) {
+      existing[idx] = data;
+    } else {
+      existing.unshift(data);
+    }
+    safeSetItem('pec_queue_items', existing);
+  } catch {}
+
   await apiDbSave('reception_queue', data);
 }
 
@@ -1423,6 +1465,14 @@ export async function updateQueueItemStatusInFirestore(
     }
   } catch {}
 
+  try {
+    const localList = safeGetItem<ReceptionQueueItem[]>('pec_queue_items', []);
+    const foundLocal = localList.find((q) => q.id === itemId);
+    if (foundLocal && !existingItem) {
+      existingItem = foundLocal;
+    }
+  } catch {}
+
   const mergedItem: Record<string, any> = {
     ...(existingItem || {}),
     id: itemId,
@@ -1432,10 +1482,28 @@ export async function updateQueueItemStatusInFirestore(
     ...(status === 'completed' ? { completedAt: extraFields?.completedAt || Date.now(), attendedAt: extraFields?.attendedAt || Date.now() } : {}),
     ...(extraFields || {}),
   };
+
+  try {
+    const localList = safeGetItem<ReceptionQueueItem[]>('pec_queue_items', []);
+    const idx = localList.findIndex((q) => q.id === itemId);
+    if (idx >= 0) {
+      localList[idx] = { ...localList[idx], ...mergedItem };
+    } else {
+      localList.unshift(mergedItem as ReceptionQueueItem);
+    }
+    safeSetItem('pec_queue_items', localList);
+  } catch {}
+
   await apiDbSave('reception_queue', mergedItem);
 }
 
 export async function deleteQueueItemFromFirestore(itemId: string): Promise<void> {
+  try {
+    const localList = safeGetItem<ReceptionQueueItem[]>('pec_queue_items', []);
+    const remaining = localList.filter((q) => q.id !== itemId);
+    safeSetItem('pec_queue_items', remaining);
+  } catch {}
+
   await apiDbDelete('reception_queue', itemId);
 }
 

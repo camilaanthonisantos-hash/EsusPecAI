@@ -32,7 +32,7 @@ import {
   formatCNS,
   validateCNS,
 } from '../utils/dateCalculator';
-import { formatName, formatPhoneBR } from '../utils/textFormatters';
+import { formatName, formatPhoneBR, formatEmail } from '../utils/textFormatters';
 import { syncPatientToDb2, fetchStreetTypesCatalogFromDb2 } from '../services/secondarySupabase';
 import { DEFAULT_STREET_TYPES, StreetTypeItem } from '../data/streetTypes';
 
@@ -130,7 +130,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
       document.removeEventListener('mousedown', handleClickOutside);
     };
   }, [isStreetTypeOpen, isStreetCodeOpen, isUbsOpen, isAcsOpen]);
-  const [isExtendedSectionOpen, setIsExtendedSectionOpen] = useState(false);
+  const [isExtendedSectionOpen, setIsExtendedSectionOpen] = useState(true);
   const [isSearchingCep, setIsSearchingCep] = useState(false);
 
   // Validation states
@@ -908,6 +908,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                             setReferenceUbsContact(formatPhoneBR(matched.contact));
                           }
                         }}
+                        onBlur={(e) => setReferenceUbs(formatName(e.target.value))}
                         onFocus={() => {
                           setIsUbsOpen(true);
                           setIsAcsOpen(false);
@@ -917,7 +918,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           setIsAcsOpen(false);
                         }}
                         placeholder="Buscar ou cadastrar nova UBS..."
-                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                       />
                       <button
                         type="button"
@@ -1035,6 +1036,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                             setAcsContact(formatPhoneBR(matched.contact));
                           }
                         }}
+                        onBlur={(e) => setAcsName(formatName(e.target.value))}
                         onFocus={() => {
                           setIsAcsOpen(true);
                           setIsUbsOpen(false);
@@ -1044,7 +1046,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           setIsUbsOpen(false);
                         }}
                         placeholder="Buscar ou cadastrar novo(a) ACS..."
-                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none"
+                        className="w-full pl-10 pr-8 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                       />
                       <button
                         type="button"
@@ -1235,6 +1237,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                                 setStreetCode(match.code);
                               }
                             }}
+                            onBlur={(e) => setStreetType(formatName(e.target.value))}
                             onClick={() => {
                               setIsStreetTypeOpen(true);
                               setIsStreetCodeOpen(false);
@@ -1469,6 +1472,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           type="text"
                           value={ethnicity}
                           onChange={(e) => setEthnicity(e.target.value)}
+                          onBlur={(e) => setEthnicity(formatName(e.target.value))}
                           placeholder="Ex: Ribeirinho..."
                           className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
@@ -1482,6 +1486,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           type="text"
                           value={nationality}
                           onChange={(e) => setNationality(e.target.value)}
+                          onBlur={(e) => setNationality(formatName(e.target.value))}
                           placeholder="Brasileira"
                           className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
@@ -1495,6 +1500,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           type="email"
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
+                          onBlur={(e) => setEmail(formatEmail(e.target.value))}
                           placeholder="paciente@email.com"
                           className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
