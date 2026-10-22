@@ -376,7 +376,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
 
   const handleSelectUbs = (opt: { name: string; contact: string }) => {
     setReferenceUbs(opt.name);
-    if (opt.contact && !referenceUbsContact.trim()) {
+    if (opt.contact) {
       setReferenceUbsContact(formatPhoneBR(opt.contact));
     }
     setIsUbsOpen(false);
@@ -384,7 +384,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
 
   const handleSelectAcs = (opt: { name: string; contact: string }) => {
     setAcsName(opt.name);
-    if (opt.contact && !acsContact.trim()) {
+    if (opt.contact) {
       setAcsContact(formatPhoneBR(opt.contact));
     }
     setIsAcsOpen(false);
@@ -543,7 +543,6 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
         <div
           id="patient-form-modal-backdrop"
           className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-xs"
-          onClick={onClose}
         >
           <motion.div
             id="patient-form-modal"
@@ -808,7 +807,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                       onChange={(e) => setLegalGuardianName(e.target.value)}
                       onBlur={(e) => setLegalGuardianName(formatName(e.target.value))}
                       placeholder="Ex: Juliana de Oliveira Santos"
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                     />
                   </div>
 
@@ -820,7 +819,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                       id="guardian-kinship-select"
                       value={guardianKinship}
                       onChange={(e) => setGuardianKinship(e.target.value as KinshipType)}
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                     >
                       {KINSHIP_OPTIONS.map((opt) => (
                         <option key={opt} value={opt}>
@@ -844,7 +843,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                       onChange={(e) => setGuardianKinshipCustom(e.target.value)}
                       onBlur={(e) => setGuardianKinshipCustom(formatName(e.target.value))}
                       placeholder="Ex: Vizinho cuidador, Irmão de criação, etc."
-                      className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-900 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                     />
                   </div>
                 )}
@@ -899,8 +898,15 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                         id="patient-reference-ubs-input"
                         value={referenceUbs}
                         onChange={(e) => {
-                          setReferenceUbs(e.target.value);
+                          const val = e.target.value;
+                          setReferenceUbs(val);
                           setIsUbsOpen(true);
+                          const matched = registeredUbsOptions.find(
+                            (o) => o.name.toLowerCase().trim() === val.toLowerCase().trim()
+                          );
+                          if (matched && matched.contact) {
+                            setReferenceUbsContact(formatPhoneBR(matched.contact));
+                          }
                         }}
                         onFocus={() => {
                           setIsUbsOpen(true);
@@ -1019,8 +1025,15 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                         id="patient-acs-name-input"
                         value={acsName}
                         onChange={(e) => {
-                          setAcsName(e.target.value);
+                          const val = e.target.value;
+                          setAcsName(val);
                           setIsAcsOpen(true);
+                          const matched = registeredAcsOptions.find(
+                            (o) => o.name.toLowerCase().trim() === val.toLowerCase().trim()
+                          );
+                          if (matched && matched.contact) {
+                            setAcsContact(formatPhoneBR(matched.contact));
+                          }
                         }}
                         onFocus={() => {
                           setIsAcsOpen(true);
@@ -1233,7 +1246,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                               setStreetTypeFilter("");
                             }}
                             placeholder="Ex: Rua, Avenida..."
-                            className="w-full px-3 py-2 pr-8 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                            className="w-full px-3.5 py-2.5 pr-8 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                           />
                           <button
                             type="button"
@@ -1264,7 +1277,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                                     key={`type-${item.code}-${item.name}`}
                                     type="button"
                                     onClick={() => handleSelectStreetType(item)}
-                                    className={`w-full text-left px-2.5 py-1 text-xs truncate transition-colors cursor-pointer block ${
+                                    className={`w-full text-left px-3 py-1.5 text-xs sm:text-sm font-medium truncate transition-colors cursor-pointer block ${
                                       isSelected
                                         ? "bg-teal-50/90 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-semibold"
                                         : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -1311,7 +1324,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                               setStreetCodeFilter("");
                             }}
                             placeholder="Ex: 081"
-                            className="w-full px-3 py-2 pr-8 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs font-mono focus:ring-2 focus:ring-teal-500 outline-none"
+                            className="w-full px-3.5 py-2.5 pr-8 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-mono font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                           />
                           <button
                             type="button"
@@ -1342,7 +1355,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                                     key={`code-${item.code}-${item.name}`}
                                     type="button"
                                     onClick={() => handleSelectStreetCode(item)}
-                                    className={`w-full text-left px-2.5 py-1 text-xs truncate transition-colors cursor-pointer block ${
+                                    className={`w-full text-left px-3 py-1.5 text-xs sm:text-sm font-medium truncate transition-colors cursor-pointer block ${
                                       isSelected
                                         ? "bg-teal-50/90 dark:bg-teal-950/40 text-teal-700 dark:text-teal-300 font-semibold"
                                         : "text-slate-700 dark:text-slate-300 hover:bg-slate-100 dark:hover:bg-slate-800"
@@ -1366,7 +1379,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           onChange={(e) => setStreet(e.target.value)}
                           onBlur={(e) => setStreet(formatName(e.target.value))}
                           placeholder="Nome da Rua ou Avenida"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
                     </div>
@@ -1382,7 +1395,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           value={number}
                           onChange={(e) => setNumber(e.target.value)}
                           placeholder="Ex: 123 ou S/N"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
 
@@ -1395,7 +1408,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           value={complement}
                           onChange={(e) => setComplement(e.target.value)}
                           placeholder="Apto, Bloco..."
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
 
@@ -1409,7 +1422,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           onChange={(e) => setNeighborhood(e.target.value)}
                           onBlur={(e) => setNeighborhood(formatName(e.target.value))}
                           placeholder="Bairro"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
 
@@ -1423,7 +1436,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           onChange={(e) => setCity(e.target.value)}
                           onBlur={(e) => setCity(formatName(e.target.value))}
                           placeholder="Cidade"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
                     </div>
@@ -1437,7 +1450,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                         <select
                           value={race}
                           onChange={(e) => setRace(e.target.value)}
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         >
                           <option value="Branca">Branca</option>
                           <option value="Preta">Preta</option>
@@ -1457,7 +1470,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           value={ethnicity}
                           onChange={(e) => setEthnicity(e.target.value)}
                           placeholder="Ex: Ribeirinho..."
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
 
@@ -1470,7 +1483,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           value={nationality}
                           onChange={(e) => setNationality(e.target.value)}
                           placeholder="Brasileira"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
 
@@ -1483,7 +1496,7 @@ export const PatientFormModal: React.FC<PatientFormModalProps> = ({
                           value={email}
                           onChange={(e) => setEmail(e.target.value)}
                           placeholder="paciente@email.com"
-                          className="w-full px-3 py-2 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs focus:ring-2 focus:ring-teal-500 outline-none"
+                          className="w-full px-3.5 py-2.5 rounded-xl bg-white dark:bg-slate-950 border border-slate-300 dark:border-slate-700 text-xs sm:text-sm font-medium text-slate-900 dark:text-slate-100 placeholder-slate-400 focus:ring-2 focus:ring-teal-500 outline-none transition-colors"
                         />
                       </div>
                     </div>

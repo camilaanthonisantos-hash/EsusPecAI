@@ -195,13 +195,26 @@ export const PatientsListView: React.FC<PatientsListViewProps> = ({
   // Patients without any attendance appear at the bottom.
   const filteredAndSortedPatients = useMemo(() => {
     const term = (searchTerm || '').trim().toLowerCase();
+    const cleanTermDigits = term.replace(/\D/g, '');
 
     // 1. Filter by search term and date range
     const filtered = patients.filter((p) => {
       if (term) {
         const matchName = (p.fullName || '').toLowerCase().includes(term);
-        const matchCns = Boolean(p.cns && p.cns.includes(term));
-        const matchCpf = Boolean(p.cpf && p.cpf.includes(term));
+
+        // Strip non-digit characters for numerical CPF and CNS filtering
+        const rawCns = p.cns ? p.cns.replace(/\D/g, '') : '';
+        const rawCpf = p.cpf ? p.cpf.replace(/\D/g, '') : '';
+
+        const matchCns = Boolean(
+          (p.cns && p.cns.toLowerCase().includes(term)) ||
+          (cleanTermDigits.length > 0 && rawCns.includes(cleanTermDigits))
+        );
+        const matchCpf = Boolean(
+          (p.cpf && p.cpf.toLowerCase().includes(term)) ||
+          (cleanTermDigits.length > 0 && rawCpf.includes(cleanTermDigits))
+        );
+
         const matchGuardian = Boolean(p.legalGuardianName && p.legalGuardianName.toLowerCase().includes(term));
         const matchUbs = Boolean(p.referenceUbs && p.referenceUbs.toLowerCase().includes(term));
         const matchAcs = Boolean(p.acsName && p.acsName.toLowerCase().includes(term));

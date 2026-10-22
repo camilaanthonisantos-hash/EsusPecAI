@@ -7,5 +7,6 @@
   "messagingSenderId": "381233103462",
   "measurementId": "",
   "oAuthClientId": "381233103462-m3qvt89f6g51h60cioa05o0ag1icgl0f.apps.googleusercontent.com",
-  "recaptchaSiteKey": ""
+  "recaptchaSiteKey": "",
+  "firestoreDatabaseId": "ai-studio-pronturiopecmult-d6f44424-1f51-4bde-8c47-37efc3bc8944"
 }

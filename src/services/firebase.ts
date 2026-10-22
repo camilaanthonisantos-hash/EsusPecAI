@@ -76,27 +76,52 @@ export function isConsultationForPatient(c: any, patient: Patient | null | undef
   if (!c || !patient) return false;
 
   // 1. Check patientId / patient_id
-  const cPatId = c.patientId || c.patient_id || (c.raw_data && (c.raw_data.patientId || c.raw_data.patient_id));
+  const cPatId =
+    c.patientId ||
+    c.patient_id ||
+    (c.raw_data && (c.raw_data.patientId || c.raw_data.patient_id)) ||
+    (c.patient && c.patient.id) ||
+    (c.raw_data && c.raw_data.patient && c.raw_data.patient.id);
+
   if (cPatId && patient.id && String(cPatId).trim() === String(patient.id).trim()) {
     return true;
   }
 
   // 2. Check CPF match
   const pCpf = (patient.cpf || '').replace(/\D/g, '');
-  const cCpf = (c.patientCpf || c.cpf || (c.raw_data && (c.raw_data.patientCpf || c.raw_data.cpf)) || '').replace(/\D/g, '');
+  const cCpf = (
+    c.patientCpf ||
+    c.cpf ||
+    (c.raw_data && (c.raw_data.patientCpf || c.raw_data.cpf)) ||
+    (c.patient && (c.patient.cpf || c.patient.patientCpf)) ||
+    ''
+  ).replace(/\D/g, '');
+
   if (pCpf && cCpf && pCpf === cCpf && pCpf.length >= 11) {
     return true;
   }
 
   // 3. Check CNS match
   const pCns = (patient.cns || '').replace(/\D/g, '');
-  const cCns = (c.patientCns || c.cns || (c.raw_data && (c.raw_data.patientCns || c.raw_data.cns)) || '').replace(/\D/g, '');
+  const cCns = (
+    c.patientCns ||
+    c.cns ||
+    (c.raw_data && (c.raw_data.patientCns || c.raw_data.cns)) ||
+    (c.patient && (c.patient.cns || c.patient.patientCns)) ||
+    ''
+  ).replace(/\D/g, '');
+
   if (pCns && cCns && pCns === cCns && pCns.length >= 15) {
     return true;
   }
 
   // 4. Check Normalized Full Name match
-  const cPatName = c.patientName || c.patient_name || (c.raw_data && (c.raw_data.patientName || c.raw_data.patient_name));
+  const cPatName =
+    c.patientName ||
+    c.patient_name ||
+    (c.raw_data && (c.raw_data.patientName || c.raw_data.patient_name)) ||
+    (c.patient && (c.patient.fullName || c.patient.name));
+
   const pName = patient.fullName || (patient as any).name;
   if (cPatName && pName) {
     const normC = String(cPatName).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().trim();
@@ -170,6 +195,26 @@ export async function fetchFromSupabaseDirect<T>(colName: string): Promise<T | n
         result.email = result.email || row.email;
         result.role = result.role || row.role || 'user';
         result.profession = result.profession || row.profession;
+      } else if (tableName === 'reception_queue') {
+        result.patientId = result.patientId || result.patient_id || row.patient_id || '';
+        result.patientName = result.patientName || result.patient_name || row.patient_name || '';
+        result.patientCpf = result.patientCpf || result.patient_cpf || row.patient_cpf || '';
+        result.patientCns = result.patientCns || result.patient_cns || row.patient_cns || '';
+        result.status = result.status || row.status || 'waiting';
+        result.riskPriority = result.riskPriority || result.risk_priority || row.risk_priority || 'verde';
+        result.riskCategory = result.riskCategory || result.risk_category || row.risk_category || '';
+        result.professionalId = result.professionalId || result.professional_id || row.professional_id || '';
+        result.professionalName = result.professionalName || result.professional_name || row.professional_name || '';
+        result.professionalProfession = result.professionalProfession || result.professional_profession || row.professional_profession || 'enfermeiro';
+        result.currentAttendingProfessionalId = result.currentAttendingProfessionalId || result.current_attending_professional_id || row.current_attending_professional_id || '';
+        result.currentAttendingProfessionalName = result.currentAttendingProfessionalName || result.current_attending_professional_name || row.current_attending_professional_name || '';
+        result.scheduledDate = result.scheduledDate || result.scheduled_date || row.raw_data?.scheduledDate || (row.timestamp ? new Date(row.timestamp).toISOString().split('T')[0] : '');
+        result.scheduledTime = result.scheduledTime || result.scheduled_time || row.raw_data?.scheduledTime || '08:00';
+        result.timestamp = Number(result.timestamp || row.timestamp || Date.now());
+        result.calledAt = result.calledAt || row.called_at ? Number(result.calledAt || row.called_at) : undefined;
+        result.completedAt = result.completedAt || row.attended_at ? Number(result.completedAt || row.attended_at) : undefined;
+        result.attendedAt = result.attendedAt || row.attended_at ? Number(result.attendedAt || row.attended_at) : undefined;
+        result.notes = result.notes || row.notes || row.raw_data?.notes || '';
       }
 
       return result;
@@ -235,6 +280,30 @@ export async function saveToSupabaseDirect(colName: string, item: any): Promise<
         reference_ubs_contact: item.referenceUbsContact || null,
         acs_name: item.acsName || null,
         acs_contact: item.acsContact || null,
+        created_at: item.createdAt || Date.now(),
+      };
+    } else if (tableName === 'reception_queue') {
+      const effProfName = (item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation')
+        ? (item.currentAttendingProfessionalName || item.professionalName || item.professional_name || null)
+        : (item.professionalName || item.professional_name || item.currentAttendingProfessionalName || null);
+      const effProfId = (item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation')
+        ? (item.currentAttendingProfessionalId || item.professionalId || item.professional_id || null)
+        : (item.professionalId || item.professional_id || item.currentAttendingProfessionalId || null);
+
+      payload = {
+        ...payload,
+        patient_id: item.patientId || item.patient_id || null,
+        patient_name: item.patientName || item.patient_name || null,
+        patient_cpf: item.patientCpf || item.patient_cpf || null,
+        patient_cns: item.patientCns || item.patient_cns || null,
+        professional_id: effProfId,
+        professional_name: effProfName,
+        status: item.status || 'waiting',
+        risk_priority: item.riskPriority || item.risk_priority || 'verde',
+        risk_category: item.riskCategory || item.risk_category || null,
+        timestamp: item.timestamp || Date.now(),
+        called_at: item.calledAt || item.called_at || null,
+        attended_at: item.completedAt || item.attendedAt || item.attended_at || null,
         created_at: item.createdAt || Date.now(),
       };
     }
@@ -377,11 +446,26 @@ function createSupabaseSubscription<T>(
   const refresh = async () => {
     try {
       const sbData = await fetchFromSupabaseDirect<any[]>(tableName);
-      if (isMounted && sbData && Array.isArray(sbData)) {
+      if (isMounted && sbData && Array.isArray(sbData) && sbData.length > 0) {
         const transformed = transform(sbData);
         onUpdate(transformed);
+        return;
       }
-    } catch {}
+      // Fallback to local server data-store / localStorage if Supabase table is empty or unavailable
+      const localData = await apiDbGet<any[]>(tableName);
+      if (isMounted && localData && Array.isArray(localData)) {
+        const transformed = transform(localData);
+        onUpdate(transformed);
+      }
+    } catch {
+      try {
+        const localData = await apiDbGet<any[]>(tableName);
+        if (isMounted && localData && Array.isArray(localData)) {
+          const transformed = transform(localData);
+          onUpdate(transformed);
+        }
+      } catch {}
+    }
   };
 
   // Initial load
@@ -1330,14 +1414,25 @@ export async function updateQueueItemStatusInFirestore(
   status: QueueItemStatus,
   extraFields?: Partial<ReceptionQueueItem>
 ): Promise<void> {
-  const updateData: Record<string, any> = {
+  // Query existing item to preserve patient and queue metadata in raw_data and SQL
+  let existingItem: any = null;
+  try {
+    const { data: row } = await supabase.from('reception_queue').select('*').eq('id', itemId).maybeSingle();
+    if (row) {
+      existingItem = row.raw_data && typeof row.raw_data === 'object' ? { ...row.raw_data, ...row } : row;
+    }
+  } catch {}
+
+  const mergedItem: Record<string, any> = {
+    ...(existingItem || {}),
     id: itemId,
     status,
     updatedAt: Date.now(),
     ...(status === 'calling' ? { calledAt: extraFields?.calledAt || Date.now() } : {}),
+    ...(status === 'completed' ? { completedAt: extraFields?.completedAt || Date.now(), attendedAt: extraFields?.attendedAt || Date.now() } : {}),
     ...(extraFields || {}),
   };
-  await apiDbSave('reception_queue', updateData);
+  await apiDbSave('reception_queue', mergedItem);
 }
 
 export async function deleteQueueItemFromFirestore(itemId: string): Promise<void> {
@@ -1381,22 +1476,69 @@ export async function fetchLatestAppointmentsFromFirestore(): Promise<Appointmen
 export async function acquirePatientAttendanceLock(
   queueItemId: string,
   professionalId: string,
-  professionalName: string
+  professionalName: string,
+  fallbackItem?: ReceptionQueueItem
 ): Promise<{ success: boolean; lockedBy?: string; queueItem?: ReceptionQueueItem }> {
   try {
-    const latestQueue = await fetchLatestQueueFromFirestore();
-    const item = latestQueue.find((q) => q.id === queueItemId || q.appointmentId === queueItemId);
+    let item: ReceptionQueueItem | undefined;
 
+    // 1. Try to find in fresh remote queue snapshot
+    try {
+      const latestQueue = await fetchLatestQueueFromFirestore();
+      item = latestQueue.find((q) => q.id === queueItemId || q.appointmentId === queueItemId);
+    } catch {}
+
+    // 2. If not found in queue, check fresh appointments snapshot
     if (!item) {
-      return { success: false, lockedBy: 'Item não encontrado na fila' };
+      try {
+        const latestApps = await fetchLatestAppointmentsFromFirestore();
+        const app = latestApps.find((a) => a.id === queueItemId || `queue_${a.id}` === queueItemId);
+        if (app) {
+          item = {
+            id: app.id,
+            patientId: app.patientId || `pat-${app.id}`,
+            patientName: app.patientName || 'Paciente Agendado',
+            patientCpf: app.patientCpf,
+            patientCns: app.patientCns,
+            patientBirthDate: app.patientBirthDate,
+            patientPhone: app.patientPhone,
+            professionalId: app.professionalId || professionalId,
+            professionalName: app.professionalName || professionalName,
+            professionalProfession: app.professionalProfession || 'enfermeiro',
+            scheduledDate: app.date,
+            scheduledTime: app.startTime || '08:00',
+            timestamp: app.timestamp || Date.now(),
+            formattedDateTime: (app as any).formattedDateTime || `${app.date || ''} ${app.startTime || ''}`.trim(),
+            status: (app.status === 'em_atendimento' ? 'in_service' : 'waiting') as QueueItemStatus,
+            origin: 'agendamento',
+            priorityCategory: 'padrao',
+            appointmentId: app.id,
+            notes: app.notes,
+            createdAt: app.createdAt || Date.now(),
+            updatedAt: Date.now(),
+          };
+        }
+      } catch {}
     }
 
-    // If currently in consultation by another professional
+    // 3. Fallback to provided item in state
+    if (!item && fallbackItem) {
+      item = fallbackItem;
+    }
+
+    if (!item) {
+      // If no item found anywhere, allow attendance without lock failure
+      return { success: true };
+    }
+
+    // 4. Check if currently attended by ANOTHER professional
     const isCurrentlyAttended = item.status === 'in_consultation' || item.status === 'in_service';
     const attendedByAnother =
       isCurrentlyAttended &&
       item.currentAttendingProfessionalId &&
-      item.currentAttendingProfessionalId !== professionalId;
+      item.currentAttendingProfessionalId !== professionalId &&
+      item.currentAttendingProfessionalName &&
+      item.currentAttendingProfessionalName.toLowerCase().trim() !== professionalName.toLowerCase().trim();
 
     if (attendedByAnother) {
       return {
@@ -1406,7 +1548,7 @@ export async function acquirePatientAttendanceLock(
       };
     }
 
-    // Acquire lock and set to in_service
+    // 5. Acquire lock and mark in_service
     const updated: ReceptionQueueItem = {
       ...item,
       status: 'in_service',
@@ -1418,11 +1560,11 @@ export async function acquirePatientAttendanceLock(
       updatedAt: Date.now(),
     };
 
-    await saveQueueItemToFirestore(updated);
+    await saveQueueItemToFirestore(updated).catch(console.warn);
     return { success: true, queueItem: updated };
   } catch (err) {
     console.warn('Erro ao adquirir trava de atendimento:', err);
-    return { success: false, lockedBy: 'Erro de conexão' };
+    return { success: true };
   }
 }
 

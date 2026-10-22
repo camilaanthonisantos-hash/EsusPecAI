@@ -49,6 +49,7 @@ import {
   RiskClassification,
   Appointment,
   SystemSettings,
+  Consultation,
 } from '../types';
 import { PROFESSIONS, isUserAdmin, getProfessionalProfessionTitle, DEFAULT_SYSTEM_SETTINGS } from '../data/professions';
 import { WhatsAppChatModal } from './WhatsAppChatModal';
@@ -63,6 +64,15 @@ import { SpecularButton } from './SpecularButton';
 import { CallPatientModal } from './CallPatientModal';
 import { PublicQueueQrCodeModal } from './PublicQueueQrCodeModal';
 import { openProfessionalQueueInNewTab } from '../utils/printReceptionQueue';
+
+function normalizePersonName(name?: string | null): string {
+  if (!name) return '';
+  return name
+    .toLowerCase()
+    .normalize('NFD')
+    .replace(/[\u0300-\u036f]/g, '')
+    .trim();
+}
 
 const CALENDAR_MONTHS = [
   'Janeiro',
@@ -208,6 +218,7 @@ export interface ReceptionQueueViewProps {
   currentUser: User | null;
   queueItems: ReceptionQueueItem[];
   appointments?: Appointment[];
+  consultations?: Consultation[];
   professionals: User[];
   patients: Patient[];
   onOpenAddToQueue?: () => void;
@@ -234,6 +245,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
   currentUser,
   queueItems,
   appointments = [],
+  consultations = [],
   professionals,
   patients,
   onOpenAddToQueue,
@@ -430,10 +442,46 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
   }, [editAvailableSlots, editingDateTimeItem]);
 
+  // Helper: normaliza qualquer data (DD/MM/YYYY, YYYY-MM-DD, timestamp ou objeto Date) para YYYY-MM-DD
+  const normalizeAnyDateToIso = (d?: string | number | null): string => {
+    if (!d) return '';
+    if (typeof d === 'number') {
+      try {
+        return new Date(d).toISOString().split('T')[0];
+      } catch {
+        return '';
+      }
+    }
+    const str = String(d).trim();
+    const dmyMatch = str.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
+    if (dmyMatch) {
+      const day = dmyMatch[1].padStart(2, '0');
+      const month = dmyMatch[2].padStart(2, '0');
+      let year = dmyMatch[3];
+      if (year.length === 2) year = '20' + year;
+      return `${year}-${month}-${day}`;
+    }
+    if (/^\d{4}-\d{2}-\d{2}/.test(str)) {
+      return str.substring(0, 10);
+    }
+    try {
+      const parsed = new Date(str);
+      if (!isNaN(parsed.getTime())) {
+        return parsed.toISOString().split('T')[0];
+      }
+    } catch {}
+    return str;
+  };
+
   // Helper: extrai a data padronizada YYYY-MM-DD com suporte a scheduledDate, formattedDateTime e timestamp
   const extractItemDate = (item: ReceptionQueueItem): string => {
-    if (item.scheduledDate && /^\d{4}-\d{2}-\d{2}/.test(item.scheduledDate)) {
-      return item.scheduledDate.substring(0, 10);
+    if (item.scheduledDate) {
+      const norm = normalizeAnyDateToIso(item.scheduledDate);
+      if (norm) return norm;
+    }
+    if ((item as any).date) {
+      const norm = normalizeAnyDateToIso((item as any).date);
+      if (norm) return norm;
     }
     if (item.formattedDateTime) {
       const match = item.formattedDateTime.match(/(\d{1,2})\/(\d{1,2})\/(\d{2,4})/);
@@ -576,14 +624,62 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         const finalProfId = matchedProf?.id || (pNameClean === 'profissional da unidade' || !q.professionalId ? defaultProfId : q.professionalId);
         const finalProfession = matchedProf?.profession || q.professionalProfession || defaultProfession;
 
+        const scheduledDateStr = extractItemDate(q);
+        const normPatName = normalizePersonName(q.patientName);
+
+        // Correlate with registered clinical consultations for this patient on this date
+        const matchingConsultation = (consultations || []).find((c) => {
+          const cDate = normalizeAnyDateToIso((c as any).date || c.timestamp || (c as any).createdAt);
+          if (cDate !== scheduledDateStr) return false;
+          if (q.patientId && c.patientId && String(q.patientId).trim() === String(c.patientId).trim()) return true;
+          if (normPatName && normalizePersonName(c.patientName) === normPatName) return true;
+          return false;
+        });
+
+        const effectiveStatus: QueueItemStatus = (matchingConsultation && q.status !== 'cancelled' && q.status !== 'abandoned')
+          ? 'completed'
+          : q.status;
+
+        // Resolve attending professional for completed or in-service items
+        let resolvedProfName = finalProfName;
+        let resolvedProfId = finalProfId;
+        let resolvedProfession = finalProfession;
+
+        const consAuthor = (
+          (matchingConsultation as any)?.author ||
+          matchingConsultation?.authorName ||
+          (matchingConsultation as any)?.raw_data?.authorName ||
+          ''
+        ).trim();
+
+        if (consAuthor) {
+          const matchedAuthorProf = clinicalProfessionals.find(
+            (p) => p.name.toLowerCase().trim() === consAuthor.toLowerCase()
+          );
+          if (matchedAuthorProf) {
+            resolvedProfName = matchedAuthorProf.name;
+            resolvedProfId = matchedAuthorProf.id;
+            resolvedProfession = matchedAuthorProf.profession || resolvedProfession;
+          } else {
+            resolvedProfName = consAuthor;
+          }
+        } else if (q.currentAttendingProfessionalName) {
+          resolvedProfName = q.currentAttendingProfessionalName;
+          if (q.currentAttendingProfessionalId) {
+            resolvedProfId = q.currentAttendingProfessionalId;
+          }
+        }
+
         return {
           ...q,
           patientName: q.patientName,
-          professionalId: finalProfId,
-          professionalName: finalProfName,
-          professionalProfession: finalProfession,
-          scheduledDate: q.scheduledDate || (q.timestamp && !isNaN(new Date(q.timestamp).getTime()) ? new Date(q.timestamp).toISOString().split('T')[0] : todayStr),
+          professionalId: resolvedProfId,
+          professionalName: resolvedProfName,
+          professionalProfession: resolvedProfession,
+          scheduledDate: scheduledDateStr,
           scheduledTime: q.scheduledTime || '08:00',
+          status: effectiveStatus,
+          completedAt: q.completedAt || (matchingConsultation ? (matchingConsultation.timestamp || (matchingConsultation as any).createdAt || Date.now()) : undefined),
         };
       });
 
@@ -621,6 +717,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
           mappedStatus = 'cancelled';
         }
 
+        const appDateStr = normalizeAnyDateToIso(app.date) || todayStr;
+        const normAppPatName = normalizePersonName(app.patientName);
+        const matchingAppConsultation = (consultations || []).find((c) => {
+          const cDate = normalizeAnyDateToIso((c as any).date || c.timestamp || (c as any).createdAt);
+          if (cDate !== appDateStr) return false;
+          if (app.patientId && c.patientId && String(app.patientId).trim() === String(c.patientId).trim()) return true;
+          if (normAppPatName && normalizePersonName(c.patientName) === normAppPatName) return true;
+          return false;
+        });
+
+        if (matchingAppConsultation && mappedStatus !== 'cancelled') {
+          mappedStatus = 'completed';
+        }
+
         let itemTimestamp = app.timestamp;
         if (!itemTimestamp && app.date) {
           const timeStr = app.startTime || '08:00';
@@ -653,6 +763,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
           timestamp: itemTimestamp,
           formattedDateTime: formattedDate,
           status: mappedStatus,
+          completedAt: mappedStatus === 'completed' ? (matchingAppConsultation?.timestamp || (matchingAppConsultation as any)?.createdAt || Date.now()) : undefined,
           origin: 'agendamento',
           priorityCategory: 'padrao',
           appointmentId: app.id,
@@ -666,7 +777,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     }
 
     return list;
-  }, [queueItems, appointments, clinicalProfessionals, professionals, currentUser, todayStr]);
+  }, [queueItems, appointments, consultations, clinicalProfessionals, professionals, currentUser, todayStr]);
 
   // Per-professional per-day calling rank calculation
   const profRankingMap = useMemo(() => {
@@ -799,12 +910,29 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       });
     }
 
+    // Filter items by active selectedStatuses
+    let statusFilteredList = baseList;
+    if (selectedStatuses.length > 0) {
+      statusFilteredList = baseList.filter((i) => {
+        const isActive = i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service';
+        const isCompleted = i.status === 'completed';
+        const isCancelled = i.status === 'cancelled' || i.status === 'abandoned';
+
+        return (
+          (selectedStatuses.includes('active') && isActive) ||
+          (selectedStatuses.includes('completed') && isCompleted) ||
+          (selectedStatuses.includes('cancelled') && isCancelled)
+        );
+      });
+    }
+
     const defaultProf = clinicalProfessionals.find((p) => currentUser && p.id === currentUser.id && p.profession !== 'administrativo') || clinicalProfessionals[0];
     const defaultProfName = defaultProf?.name || 'Profissional Responsável';
     const defaultProfession = defaultProf?.profession || 'enfermeiro';
 
+    // Group the status-filtered items for each professional
     const map = new Map<string, ReceptionQueueItem[]>();
-    for (const item of baseList) {
+    for (const item of statusFilteredList) {
       const patName = (item.patientName || '').trim().toLowerCase();
       if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identified' || !patName) continue;
 
@@ -821,7 +949,20 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         continue;
       }
 
+      // Check effective attending professional
+      const effectiveProfName = ((item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation') && item.currentAttendingProfessionalName)
+        ? item.currentAttendingProfessionalName
+        : item.professionalName;
+
+      const effectiveProfId = ((item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation') && item.currentAttendingProfessionalId)
+        ? item.currentAttendingProfessionalId
+        : item.professionalId;
+
       const matchedProf = clinicalProfessionals.find(
+        (p) =>
+          (effectiveProfId && p.id === effectiveProfId) ||
+          (effectiveProfName && p.name.toLowerCase().trim() === effectiveProfName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      ) || clinicalProfessionals.find(
         (p) =>
           (item.professionalId && p.id === item.professionalId) ||
           (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
@@ -836,12 +977,43 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       map.get(key)!.push(item);
     }
 
+    // Keep map of ALL items per professional in this date scope so header badges accurately show total waiting / in_service / completed / abandoned
+    const allProfItemsMap = new Map<string, ReceptionQueueItem[]>();
+    for (const item of baseList) {
+      const patName = (item.patientName || '').trim().toLowerCase();
+      if (patName === 'cidadão' || patName === 'cidadao' || patName === 'paciente agendado' || patName === 'paciente da fila' || patName === 'cidadão identified' || !patName) continue;
+
+      const effectiveProfName = ((item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation') && item.currentAttendingProfessionalName)
+        ? item.currentAttendingProfessionalName
+        : item.professionalName;
+
+      const effectiveProfId = ((item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation') && item.currentAttendingProfessionalId)
+        ? item.currentAttendingProfessionalId
+        : item.professionalId;
+
+      const matchedProf = clinicalProfessionals.find(
+        (p) =>
+          (effectiveProfId && p.id === effectiveProfId) ||
+          (effectiveProfName && p.name.toLowerCase().trim() === effectiveProfName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      ) || clinicalProfessionals.find(
+        (p) =>
+          (item.professionalId && p.id === item.professionalId) ||
+          (item.professionalName && p.name.toLowerCase().trim() === item.professionalName.toLowerCase().trim() && p.name.toLowerCase().trim() !== 'profissional da unidade')
+      );
+      const key = matchedProf?.id || defaultProf?.id || 'geral';
+      if (!allProfItemsMap.has(key)) {
+        allProfItemsMap.set(key, []);
+      }
+      allProfItemsMap.get(key)!.push(item);
+    }
+
     const groups: {
       professionalId: string;
       professionalName: string;
       professionalProfession: string;
       items: ReceptionQueueItem[];
       waitingCount: number;
+      inServiceCount: number;
       completedCount: number;
       abandonedCount: number;
       callingCount: number;
@@ -859,9 +1031,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
       const groupName = profUser?.name || (firstItem?.professionalName && firstItem.professionalName.toLowerCase().trim() !== 'profissional da unidade' ? firstItem.professionalName : defaultProfName);
       if (groupName.toLowerCase().trim() === 'profissional da unidade') return;
 
-      const waitingItems = items.filter((i) => i.status === 'waiting' || i.status === 'calling' || i.status === 'in_consultation' || i.status === 'in_service');
-      const completedItems = items.filter((i) => i.status === 'completed');
-      const abandonedItems = items.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
+      const allItemsForProf = allProfItemsMap.get(key) || items;
+      const waitingItems = allItemsForProf.filter((i) => i.status === 'waiting' || i.status === 'calling');
+      const inServiceItems = allItemsForProf.filter((i) => i.status === 'in_consultation' || i.status === 'in_service');
+      const completedItems = allItemsForProf.filter((i) => i.status === 'completed');
+      const abandonedItems = allItemsForProf.filter((i) => i.status === 'abandoned' || i.status === 'cancelled');
 
       groups.push({
         professionalId: profUser?.id || key,
@@ -869,10 +1043,11 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
         professionalProfession: profUser?.profession || firstItem?.professionalProfession || defaultProfession,
         items,
         waitingCount: waitingItems.length,
+        inServiceCount: inServiceItems.length,
         completedCount: completedItems.length,
         abandonedCount: abandonedItems.length,
-        callingCount: items.filter((i) => i.status === 'calling').length,
-        firstWaitingItem: waitingItems[0] || null,
+        callingCount: allItemsForProf.filter((i) => i.status === 'calling').length,
+        firstWaitingItem: waitingItems[0] || inServiceItems[0] || null,
       });
     });
 
@@ -885,7 +1060,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
     });
 
     return groups;
-  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
+  }, [mergedAllQueueItems, dateScope, selectedDates, customStartDate, customEndDate, selectedStatuses, todayStr, onlyMine, currentUser, selectedProfId, searchQuery, professionals]);
 
   // Today's total count
   const countTodayTotal = useMemo(() => {
@@ -1404,23 +1579,31 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
   // Patient Card Renderer
   const renderPatientCard = (item: ReceptionQueueItem) => {
-    const isAssignedToCurrentUser = Boolean(currentUser && currentUser.id === item.professionalId);
-    const canManageItem = isAssignedToCurrentUser || isAdmin;
+    const isAssignedToCurrentUser = Boolean(
+      currentUser && (
+        currentUser.id === item.professionalId ||
+        currentUser.name?.toLowerCase().trim() === item.professionalName?.toLowerCase().trim() ||
+        currentUser.id === item.currentAttendingProfessionalId ||
+        currentUser.name?.toLowerCase().trim() === item.currentAttendingProfessionalName?.toLowerCase().trim()
+      )
+    );
+    const isInConsultation = item.status === 'in_consultation' || item.status === 'in_service';
+    const isAttendedBySomeone = isInConsultation;
+    const isAttendedByMe = isAttendedBySomeone && Boolean(
+      (currentUser && item.currentAttendingProfessionalId === currentUser.id) ||
+      (currentUser && !item.currentAttendingProfessionalId && item.professionalId === currentUser.id) ||
+      (currentUser && item.currentAttendingProfessionalName?.toLowerCase().trim() === currentUser.name?.toLowerCase().trim())
+    );
+    const canManageItem = isAssignedToCurrentUser || isAttendedByMe || isAdmin || (!item.professionalId && !isAdministrative) || !isAdministrative;
     const canCall = canManageItem;
     const canAttend = canManageItem && !isAdministrative;
     const isCalling = item.status === 'calling';
     const isWaiting = item.status === 'waiting';
-    const isInConsultation = item.status === 'in_consultation' || item.status === 'in_service';
     const isCompleted = item.status === 'completed';
     const isCancelled = item.status === 'cancelled';
     const isAbandoned = item.status === 'abandoned';
     const isAbandonedOrCancelled = isAbandoned || isCancelled;
 
-    const isAttendedBySomeone = isInConsultation;
-    const isAttendedByMe = isAttendedBySomeone && Boolean(
-      (currentUser && item.currentAttendingProfessionalId === currentUser.id) ||
-      (currentUser && !item.currentAttendingProfessionalId && item.professionalId === currentUser.id)
-    );
     const isAttendedByOther = isAttendedBySomeone && !isAttendedByMe;
     const attendingDoctorName = item.currentAttendingProfessionalName || item.professionalName || 'outro profissional';
 
@@ -1614,10 +1797,27 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                   </span>
                 )}
                 {isAttendedByMe && (
-                  <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-100 dark:bg-teal-950/90 text-teal-900 dark:text-teal-200 border border-teal-300 dark:border-teal-700 text-xs font-black shadow-xs">
-                    <Play className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 fill-current shrink-0" />
-                    <span>Você está atendendo</span>
-                  </span>
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-teal-100 dark:bg-teal-950/90 text-teal-900 dark:text-teal-200 border border-teal-300 dark:border-teal-700 text-xs font-black shadow-xs">
+                      <Play className="w-3.5 h-3.5 text-teal-600 dark:text-teal-400 fill-current shrink-0" />
+                      <span>Você está atendendo</span>
+                    </span>
+                    <button
+                      type="button"
+                      id={`direct-complete-btn-${item.id}`}
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        if (onUpdateQueueItemStatus) {
+                          onUpdateQueueItemStatus(item.id, 'completed');
+                        }
+                      }}
+                      className="inline-flex items-center gap-1.5 px-3 py-1 rounded-xl bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-black shadow-md cursor-pointer transition-all active:scale-95"
+                      title="Clique para finalizar e marcar este paciente como atendido"
+                    >
+                      <CheckCircle2 className="w-3.5 h-3.5" />
+                      <span>Concluir Atendimento</span>
+                    </button>
+                  </div>
                 )}
               </div>
 
@@ -2597,6 +2797,7 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                       setDateScope('today');
                       setCustomStartDate(todayStr);
                       setCustomEndDate(todayStr);
+                      setSelectedDates([todayStr]);
                       setIsCalendarOpen(false);
                       setSelectedStatuses(['active']);
                     }}
@@ -2699,16 +2900,43 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
 
       {/* 3. Queue List / Cards */}
       {filteredItems.length === 0 ? (
-        <div className="text-center py-16 px-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800">
-          <div className="w-16 h-16 mx-auto rounded-3xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 flex items-center justify-center mb-3">
+        <div className="text-center py-16 px-4 rounded-3xl bg-white dark:bg-slate-900 border border-slate-200 dark:border-slate-800 space-y-3">
+          <div className="w-16 h-16 mx-auto rounded-3xl bg-teal-50 dark:bg-teal-950/40 text-teal-600 flex items-center justify-center mb-1">
             <Users className="w-8 h-8 opacity-70" />
           </div>
           <h3 className="text-base font-bold text-slate-900 dark:text-slate-100">
-            Nenhum paciente na fila de atendimento
+            Nenhum paciente encontrado para os filtros selecionados
           </h3>
-          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto mt-1">
-            Utilize o botão superior <strong>"Adicionar Paciente à Fila"</strong> para inserir pacientes com data, horário e profissional direcionado.
+          <p className="text-xs text-slate-500 dark:text-slate-400 max-w-md mx-auto">
+            {selectedStatuses.length > 0
+              ? `Filtro(s) de status ativo(s): ${selectedStatuses.map(s => s === 'active' ? 'Aguardando / Chamando' : s === 'completed' ? 'Atendidos' : 'Desistência / Cancelados').join(', ')}.`
+              : 'Nenhum paciente encontrado para o período e critérios selecionados.'}
           </p>
+          <div className="flex flex-wrap items-center justify-center gap-2 pt-2">
+            <button
+              type="button"
+              onClick={() => {
+                setSelectedStatuses(['active', 'completed', 'cancelled']);
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-teal-50 hover:bg-teal-100 dark:bg-teal-950 dark:hover:bg-teal-900 text-teal-700 dark:text-teal-300 text-xs font-bold border border-teal-200 dark:border-teal-800 transition-colors cursor-pointer"
+            >
+              Ver todos os status
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setDateScope('today');
+                setCustomStartDate(todayStr);
+                setCustomEndDate(todayStr);
+                setSelectedDates([todayStr]);
+                setSelectedStatuses(['active']);
+                setSearchQuery('');
+              }}
+              className="px-3.5 py-1.5 rounded-xl bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-700 dark:text-slate-300 text-xs font-bold transition-colors cursor-pointer"
+            >
+              Restaurar Padrão (Hoje / Aguardando)
+            </button>
+          </div>
         </div>
       ) : viewMode === 'by_professional' ? (
         /* Organização por Fila de Cada Profissional */
@@ -2716,16 +2944,17 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
           {groupedByProf.map((group) => {
             const isMyQueue = Boolean(currentUser && currentUser.id === group.professionalId);
             const isExpanded = expandedGroupIds.has(group.professionalId);
+            const isCancelledFilterActive = selectedStatuses.includes('cancelled');
             const isShowingAbandoned = showAbandonedGroupIds.has(group.professionalId);
             const groupHasOpenDropdown = Boolean(
               openDropdownId && group.items.some((item) => item.id === openDropdownId)
             );
 
-            // Pacientes desistentes/cancelados ficam ocultos por padrão, a menos que o botão de desistentes seja acionado
+            // Pacientes desistentes/cancelados ficam visíveis se o filtro de cancelados estiver ativo OU o botão de desistentes for acionado
             const visibleItems = group.items.filter((item) => {
               const isAbandoned = item.status === 'abandoned' || item.status === 'cancelled';
               if (isAbandoned) {
-                return isShowingAbandoned;
+                return isCancelledFilterActive || isShowingAbandoned;
               }
               return true;
             });
@@ -2781,26 +3010,26 @@ export const ReceptionQueueView: React.FC<ReceptionQueueViewProps> = ({
                           id={`toggle-abandoned-btn-${group.professionalId}`}
                           onClick={(e) => toggleShowAbandoned(group.professionalId, e)}
                           className={`inline-flex items-center gap-1.5 px-3 py-1 rounded-xl text-xs font-bold transition-all cursor-pointer select-none shadow-xs ${
-                            isShowingAbandoned
+                            isShowingAbandoned || isCancelledFilterActive
                               ? 'bg-amber-500/35 text-amber-100 border-2 border-amber-400 ring-2 ring-amber-400/40 shadow-amber-950/40'
                               : 'bg-slate-800/90 text-amber-300 hover:bg-slate-750 hover:text-amber-200 border border-amber-500/40'
                           }`}
                           title={
-                            isShowingAbandoned
+                            isShowingAbandoned || isCancelledFilterActive
                               ? 'Clique para ocultar os pacientes desistentes desta lista'
                               : 'Clique para exibir os pacientes desistentes nesta lista'
                           }
                         >
-                          <UserX className={`w-3.5 h-3.5 ${isShowingAbandoned ? 'text-amber-300' : 'text-amber-400'}`} />
+                          <UserX className={`w-3.5 h-3.5 ${isShowingAbandoned || isCancelledFilterActive ? 'text-amber-300' : 'text-amber-400'}`} />
                           <span>{group.abandonedCount} {group.abandonedCount === 1 ? 'desistente' : 'desistentes'}</span>
                           <span
                             className={`text-[9px] font-black px-1.5 py-0.2 rounded-md uppercase tracking-wider ${
-                              isShowingAbandoned
+                              isShowingAbandoned || isCancelledFilterActive
                                 ? 'bg-amber-400 text-slate-950'
                                 : 'bg-slate-700/80 text-slate-300'
                             }`}
                           >
-                            {isShowingAbandoned ? 'Exibindo' : 'Oculto'}
+                            {isShowingAbandoned || isCancelledFilterActive ? 'Exibindo' : 'Oculto'}
                           </span>
                         </button>
                       </div>

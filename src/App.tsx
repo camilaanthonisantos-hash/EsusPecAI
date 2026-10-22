@@ -2027,6 +2027,32 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       showToast('error', `Erro ao sincronizar com Banco 2: ${err?.message || String(err)}`, 'Erro Banco 2');
     }
 
+    // Auto-update corresponding reception queue item and appointment to 'completed'
+    try {
+      const consDate = new Date(newConsultation.timestamp || Date.now()).toISOString().split('T')[0];
+      const targetNormName = normalizePersonName(targetPatient.fullName);
+      
+      const matchingQueueItem = queueItems.find(
+        (q) =>
+          (q.patientId === targetPatient.id || (targetNormName && normalizePersonName(q.patientName) === targetNormName)) &&
+          (q.scheduledDate === consDate || q.status === 'in_service' || q.status === 'in_consultation' || q.status === 'calling' || q.status === 'waiting')
+      );
+      if (matchingQueueItem) {
+        handleUpdateQueueItemStatus(matchingQueueItem.id, 'completed');
+      } else {
+        const matchingApp = appointments.find(
+          (a) =>
+            (a.patientId === targetPatient.id || (targetNormName && normalizePersonName(a.patientName) === targetNormName)) &&
+            (a.date === consDate || a.status === 'em_atendimento' || a.status === 'agendado')
+        );
+        if (matchingApp) {
+          handleUpdateQueueItemStatus(matchingApp.id, 'completed');
+        }
+      }
+    } catch (err) {
+      console.warn('Erro ao atualizar status da fila após consulta:', err);
+    }
+
     showToast(
       'success',
       `Atendimento salvo e registrado na linha do tempo de ${targetPatient.fullName}!`,
@@ -2885,7 +2911,17 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               attendingStartedAt: Date.now(),
             }
           : {}),
-        ...(newStatus === 'completed' ? { completedAt: Date.now() } : {}),
+        ...(newStatus === 'completed'
+          ? {
+              completedAt: Date.now(),
+              attendedAt: Date.now(),
+              currentAttendingProfessionalId: currentUser.id,
+              currentAttendingProfessionalName: currentUser.name,
+              professionalId: currentUser.id,
+              professionalName: currentUser.name,
+              professionalProfession: currentUser.profession,
+            }
+          : {}),
       };
 
       await updateQueueItemStatusInFirestore(queueItemId, newStatus, extraFields);
@@ -3089,7 +3125,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
   // Start consultation from Reception Queue ("Atender" with Lock Verification)
   const handleStartConsultationFromQueue = async (item: ReceptionQueueItem) => {
     // 1. Attempt acquiring atomic attendance lock to prevent other professionals from attending simultaneously
-    const lockResult = await acquirePatientAttendanceLock(item.id, currentUser.id, currentUser.name);
+    const lockResult = await acquirePatientAttendanceLock(item.id, currentUser.id, currentUser.name, item);
     if (!lockResult.success) {
       showToast(
         'error',
@@ -3291,15 +3327,25 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       await handleSaveQueueItem(queueItem);
     }
 
-    // Check if patient had an active 'in_service' item in queue for currentUser and mark as 'completed'
+    // Check if patient had an active or scheduled item in queue and mark as 'completed'
+    const targetNormName = normalizePersonName(targetPatient.fullName);
+    const consDate = new Date().toISOString().split('T')[0];
     const activeQueueItem = queueItems.find(
       (q) =>
-        q.patientId === targetPatient.id &&
-        q.professionalId === currentUser.id &&
-        q.status === 'in_service'
+        (q.patientId === targetPatient.id || (targetNormName && normalizePersonName(q.patientName) === targetNormName)) &&
+        (q.status === 'in_service' || q.status === 'in_consultation' || q.status === 'calling' || q.status === 'waiting' || q.scheduledDate === consDate)
     );
     if (activeQueueItem) {
       await handleUpdateQueueItemStatus(activeQueueItem.id, 'completed');
+    } else {
+      const matchingApp = appointments.find(
+        (a) =>
+          (a.patientId === targetPatient.id || (targetNormName && normalizePersonName(a.patientName) === targetNormName)) &&
+          (a.status === 'em_atendimento' || a.status === 'agendado' || a.date === consDate)
+      );
+      if (matchingApp) {
+        await handleUpdateQueueItemStatus(matchingApp.id, 'completed');
+      }
     }
 
     setIsCompleteConsultationModalOpen(false);
@@ -4011,6 +4057,7 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
               professionals={users}
               queueItems={queueItems}
               appointments={appointments}
+              consultations={consultations}
               patients={patients}
               onOpenAddToQueue={() => {
                 verifyAccessOrOpenPaywall(() => {

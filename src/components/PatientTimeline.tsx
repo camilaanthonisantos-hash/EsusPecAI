@@ -121,15 +121,15 @@ export const PatientTimeline: React.FC<PatientTimelineProps> = ({
   onOpenExamMedia,
   onDeleteExamMedia,
 }) => {
-  // Filter state: show logged-in professional attendances by default
-  const [filterMode, setFilterMode] = useState<'all' | 'mine'>('mine');
+  // Filter state: show all shared multiprofessional attendances by default
+  const [filterMode, setFilterMode] = useState<'all' | 'mine'>('all');
   const [selectedProfessionFilter, setSelectedProfessionFilter] = useState<string>('all');
   const [expandedCards, setExpandedCards] = useState<Record<string, boolean>>({});
   const [copiedId, setCopiedId] = useState<string | null>(null);
 
-  // Quando visualiza a linha do tempo de um paciente, mostra por padrão os atendimentos do profissional logado
+  // Quando visualiza a linha do tempo de um paciente, mostra por padrão todos os atendimentos compartilhados da equipe
   useEffect(() => {
-    setFilterMode('mine');
+    setFilterMode('all');
     setSelectedProfessionFilter('all');
   }, [patient.id]);
 
@@ -543,9 +543,23 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
         <div className="flex items-center gap-1.5 bg-slate-200/80 dark:bg-slate-800/80 p-1 rounded-xl">
           <button
             type="button"
+            id="filter-all-team-btn"
+            onClick={() => setFilterMode('all')}
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
+              filterMode === 'all'
+                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
+                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
+            }`}
+          >
+            <Users className="w-3.5 h-3.5" />
+            <span>Todos os Atendimentos ({allPatientConsultations.length})</span>
+          </button>
+
+          <button
+            type="button"
             id="filter-my-consultations-btn"
             onClick={() => setFilterMode('mine')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
+            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
               filterMode === 'mine'
                 ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
                 : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
@@ -553,20 +567,6 @@ ${effPlano}${effConduta ? `\n\n--- CAMPO 06: CONDUTA / FINALIZAÇÃO ---\n${effC
           >
             <UserCheck className="w-3.5 h-3.5" />
             <span>Meus Atendimentos ({myPatientConsultations.length})</span>
-          </button>
-
-          <button
-            type="button"
-            id="filter-all-team-btn"
-            onClick={() => setFilterMode('all')}
-            className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-bold transition-all ${
-              filterMode === 'all'
-                ? 'bg-white dark:bg-slate-900 text-teal-700 dark:text-teal-300 shadow-xs'
-                : 'text-slate-600 dark:text-slate-400 hover:text-slate-900 dark:hover:text-slate-200'
-            }`}
-          >
-            <Users className="w-3.5 h-3.5" />
-            <span>Todos ({allPatientConsultations.length})</span>
           </button>
         </div>
 

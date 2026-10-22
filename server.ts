@@ -4439,9 +4439,9 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
         ...payload,
         patient_id: item.patientId || null,
         patient_name: item.patientName || null,
-        author: item.author || null,
-        profession: item.authorProfession || item.profession || null,
-        date: item.date || null,
+        author: item.author || item.authorName || (item.raw_data && (item.raw_data.author || item.raw_data.authorName)) || null,
+        profession: item.authorProfession || item.profession || (item.raw_data && (item.raw_data.authorProfession || item.raw_data.profession)) || null,
+        date: item.date || (item.raw_data && item.raw_data.date) || (item.timestamp ? new Date(item.timestamp).toLocaleDateString('pt-BR') : null),
         timestamp: item.timestamp || Date.now(),
         avaliacao: item.avaliacao || null,
         plano: item.plano || null,
@@ -4494,17 +4494,26 @@ async function syncItemToSupabase(collectionName: string, item: any, isDelete = 
         created_at: item.createdAt || Date.now(),
       };
     } else if (collectionName === "reception_queue") {
+      const effProfName = (item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation')
+        ? (item.currentAttendingProfessionalName || item.professionalName || null)
+        : (item.professionalName || item.currentAttendingProfessionalName || null);
+      const effProfId = (item.status === 'completed' || item.status === 'in_service' || item.status === 'in_consultation')
+        ? (item.currentAttendingProfessionalId || item.professionalId || null)
+        : (item.professionalId || item.currentAttendingProfessionalId || null);
+
       payload = {
         ...payload,
         patient_id: item.patientId || null,
         patient_name: item.patientName || null,
         patient_cpf: item.patientCpf || null,
+        professional_id: effProfId,
+        professional_name: effProfName,
         risk_priority: item.riskPriority || "verde",
         risk_category: item.riskCategory || null,
         status: item.status || "waiting",
         timestamp: item.timestamp || Date.now(),
         called_at: item.calledAt || null,
-        attended_at: item.attendedAt || null,
+        attended_at: item.completedAt || item.attendedAt || null,
         created_at: item.createdAt || Date.now(),
       };
     } else if (collectionName === "clinical_evolutions") {
