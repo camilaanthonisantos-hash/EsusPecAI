@@ -20,7 +20,7 @@ RUN if [ -f "dist/server.cjs" ] && [ -f "dist/index.html" ]; then \
       echo "✅ [Docker Build] dist pré-compilado detectado com sucesso! Pulando compilação."; \
     else \
       echo "⚠️ [Docker Build] dist ausente ou incompleto no repositório! Executando compilação de contingência..."; \
-      npm install && \
+      npm install --ignore-scripts --no-audit --no-fund && \
       npm run build; \
     fi
 
@@ -37,8 +37,8 @@ ENV PORT=3000
 # Copia manifestos de dependências
 COPY package*.json ./
 
-# Instala apenas as dependências de produção
-RUN npm install --omit=dev
+# Instala apenas as dependências de produção sem rodar scripts desnecessários
+RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
 
 # Copia os arquivos pré-compilados garantidos pelo estágio builder
 COPY --from=builder /app/dist ./dist

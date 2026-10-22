@@ -11,8 +11,7 @@
     "clean": "rm -rf dist server.js",
     "lint": "tsc --noEmit",
     "sync-db": "tsx scripts/sync-firestore.ts",
-    "deploy": "tsx scripts/deploy.ts",
-    "postinstall": "node scripts/setup-hooks.js"
+    "deploy": "tsx scripts/deploy.ts"
   },
   "dependencies": {
     "@google/genai": "^2.4.0",
