@@ -6668,10 +6668,35 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    const distPath = path.join(process.cwd(), "dist");
+    const possibleDistPaths = [
+      path.join(process.cwd(), "dist"),
+      path.resolve(__dirname),
+      path.resolve(__dirname, "..", "dist"),
+      path.resolve(process.cwd()),
+    ];
+    const distPath = possibleDistPaths.find((p) => fs.existsSync(path.join(p, "index.html"))) || path.join(process.cwd(), "dist");
+
+    console.log(`[e-SUS PEC AI Server] Servindo arquivos estáticos de produção de: ${distPath}`);
     app.use(express.static(distPath));
     app.get("*", (req, res) => {
-      res.sendFile(path.join(distPath, "index.html"));
+      const indexPath = path.join(distPath, "index.html");
+      if (fs.existsSync(indexPath)) {
+        res.sendFile(indexPath);
+      } else {
+        console.error(`[e-SUS PEC AI Server] ERRO: index.html não encontrado em: ${indexPath}`);
+        res.status(500).send(`
+          <!DOCTYPE html>
+          <html>
+            <head><meta charset="utf-8"><title>Erro de Inicialização - e-SUS PEC AI</title></head>
+            <body style="font-family: sans-serif; padding: 2rem; background: #0f172a; color: #f8fafc; text-align: center;">
+              <h1 style="color: #ef4444;">⚠️ Frontend não encontrado (dist/index.html ausente)</h1>
+              <p>O servidor backend Node.js está em execução, porém o bundle estático do frontend ainda não foi compilado ou localizado.</p>
+              <p>Caminho verificado: <code>${indexPath}</code></p>
+              <p>Por favor, execute <code>npm run build</code> e reinicie o contêiner.</p>
+            </body>
+          </html>
+        `);
+      }
     });
   }
 

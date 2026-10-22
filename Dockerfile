@@ -1,8 +1,32 @@
 # ==============================================================
 # Dockerfile para e-SUS PEC AI
 # Imagem de Produção Leve com Deploy Imediato (Zero-Build no Host)
+# e Fallback Automático caso dist/ não venha no commit
 # ==============================================================
 
+FROM node:22-slim AS builder
+
+WORKDIR /app
+
+# Copia manifestos de dependências
+COPY package*.json ./
+
+# Copia código do projeto e dist pré-compilado (se existir)
+COPY . .
+
+# Se dist/server.cjs e dist/index.html já existirem, pula o build (zero RAM, deploy instantâneo).
+# Caso dist tenha sido apagado ou falte no commit, executa npm install e compila como fallback seguro!
+RUN if [ -f "dist/server.cjs" ] && [ -f "dist/index.html" ]; then \
+      echo "✅ [Docker Build] dist pré-compilado detectado com sucesso! Pulando compilação."; \
+    else \
+      echo "⚠️ [Docker Build] dist ausente ou incompleto no repositório! Executando compilação de contingência..."; \
+      npm install && \
+      npm run build; \
+    fi
+
+# ==============================================================
+# Imagem de Produção Final (Mínima e Rápida)
+# ==============================================================
 FROM node:22-slim
 
 WORKDIR /app
@@ -13,11 +37,11 @@ ENV PORT=3000
 # Copia manifestos de dependências
 COPY package*.json ./
 
-# Instala apenas as dependências de produção (rápido e sem devDependencies pesadas)
+# Instala apenas as dependências de produção
 RUN npm install --omit=dev
 
-# Copia os arquivos pré-compilados do frontend e backend
-COPY dist ./dist
+# Copia os arquivos pré-compilados garantidos pelo estágio builder
+COPY --from=builder /app/dist ./dist
 COPY firebase-applet-config.json ./firebase-applet-config.json
 COPY public ./public
 

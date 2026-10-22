@@ -1,0 +1,32 @@
+#!/bin/sh
+# Pre-commit hook para garantir que o dist sempre seja compilado e incluído nos commits
+
+echo "🔍 [Git Pre-Commit Hook] Verificando integridade da compilação de produção (dist)..."
+
+NEED_BUILD=0
+
+if [ ! -f "dist/server.cjs" ] || [ ! -f "dist/index.html" ]; then
+  echo "⚠️ dist/server.cjs ou dist/index.html não encontrados."
+  NEED_BUILD=1
+else
+  # Verifica se arquivos fonte foram alterados em relação ao dist
+  CHANGED_SOURCES=$(git diff --cached --name-only | grep -E '^(src/|server\.ts|index\.html|public/|package\.json|vite\.config\.ts)' || true)
+  if [ -n "$CHANGED_SOURCES" ]; then
+    echo "📝 Arquivos fonte modificados detectados no commit:"
+    echo "$CHANGED_SOURCES"
+    echo "⚡ Recompilando frontend e backend para manter dist sincronizado..."
+    NEED_BUILD=1
+  fi
+fi
+
+if [ "$NEED_BUILD" -eq 1 ]; then
+  npm run build
+  if [ $? -ne 0 ]; then
+    echo "❌ Erro durante a compilação (npm run build). Commit cancelado."
+    exit 1
+  fi
+  git add dist/
+  echo "✅ dist recompilado e adicionado ao commit automaticamente!"
+fi
+
+exit 0

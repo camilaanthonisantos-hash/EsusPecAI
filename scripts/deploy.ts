@@ -67,36 +67,35 @@ async function main() {
   run("git remote remove origin", true);
   run(`git remote add origin "${remoteUrl}"`, true);
 
-  // 1. Salvar alterações locais
-  console.log("📦 1/5. Salvando alterações locais...");
-  run("git add -A", true);
-  try {
-    run('git commit -m "chore: sincronizar código com o GitHub"', true);
-  } catch {}
-
-  // 2. Sincronizar histórico do remoto
-  console.log("📥 2/5. Verificando repositório remoto do GitHub...");
+  // 1. Sincronizar histórico do remoto
+  console.log("📥 1/4. Verificando repositório remoto do GitHub...");
   try {
     run("git fetch origin main", true);
   } catch {
     console.log("   (Conexão inicial com repositório remoto estabelecida)");
   }
 
-  // 3. Compilar versão de produção
-  console.log("⚙️  3/5. Compilando o projeto (Vite + esbuild)...");
+  // 2. Compilar versão de produção antes de comitar
+  console.log("⚙️  2/4. Compilando o projeto (Vite + esbuild)...");
   run("npm run build");
 
-  // 4. Salvar os arquivos compilados (dist)
-  console.log("📦 4/5. Empacotando arquivos de produção (dist)...");
+  // Validar arquivos essenciais do dist
+  if (!fs.existsSync("dist/server.cjs") || !fs.existsSync("dist/index.html")) {
+    throw new Error("Falha crítica: dist/server.cjs ou dist/index.html não foram gerados!");
+  }
+
+  // 3. Empacotar código e arquivos compilados juntos
+  console.log("📦 3/4. Empacotando código e dist de produção...");
   run("git add -A");
   try {
-    run('git commit -m "deploy: versão de produção gerada [auto-sync]"', true);
+    const timestamp = new Date().toLocaleString("pt-BR", { timeZone: "America/Sao_Paulo" });
+    run(`git commit -m "deploy: versão de produção gerada [${timestamp}]"`, true);
   } catch {
     console.log("   Nenhuma alteração extra para comitar.");
   }
 
-  // 5. Push para o GitHub
-  console.log("🚀 5/5. Enviando commits para o GitHub...");
+  // 4. Push para o GitHub
+  console.log("🚀 4/4. Enviando commits para o GitHub...");
   try {
     run("git push -f origin main");
     console.log("\n============================================================");
