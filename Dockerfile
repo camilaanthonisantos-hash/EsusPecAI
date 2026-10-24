@@ -42,7 +42,6 @@ RUN npm install --omit=dev --ignore-scripts --no-audit --no-fund
 
 # Copia os arquivos pré-compilados garantidos pelo estágio builder
 COPY --from=builder /app/dist ./dist
-COPY firebase-applet-config.json ./firebase-applet-config.json
 COPY public ./public
 
 # Prepara diretório de dados persistentes
