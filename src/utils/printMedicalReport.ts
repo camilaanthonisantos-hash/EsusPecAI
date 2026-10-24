@@ -91,7 +91,7 @@ export function generateMedicalReportHtml(
   <style>
     @page {
       size: A4 portrait;
-      margin: 12mm 14mm 10mm 14mm;
+      margin: 0;
     }
     * {
       box-sizing: border-box;
@@ -206,27 +206,53 @@ export function generateMedicalReportHtml(
     .laudo-body-text:first-child {
       margin-top: 4px;
     }
+    @page {
+      size: A4 portrait;
+      margin: 0;
+    }
     @media print {
-      body {
-        background: none !important;
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      html, body {
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
       }
       .toolbar-container {
         display: none !important;
       }
       .sheet-wrapper {
         padding: 0 !important;
+        margin: 0 !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        overflow: hidden !important;
       }
       .a4-portrait-sheet {
-        width: 100% !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
         min-height: 297mm !important;
-        height: auto !important;
         padding: 12mm 14mm 10mm 14mm !important;
-        margin: 0 auto !important;
+        margin: 0 !important;
         box-shadow: none !important;
         border: none !important;
         display: flex !important;
         flex-direction: column !important;
         justify-content: space-between !important;
+        box-sizing: border-box !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        overflow: hidden !important;
       }
       .no-print {
         display: none !important;

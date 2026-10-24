@@ -2372,6 +2372,158 @@ Por favor, gere as recomendações clínicas para o atestado médico em JSON.`;
   }
 });
 
+// PTS (Projeto Terapêutico Singular) AI Generation Endpoint
+app.post("/api/gemini/pts", async (req, res) => {
+  try {
+    const {
+      patient,
+      consultations = [],
+      currentUser,
+      userApiKey,
+      openaiApiKey,
+      openrouterApiKey,
+      groqApiKey,
+      ollamaBaseUrl,
+    } = req.body;
+
+    if (!patient || !patient.fullName) {
+      return res.status(400).json({
+        error: "Dados do paciente não fornecidos para geração do Projeto Terapêutico Singular (PTS).",
+      });
+    }
+
+    const patientName = patient.fullName;
+    const ageFormatted = patient.ageFormatted || patient.birthDate || "--";
+    const docFormatted = patient.document || patient.cpf || patient.cns || "--";
+    const guardian = patient.legalGuardianName ? `${patient.legalGuardianName} (${patient.guardianKinship || 'Responsável'})` : "Próprio paciente";
+
+    // Format recent consultations history (focusing strictly on the last 1 or 2 consultations as per user specification)
+    const recentConsultations = Array.isArray(consultations) ? consultations.slice(-2) : [];
+    const historyText = recentConsultations
+      .map((c: any) => {
+        const dateStr = c.timestamp ? new Date(c.timestamp).toLocaleDateString("pt-BR") : "--";
+        const author = c.authorName ? `${c.authorName} (${c.authorProfession || 'Equipe'})` : 'Profissional';
+        return `[ATENDIMENTO SALVO ${dateStr} - ${author}]:
+- Avaliação: ${c.avaliacao || "--"}
+- Plano: ${c.plano || "--"}
+- Conduta: ${c.conduta || "--"}
+- CIDs/Diagnósticos Registrados: ${c.cidPrimary ? `${c.cidPrimary} (${c.cidPrimaryDesc || ''})` : ''} ${c.cidSecondary ? ` / ${c.cidSecondary}` : ''}`;
+      })
+      .join("\n\n");
+
+    const userProf = (currentUser?.professionTitle || currentUser?.profession || "Enfermagem").toUpperCase();
+
+    const systemInstruction = `Você é um Especialista Sênior em Saúde Mental, Atenção Primária (APS) e RAPS do SUS no Brasil, com profunda expertise em elaboração de Projetos Terapêuticos Singulares (PTS) Multiprofissionais em Centros de Atenção Psicossocial (CAPS/eMulti).
+
+Sua missão é analisar O ÚLTIMO OU OS DOIS ÚLTIMOS ATENDIMENTOS salvos no prontuário da paciente e elaborar um Projeto Terapêutico Singular (PTS) técnico, acolhedor e altamente estruturado para a categoria profissional atual: ${userProf}.
+
+DIRETRIZES CRÍTICAS DE SÍNTESE E CONTEÚDO (RIGOROSAMENTE CONFORME AS ESPECIFICAÇÕES DO CAPS):
+1. JAMAIS utilize o caractere especial '>' ou marcas de citação de markdown no início das linhas.
+2. CIDS-10 PERTINENTES AO AGRAVO DE SAÚDE ("cids"):
+   - Analise os dois últimos atendimentos ou o último atendimento.
+   - Extraia os CIDs-10 explícitos referentes ao agravo de saúde da paciente.
+   - SE NÃO HOUVER CID-10 EXPLÍCITO registrado nos atendimentos, GERE os CIDs-10 pertinentes ao quadro clínico relatado (EM NO MÁXIMO 3 CIDs-10).
+3. EIXO 1 - DIAGNÓSTICOS / AVALIAÇÃO DA ESPECIALIDADE ("diagnosisVulnerability"):
+   - Sintetize NO MÁXIMO 6 DIAGNÓSTICOS MAIS RELEVANTES retirados do último ou dos dois últimos atendimentos.
+   - No atendimento de Enfermagem, SEMPRE inclua os Diagnósticos de Enfermagem (NANDA-I / CIPS). Para Medicina, os Diagnósticos Médicos. Para Psicologia, a Avaliação Psicossocial. Para Serviço Social, a Avaliação Socioassistencial.
+   - Formate como lista numerada limpa (1., 2., ... no máximo 6 itens). O último item deve terminar com ponto final (.).
+4. EIXO 2 - INTERVENÇÕES E CONDUTAS DA ESPECIALIDADE ("shortTermGoals"):
+   - Liste NO MÁXIMO 12 INTERVENÇÕES E METAS que no atendimento estão classificadas como intervenções, condutas e metas.
+   - Formate como lista numerada limpa (1., 2., ... no máximo 12 itens). O último item deve terminar com ponto final (.).
+5. REAVALIAÇÃO SUGERIDA ("reassessmentDate"):
+   - Defina o prazo de reavaliação recomendado (ex: "30 DIAS", "45 DIAS" ou "60 DIAS").
+
+FORMATO DE RESPOSTA OBRIGATÓRIO (JSON estrito):
+{
+  "cids": ["F10 - Transtornos mentais e comportamentais devidos ao uso de álcool", "F19.2 - Síndrome de dependência de múltiplas drogas"],
+  "diagnosisVulnerability": "1. Item um;\n2. Item dois;\n3. Item três.",
+  "shortTermGoals": "1. Intervenção um;\n2. Intervenção dois;\n3. Intervenção três.",
+  "mediumLongTermGoals": "Metas de médio e longo prazo...",
+  "agreedActions": "Pactuação de responsabilidades...",
+  "reassessmentDate": "30 DIAS"
+}`;
+
+    const userPrompt = `DADOS DA PACIENTE:
+Nome: ${patientName}
+Idade: ${ageFormatted}
+Documentos: ${docFormatted}
+Rede / Família: ${guardian}
+
+ÚLTIMO(S) ATENDIMENTO(S) REGISTRADO(S) NO PRONTUÁRIO (${recentConsultations.length} atendimento(s) recente(s) analisado(s)):
+${historyText || "Nenhum atendimento anterior registrado no prontuário. Elabore o PTS inicial com base no acolhimento de entrada."}
+
+DADOS DO PROFISSIONAL DE REFERÊNCIA:
+Nome: ${currentUser?.name || "Profissional de Referência"}
+Profissão: ${currentUser?.professionTitle || currentUser?.profession || "Saúde Mental"}
+
+Por favor, elabore o Projeto Terapêutico Singular (PTS) em JSON conforme as diretrizes estritas.`;
+
+    const systemSettings = readStoreData("settings", {});
+    const soapSectionConfig = systemSettings.sectionsConfig?.soapPec;
+    const primaryCandidate = soapSectionConfig?.primaryModelId || "gemini-3.7-flash";
+    const fallbackCandidates = Array.isArray(soapSectionConfig?.fallbackChain)
+      ? soapSectionConfig.fallbackChain
+      : ["gemini-3.6-flash", "gemini-3.1-flash-lite", "openrouter:meta-llama/llama-3.3-70b-instruct:free"];
+
+    console.log(`[PTS Cascade] Gerando PTS para ${patientName} com modelo da IA do Prontuário ("${primaryCandidate}")...`);
+
+    const { text: responseText, modelUsed } = await executeMultiProviderWithFallback({
+      primaryModelId: primaryCandidate,
+      fallbackChain: fallbackCandidates,
+      systemInstruction,
+      userPrompt,
+      temperature: 0.25,
+      responseMimeType: "application/json",
+      geminiApiKey: userApiKey,
+      openaiApiKey,
+      openrouterApiKey,
+      groqApiKey,
+      ollamaBaseUrl,
+    });
+
+    let parsed: any = {};
+    try {
+      parsed = JSON.parse(responseText);
+    } catch {
+      const match = responseText.match(/\{[\s\S]*\}/);
+      if (match) {
+        parsed = JSON.parse(match[0]);
+      } else {
+        parsed = {
+          diagnosisVulnerability: responseText,
+          shortTermGoals: "Estabilização inicial e acolhimento das demandas imediatas.",
+          mediumLongTermGoals: "Ampliação de autonomia e suporte psicossocial.",
+          agreedActions: "- Usuário e Família: Acompanhamento regular.\n- Equipe de Saúde: Suporte multiprofissional.",
+          reassessmentDate: "30 dias",
+        };
+      }
+    }
+
+    const extractedCids = Array.isArray(parsed.cids)
+      ? parsed.cids.slice(0, 3)
+      : (parsed.cid10 ? [parsed.cid10] : []);
+
+    res.json({
+      success: true,
+      modelUsed,
+      data: {
+        cids: extractedCids,
+        diagnosisVulnerability: (parsed.diagnosisVulnerability || responseText).replace(/^>\s*/gm, '').trim(),
+        shortTermGoals: (parsed.shortTermGoals || '').replace(/^>\s*/gm, '').trim(),
+        mediumLongTermGoals: (parsed.mediumLongTermGoals || '').replace(/^>\s*/gm, '').trim(),
+        agreedActions: (parsed.agreedActions || '').replace(/^>\s*/gm, '').trim(),
+        reassessmentDate: parsed.reassessmentDate || "30 dias",
+      },
+    });
+  } catch (error: any) {
+    console.error("Erro na geração do PTS com IA:", error);
+    res.status(500).json({
+      error: formatFriendlyAIError(error),
+      rawError: error?.message || String(error),
+    });
+  }
+});
+
 
 function parseLongitudinalEvolution(
   markdown: string,

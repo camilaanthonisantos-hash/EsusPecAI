@@ -11,9 +11,10 @@ import {
   ShieldAlert,
   Users,
   CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import { PtsData, Patient, User, Consultation } from '../types';
-import { openPtsInNewTab } from '../utils/printPts';
+import { openPtsInNewTab, getPtsSectionTitles } from '../utils/printPts';
 
 interface PtsModalProps {
   isOpen: boolean;
@@ -23,6 +24,7 @@ interface PtsModalProps {
   initialData?: Partial<PtsData> | null;
   existingPts?: Partial<PtsData> | null;
   patient?: Patient | null;
+  patientHistory?: Consultation[];
   consultationSummary?: { avaliacao?: string; plano?: string; conduta?: string };
   initialPlanText?: string;
   initialNotesText?: string;
@@ -42,6 +44,7 @@ export const PtsModal: React.FC<PtsModalProps> = ({
   initialData,
   existingPts,
   patient,
+  patientHistory,
   consultationSummary,
   initialPlanText,
   initialNotesText,
@@ -57,6 +60,9 @@ export const PtsModal: React.FC<PtsModalProps> = ({
     conduta: initialConsultation?.conduta,
   };
 
+  const userRoleOrProf = (currentUser as any)?.professionTitle || currentUser?.profession || (currentUser?.role === 'admin' ? 'Coordenador / Profissional' : 'Profissional');
+  const { diagTitle, actionTitle } = getPtsSectionTitles(userRoleOrProf);
+
   const [diagnosisVulnerability, setDiagnosisVulnerability] = useState(activeInitial?.diagnosisVulnerability || '');
   const [shortTermGoals, setShortTermGoals] = useState(activeInitial?.shortTermGoals || '');
   const [mediumLongTermGoals, setMediumLongTermGoals] = useState(activeInitial?.mediumLongTermGoals || '');
@@ -64,6 +70,11 @@ export const PtsModal: React.FC<PtsModalProps> = ({
   const [referenceProfessional, setReferenceProfessional] = useState(activeInitial?.referenceProfessional || '');
   const [teamMembers, setTeamMembers] = useState(activeInitial?.teamMembers || '');
   const [reassessmentDate, setReassessmentDate] = useState(activeInitial?.reassessmentDate || '30 dias');
+  const [generatedCids, setGeneratedCids] = useState<string[]>(activeInitial?.cids || []);
+  const [isGeneratingAi, setIsGeneratingAi] = useState(false);
+
+  // Helper to remove any markdown quote prefix
+  const cleanQuoteText = (txt: string) => (txt || '').replace(/^>\s*/gm, '').trim();
 
   // Reset or initialize when modal opens
   useEffect(() => {
@@ -76,22 +87,24 @@ export const PtsModal: React.FC<PtsModalProps> = ({
       };
 
       if (init) {
-        setDiagnosisVulnerability(init.diagnosisVulnerability || '');
-        setShortTermGoals(init.shortTermGoals || '');
-        setMediumLongTermGoals(init.mediumLongTermGoals || '');
-        setAgreedActions(init.agreedActions || '');
+        setDiagnosisVulnerability(cleanQuoteText(init.diagnosisVulnerability || ''));
+        setShortTermGoals(cleanQuoteText(init.shortTermGoals || ''));
+        setMediumLongTermGoals(cleanQuoteText(init.mediumLongTermGoals || ''));
+        setAgreedActions(cleanQuoteText(init.agreedActions || ''));
         setReferenceProfessional(init.referenceProfessional || currentUser?.name || '');
         setTeamMembers(init.teamMembers || '');
         setReassessmentDate(init.reassessmentDate || '30 dias');
+        setGeneratedCids(init.cids || []);
       } else {
         setReferenceProfessional(currentUser?.name || 'Profissional de Referência');
         setTeamMembers('');
         setReassessmentDate('30 dias');
+        setGeneratedCids([]);
 
         // Pre-fill from consultation if available
         if (summary?.avaliacao) {
           setDiagnosisVulnerability(
-            `Vulnerabilidades e dinâmica do caso:\n${summary.avaliacao.slice(0, 350)}`
+            cleanQuoteText(`Vulnerabilidades e dinâmica do caso:\n${summary.avaliacao.slice(0, 350)}`)
           );
         } else {
           setDiagnosisVulnerability('');
@@ -99,7 +112,7 @@ export const PtsModal: React.FC<PtsModalProps> = ({
 
         if (summary?.plano || summary?.conduta) {
           setShortTermGoals(
-            summary.plano?.slice(0, 250) || summary.conduta?.slice(0, 250) || ''
+            cleanQuoteText(summary.plano?.slice(0, 250) || summary.conduta?.slice(0, 250) || '')
           );
           setMediumLongTermGoals('Promover estabilização clínica, fortalecimento do vínculo familiar e ampliação da autonomia no território.');
           setAgreedActions(
@@ -116,6 +129,55 @@ export const PtsModal: React.FC<PtsModalProps> = ({
 
   if (!isOpen) return null;
 
+  const handleGenerateAiPts = async () => {
+    if (!patient) {
+      onShowToast?.('error', 'Selecione um paciente para gerar o PTS com IA.');
+      return;
+    }
+
+    setIsGeneratingAi(true);
+    try {
+      const historyToUse = patientHistory && patientHistory.length > 0
+        ? patientHistory
+        : (initialConsultation ? [initialConsultation] : []);
+
+      const res = await fetch('/api/gemini/pts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          patient,
+          consultations: historyToUse,
+          currentUser,
+        }),
+      });
+
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.error || 'Erro ao comunicar com a IA para geração do PTS.');
+      }
+
+      const resData = await res.json();
+      if (resData.success && resData.data) {
+        const d = resData.data;
+        if (d.diagnosisVulnerability) setDiagnosisVulnerability(cleanQuoteText(d.diagnosisVulnerability));
+        if (d.shortTermGoals) setShortTermGoals(cleanQuoteText(d.shortTermGoals));
+        if (d.mediumLongTermGoals) setMediumLongTermGoals(cleanQuoteText(d.mediumLongTermGoals));
+        if (d.agreedActions) setAgreedActions(cleanQuoteText(d.agreedActions));
+        if (d.reassessmentDate) setReassessmentDate(d.reassessmentDate);
+        if (d.cids && Array.isArray(d.cids)) setGeneratedCids(d.cids);
+
+        onShowToast?.('success', 'Projeto Terapêutico Singular (PTS) sintetizado com IA com sucesso!');
+      } else {
+        throw new Error('Resposta inválida do serviço de IA.');
+      }
+    } catch (err: any) {
+      console.error('Erro na geração do PTS com IA:', err);
+      onShowToast?.('error', err.message || 'Falha ao sintetizar o PTS com IA.');
+    } finally {
+      setIsGeneratingAi(false);
+    }
+  };
+
   const buildCurrentPtsData = (): PtsData => {
     const now = Date.now();
     const init = initialData || existingPts;
@@ -128,6 +190,7 @@ export const PtsModal: React.FC<PtsModalProps> = ({
       referenceProfessional: referenceProfessional.trim() || init?.referenceProfessional || init?.professionalName || initialConsultation?.authorName || currentUser?.name || 'Profissional de Referência',
       reassessmentDate: reassessmentDate.trim() || '30 dias',
       teamMembers: teamMembers.trim() || undefined,
+      cids: generatedCids.length > 0 ? generatedCids : init?.cids,
       dateFormatted:
         init?.dateFormatted ||
         'Anajás, ' +
@@ -224,22 +287,42 @@ export const PtsModal: React.FC<PtsModalProps> = ({
 
         {/* Modal Body */}
         <div className="p-5 space-y-4 overflow-y-auto text-slate-800 dark:text-slate-100 text-xs sm:text-sm">
-          {/* Quick Auto-fill banner */}
-          {consultationSummary && (consultationSummary.avaliacao || consultationSummary.plano) && (
-            <div className="flex items-center justify-between p-2.5 bg-purple-50 dark:bg-purple-950/30 border border-purple-200 dark:border-purple-800/40 rounded-xl">
-              <div className="flex items-center gap-2 text-xs text-purple-900 dark:text-purple-300 font-medium">
-                <Sparkles className="w-4 h-4 text-purple-600 shrink-0" />
-                <span>Preencher eixos com base na evolução e plano deste atendimento</span>
-              </div>
+          {/* Quick Auto-fill and AI Synthesis banner */}
+          <div className="flex flex-wrap items-center justify-between gap-2 p-3 bg-gradient-to-r from-purple-50 to-indigo-50 dark:from-purple-950/40 dark:to-indigo-950/40 border border-purple-200 dark:border-purple-800/40 rounded-xl">
+            <div className="flex items-center gap-2 text-xs text-purple-900 dark:text-purple-200 font-medium">
+              <Sparkles className="w-4 h-4 text-purple-600 dark:text-purple-400 shrink-0" />
+              <span>Sintetizar Eixos 1, 2, 3 e 4 do PTS utilizando a Inteligência Artificial</span>
+            </div>
+            <div className="flex items-center gap-2">
+              {consultationSummary && (consultationSummary.avaliacao || consultationSummary.plano) && (
+                <button
+                  type="button"
+                  onClick={handleAutoFillFromNotes}
+                  className="px-2.5 py-1.5 rounded-lg bg-white dark:bg-slate-800 hover:bg-purple-100 dark:hover:bg-purple-900/40 text-purple-700 dark:text-purple-300 font-bold text-xs border border-purple-200 dark:border-purple-700 transition-colors shrink-0 shadow-xs"
+                >
+                  Importar Atendimento
+                </button>
+              )}
               <button
                 type="button"
-                onClick={handleAutoFillFromNotes}
-                className="px-2.5 py-1 rounded-lg bg-purple-600 hover:bg-purple-700 text-white font-bold text-xs transition-colors shrink-0 shadow-xs"
+                disabled={isGeneratingAi}
+                onClick={handleGenerateAiPts}
+                className="px-3 py-1.5 rounded-lg bg-gradient-to-r from-purple-600 to-indigo-600 hover:from-purple-700 hover:to-indigo-700 text-white font-bold text-xs flex items-center gap-1.5 transition-all shrink-0 shadow-sm shadow-purple-600/20 disabled:opacity-50"
               >
-                Preencher
+                {isGeneratingAi ? (
+                  <>
+                    <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                    <span>Sintetizando PTS...</span>
+                  </>
+                ) : (
+                  <>
+                    <Sparkles className="w-3.5 h-3.5" />
+                    <span>Sintetizar com IA</span>
+                  </>
+                )}
               </button>
             </div>
-          )}
+          </div>
 
           {/* Reference Professional and Reassessment */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -304,32 +387,32 @@ export const PtsModal: React.FC<PtsModalProps> = ({
             />
           </div>
 
-          {/* Axis 1: Diagnosis & Vulnerability */}
+          {/* Axis 1: Profession Diagnosis / Initial Evaluation */}
           <div className="space-y-1">
             <label className="font-bold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <ShieldAlert className="w-3.5 h-3.5 text-purple-600" />
-              Eixo 1: Diagnóstico Situacional, Vulnerabilidades e Potencialidades *
+              Eixo 1: {diagTitle.replace(':', '')} *
             </label>
             <textarea
               value={diagnosisVulnerability}
               onChange={(e) => setDiagnosisVulnerability(e.target.value)}
               rows={3}
-              placeholder="Descreva a história de vida, vínculos familiares, rede de apoio, fatores de risco e potencialidades do usuário..."
+              placeholder="Descreva até 6 itens numerados (ex: 1. ..., 2. ...). Ex: Síndrome de abstinência de substâncias; Comportamento de risco..."
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm leading-relaxed focus:ring-2 focus:ring-purple-500 focus:outline-hidden resize-y"
             />
           </div>
 
-          {/* Axis 2: Short-Term Goals */}
+          {/* Axis 2: Interventions / Medical Plan */}
           <div className="space-y-1">
             <label className="font-bold text-xs text-slate-700 dark:text-slate-300 flex items-center gap-1.5">
               <Target className="w-3.5 h-3.5 text-purple-600" />
-              Eixo 2: Metas de Curto Prazo (Intervenções Imediatas e Estabilização) *
+              Eixo 2: {actionTitle.replace(':', '')} *
             </label>
             <textarea
               value={shortTermGoals}
               onChange={(e) => setShortTermGoals(e.target.value)}
-              rows={2}
-              placeholder="Ex: Acolhimento semanal, estabilização dos sintomas agudos, encaminhamento para avaliação médica..."
+              rows={3}
+              placeholder="Descreva até 6 intervenções numeradas (ex: 1. Realizar escuta terapêutica; 2. Educação em saúde permanente...)"
               className="w-full p-2.5 rounded-xl border border-slate-300 dark:border-slate-700 bg-white dark:bg-slate-800 text-xs sm:text-sm focus:ring-2 focus:ring-purple-500 focus:outline-hidden resize-y"
             />
           </div>

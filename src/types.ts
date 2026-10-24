@@ -975,6 +975,7 @@ export interface PtsData {
   referenceProfessional: string; // Profissional de referência responsável pelo caso
   reassessmentDate: string; // Previsão de data para reavaliação do PTS (ex: 30 dias, 60 dias ou data DD/MM/AAAA)
   teamMembers?: string; // Equipe técnica envolvida
+  cids?: string[]; // CIDs-10 extraídos/gerados pela IA referente ao agravo de saúde
   dateFormatted?: string;
   professionalName?: string;
   professionalRole?: string;

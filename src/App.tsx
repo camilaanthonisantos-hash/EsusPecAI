@@ -4439,6 +4439,12 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
           setPtsInitialNotesText(undefined);
         }}
         patient={ptsTargetPatient || selectedPatient}
+        patientHistory={
+          consultations.filter(c =>
+            (ptsTargetPatient || selectedPatient) &&
+            isConsultationForPatient(c, ptsTargetPatient || selectedPatient)
+          )
+        }
         currentUser={currentUser}
         initialConsultation={ptsTargetConsultation || undefined}
         initialPlanText={ptsInitialPlanText}

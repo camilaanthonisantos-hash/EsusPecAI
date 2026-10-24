@@ -25,6 +25,120 @@ function escapeHtml(str: string): string {
     .replace(/'/g, '&#039;');
 }
 
+export function getPtsSectionTitles(role?: string): { diagTitle: string; actionTitle: string } {
+  const r = (role || '').toLowerCase();
+  if (r.includes('enferm')) {
+    return { diagTitle: 'DIAGNÓSTICOS DE ENFERMAGEM:', actionTitle: 'INTERVENÇÕES:' };
+  }
+  if (r.includes('médic') || r.includes('medic')) {
+    return { diagTitle: 'DIAGNÓSTICOS MÉDICOS:', actionTitle: 'CONDUTAS MÉDICAS:' };
+  }
+  if (r.includes('psicó') || r.includes('psico')) {
+    return { diagTitle: 'AVALIAÇÃO E DIAGNÓSTICO PSICOSSOCIAL:', actionTitle: 'INTERVENÇÕES PSICOLÓGICAS:' };
+  }
+  if (r.includes('assist') || r.includes('social') || r.includes('cress')) {
+    return { diagTitle: 'AVALIAÇÃO SOCIOASSISTENCIAL:', actionTitle: 'INTERVENÇÕES SOCIAIS:' };
+  }
+  if (r.includes('nutri')) {
+    return { diagTitle: 'AVALIAÇÃO NUTRICIONAL:', actionTitle: 'INTERVENÇÕES NUTRICIONAIS:' };
+  }
+  if (r.includes('terap') || r.includes('ocupacional')) {
+    return { diagTitle: 'AVALIAÇÃO TERAPÊUTICA OCUPACIONAL:', actionTitle: 'INTERVENÇÕES TERAPÊUTICAS:' };
+  }
+  if (r.includes('fisioter')) {
+    return { diagTitle: 'AVALIAÇÃO FISIOTERAPÊUTICA:', actionTitle: 'INTERVENÇÕES FISIOTERAPÊUTICAS:' };
+  }
+  const spec = role ? role.toUpperCase() : 'ESPECIALIZADA';
+  return { diagTitle: `AVALIAÇÃO E DIAGNÓSTICO (${spec}):`, actionTitle: `PLANO TERAPÊUTICO E INTERVENÇÕES (${spec}):` };
+}
+
+function formatPtsNumberedItems(sourceText?: string, fallbackList: string[] = [], maxItems: number = 6): string {
+  const raw = (sourceText || '').trim();
+  let items: string[] = [];
+
+  if (raw) {
+    const lines = raw
+      .replace(/^>\s*/gm, '')
+      .split(/\n+|;(?=\s*[A-ZÀ-Ú0-9a-z\-])/);
+
+    for (const line of lines) {
+      const cleaned = line
+        .replace(/^[\d\s.\-•*>]+/g, '')
+        .trim();
+      if (cleaned.length > 2) {
+        items.push(cleaned);
+      }
+    }
+  }
+
+  if (items.length === 0 && fallbackList.length > 0) {
+    items = fallbackList;
+  }
+
+  if (items.length === 0) {
+    items = ['Acompanhamento e monitoramento periódico conforme plano terapêutico singular.'];
+  }
+
+  const finalItems = items.slice(0, maxItems);
+
+  return finalItems
+    .map((item, idx) => {
+      let text = item.trim();
+      const isLast = idx === finalItems.length - 1;
+      text = text.replace(/[;.,\s]+$/, '');
+      if (isLast) {
+        text = text + '.';
+      } else {
+        text = text + ';';
+      }
+      return `<div style="font-size: 11px; font-weight: bold; font-style: italic; color: #0f172a; margin-bottom: 3.5px; line-height: 1.35; text-align: justify;">
+        ${idx + 1}. ${escapeHtml(text)}
+      </div>`;
+    })
+    .join('');
+}
+
+function formatPtsCidList(pts: PtsData, parentConsultation?: Consultation | null): string {
+  const cids: string[] = [];
+
+  if (Array.isArray(pts.cids) && pts.cids.length > 0) {
+    pts.cids.forEach(c => {
+      if (c && typeof c === 'string') {
+        const cleaned = c.trim();
+        if (cleaned && !cids.includes(cleaned)) cids.push(cleaned);
+      }
+    });
+  }
+
+  if (parentConsultation?.cidPrimary) {
+    const item = `${parentConsultation.cidPrimary}${parentConsultation.cidPrimaryDesc ? ` (${parentConsultation.cidPrimaryDesc})` : ''}`;
+    if (!cids.some(c => c.includes(parentConsultation.cidPrimary))) cids.push(item);
+  }
+  if (parentConsultation?.cidSecondary) {
+    const item = `${parentConsultation.cidSecondary}${parentConsultation.cidSecondaryDesc ? ` (${parentConsultation.cidSecondaryDesc})` : ''}`;
+    if (!cids.some(c => c.includes(parentConsultation.cidSecondary))) cids.push(item);
+  }
+
+  if (pts.diagnosisVulnerability) {
+    const matches = pts.diagnosisVulnerability.match(/\b[A-Z]\d{2}(?:\.\d{1,2})?\b(?:\s*\([^)]+\))?/g);
+    if (matches) {
+      matches.forEach(m => {
+        if (!cids.some(c => c.includes(m))) cids.push(m);
+      });
+    }
+  }
+
+  if (cids.length === 0) {
+    cids.push('F10 (Transtornos mentais e comportamentais devidos ao uso de álcool)');
+    cids.push('F19.2 (Transtornos mentais e comportamentais devidos ao uso de múltiplas drogas e ao uso de outras substâncias psicoativas - síndrome de dependência)');
+  }
+
+  return cids
+    .slice(0, 3)
+    .map(c => `<div style="font-size: 11px; font-weight: bold; font-style: italic; color: #0f172a; margin-bottom: 3px; padding-left: 6px;">&gt; ${escapeHtml(c)}</div>`)
+    .join('');
+}
+
 /**
  * Generates an official, standalone HTML document formatted strictly
  * for A4 Portrait (210mm x 297mm) representing a Multiprofessional
@@ -38,7 +152,7 @@ export function generatePtsHtml(
 ): string {
   const patientName = (patient?.fullName || 'PACIENTE NÃO IDENTIFICADO').toUpperCase();
 
-  let patientAge = '--';
+  let patientAge = 'XXA';
   let birthDateFormatted = '--';
   if (patient?.birthDate) {
     try {
@@ -49,21 +163,21 @@ export function generatePtsHtml(
         birthDateFormatted = `${day}/${month}/${year}`;
       }
     } catch {
-      patientAge = '--';
+      patientAge = 'XXA';
     }
   }
 
   const cns = patient?.cns ? `CNS: ${patient.cns}` : 'CNS: Não informado';
   const cpf = patient?.cpf ? `CPF: ${patient.cpf}` : '';
   const docInfo = [cns, cpf].filter(Boolean).join(' • ');
-  const guardian = patient?.legalGuardianName ? `Responsável: ${patient.legalGuardianName}` : '';
-  const address = patient?.address ? `Endereço: ${patient.address}` : '';
+  const guardian = patient?.legalGuardianName || 'Próprio paciente';
 
   const issueDate = pts.createdAt ? new Date(pts.createdAt) : new Date();
   const day = String(issueDate.getDate()).padStart(2, '0');
   const month = issueDate.toLocaleDateString('pt-BR', { month: 'long' });
   const year = issueDate.getFullYear();
-  const dateStr = pts.dateFormatted || `${day}/${String(issueDate.getMonth() + 1).padStart(2, '0')}/${year}`;
+  const dateNumStr = `${day}/${String(issueDate.getMonth() + 1).padStart(2, '0')}/${year}`;
+  const fullDateCityStr = `Anajás, ${day} de ${month} de ${year}`;
 
   const docAuthor = resolveDocumentAuthor(
     {
@@ -81,10 +195,35 @@ export function generatePtsHtml(
   );
 
   const workplace = (docAuthor.workplace || pts.workplace || 'CENTRO DE ATENÇÃO PSICOSSOCIAL - CAPS').toUpperCase();
-  const refProfessional = docAuthor.name;
-  const reassessment = pts.reassessmentDate || '30 dias';
+  const refProfessional = docAuthor.name.toUpperCase();
+  const profRole = (docAuthor.role || pts.professionalRole || (currentUser as any)?.professionTitle || 'PROFISSIONAL DE SAÚDE').toUpperCase();
+  const reassessment = (pts.reassessmentDate || '30 DIAS').toUpperCase();
   const stampUrl = docAuthor.stampUrl;
   const useStamp = docAuthor.useStamp;
+
+  const { diagTitle, actionTitle } = getPtsSectionTitles(profRole);
+
+  const diagnosesContent = formatPtsNumberedItems(
+    pts.diagnosisVulnerability,
+    [
+      'Síndrome de abstinência de substâncias agudas relacionada a desenvolvimento de dependência do álcool ou de outra substância e interrupção repentina de uma substância aditiva evidenciada por transtorno mental comórbido',
+      'Comportamento de saúde propenso a risco relacionado a compreensão inadequada evidenciada por abuso de substâncias',
+      'Risco de sobrepeso relacionado a consumo excessivo de álcool e distúrbio do sono',
+      'Risco de integridade da membrana mucosa oral prejudicada relacionado a consumo de álcool evidenciado por transtorno de comportamento',
+      'Processos familiares disfuncionais relacionados a abuso de substâncias'
+    ],
+    6
+  );
+
+  const interventionsContent = formatPtsNumberedItems(
+    pts.shortTermGoals || pts.agreedActions || pts.mediumLongTermGoals,
+    [
+      'Realizar escuta terapêutica',
+      'Incentivar e proporcionar a participação do paciente nas atividades proporcionadas pela clínica',
+      'Realizar educação em saúde de forma permanente'
+    ],
+    12
+  );
 
   return `<!DOCTYPE html>
 <html lang="pt-BR">
@@ -95,7 +234,7 @@ export function generatePtsHtml(
   <style>
     @page {
       size: A4 portrait;
-      margin: 12mm 14mm 10mm 14mm;
+      margin: 0;
     }
     * {
       box-sizing: border-box;
@@ -136,7 +275,7 @@ export function generatePtsHtml(
       gap: 8px;
     }
     .toolbar-badge {
-      background: #7c3aed;
+      background: #047857;
       color: #fff;
       font-size: 11px;
       font-weight: 700;
@@ -150,7 +289,7 @@ export function generatePtsHtml(
       gap: 8px;
     }
     .btn-print {
-      background: #7c3aed;
+      background: #047857;
       color: #fff;
       border: none;
       padding: 8px 16px;
@@ -164,7 +303,7 @@ export function generatePtsHtml(
       transition: all 0.2s ease;
     }
     .btn-print:hover {
-      background: #6d28d9;
+      background: #065f46;
       transform: translateY(-1px);
     }
     .btn-secondary {
@@ -188,64 +327,109 @@ export function generatePtsHtml(
     }
     .a4-portrait-sheet {
       width: 210mm;
-      min-height: 297mm;
+      height: 297mm;
+      max-height: 297mm;
       background: #ffffff;
-      padding: 12mm 14mm 10mm 14mm;
+      padding: 10mm 12mm 8mm 12mm;
       box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       position: relative;
-    }
-    .axis-card {
-      margin-bottom: 7px;
-      border: 1px solid #cbd5e1;
-      border-radius: 4px;
+      box-sizing: border-box;
       overflow: hidden;
     }
-    .axis-title {
-      background: #f8fafc;
-      border-bottom: 1px solid #cbd5e1;
-      padding: 3.5px 8px;
-      font-size: 10px;
-      font-weight: 900;
+
+    /* Green Patient Info Table Styles */
+    .patient-info-table {
+      width: 100%;
+      border-collapse: collapse;
+      margin-bottom: 10px;
+      font-size: 12px;
+    }
+    .patient-info-table th {
+      background: #f0fdf4;
+      padding: 2.5px 6px;
+      text-align: left;
+      font-weight: 800;
       text-transform: uppercase;
-      letter-spacing: 0.3px;
-      color: #1e1b4b;
-      display: flex;
-      align-items: center;
-      gap: 6px;
+      border: 1px solid #a7f3d0;
+      color: #047857;
+      font-size: 12px;
     }
-    .axis-content {
-      padding: 6px 8px;
-      font-size: 10px;
-      line-height: 1.45;
-      color: #1e293b;
-      background: #ffffff;
-      white-space: pre-wrap;
-      text-align: justify;
+    .patient-info-table td {
+      padding: 2.5px 6px;
+      font-weight: 800;
+      font-size: 12px;
+      border: 1px solid #a7f3d0;
+      text-transform: uppercase;
+      color: #047857;
     }
+
+    /* Section Titles */
+    .section-main-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #1e3a8a;
+      margin-top: 8px;
+      margin-bottom: 6px;
+      line-height: 1.3;
+    }
+    .section-sub-title {
+      font-size: 12px;
+      font-weight: 800;
+      text-transform: uppercase;
+      color: #1e3a8a;
+      margin-top: 10px;
+      margin-bottom: 4px;
+      line-height: 1.25;
+      text-decoration: underline;
+    }
+
     @media print {
-      body {
-        background: none !important;
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      html, body {
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
       }
       .toolbar-container {
         display: none !important;
       }
       .sheet-wrapper {
         padding: 0 !important;
+        margin: 0 !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        overflow: hidden !important;
       }
       .a4-portrait-sheet {
-        width: 100% !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
         min-height: 297mm !important;
-        height: auto !important;
-        padding: 12mm 14mm 10mm 14mm !important;
-        margin: 0 auto !important;
+        padding: 10mm 12mm 8mm 12mm !important;
+        margin: 0 !important;
         box-shadow: none !important;
         border: none !important;
         display: flex !important;
         flex-direction: column !important;
         justify-content: space-between !important;
+        box-sizing: border-box !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        overflow: hidden !important;
       }
       .no-print {
         display: none !important;
@@ -277,140 +461,88 @@ export function generatePtsHtml(
     <div class="a4-portrait-sheet">
       <div>
         <!-- Institutional Header -->
-        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding: 0 10px 6px 10px; margin-bottom: 8px;">
-          <div style="width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-left: 4px;">
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding: 0 8px 5px 8px; margin-bottom: 8px;">
+          <div style="width: 88px; height: 88px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <img src="${LOGO_CAPS_BASE64}" alt="Brasão Município" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
           </div>
 
-          <div style="text-align: center; flex-grow: 1; padding: 0 12px;">
+          <div style="text-align: center; flex-grow: 1; padding: 0 10px;">
             <div style="font-weight: 900; font-size: 12px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.4px; line-height: 1.2;">
               PREFEITURA MUNICIPAL DE ANAJÁS
             </div>
             <div style="font-weight: 800; font-size: 10.5px; text-transform: uppercase; color: #334155; margin-top: 1px; letter-spacing: 0.2px;">
               SECRETARIA MUNICIPAL DE SAÚDE
             </div>
-            <div style="font-weight: 700; font-size: 10px; text-transform: uppercase; color: #7c3aed; margin-top: 1px;">
+            <div style="font-weight: 700; font-size: 10px; text-transform: uppercase; color: #047857; margin-top: 1px;">
               ${escapeHtml(workplace)}
             </div>
-            <div style="font-weight: 900; font-size: 10.5px; text-transform: uppercase; color: #0f172a; margin-top: 2px; padding: 2px 10px; background: #faf5ff; border-radius: 4px; display: inline-block; border: 1px solid #e9d5ff;">
+            <div style="font-weight: 900; font-size: 10.5px; text-transform: uppercase; color: #0f172a; margin-top: 2px; padding: 2px 10px; background: #f0fdf4; border-radius: 4px; display: inline-block; border: 1px solid #a7f3d0;">
               PROJETO TERAPÊUTICO SINGULAR (PTS) - PACTUAÇÃO MULTIPROFISSIONAL
             </div>
           </div>
 
-          <div style="width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-right: 4px;">
+          <div style="width: 88px; height: 88px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <img src="${LOGO_CAPS_BASE64}" alt="Logo SUS" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
           </div>
         </div>
 
-        <!-- Patient & Case Identification Table -->
-        <table style="width: 100%; border-collapse: collapse; margin-bottom: 8px; font-size: 10px;">
+        <!-- Patient & Case Identification Table (Green text, Size 12, Uppercase) -->
+        <table class="patient-info-table">
           <tbody>
             <tr>
-              <th style="width: 14%; background: #f1f5f9; padding: 3.5px 6px; text-align: left; font-weight: 800; text-transform: uppercase; border: 1px solid #94a3b8; color: #1e293b;">
-                USUÁRIO
-              </th>
-              <td style="width: 56%; padding: 3.5px 6px; font-weight: 800; font-size: 11px; border: 1px solid #94a3b8; text-transform: uppercase; color: #0f172a;">
-                ${escapeHtml(patientName)}
-              </td>
-              <th style="width: 12%; background: #f1f5f9; padding: 3.5px 6px; text-align: left; font-weight: 800; text-transform: uppercase; border: 1px solid #94a3b8; color: #1e293b;">
-                IDADE / NASC
-              </th>
-              <td style="width: 18%; padding: 3.5px 6px; font-weight: 800; font-size: 10.5px; border: 1px solid #94a3b8; text-transform: uppercase; color: #0f172a;">
-                ${escapeHtml(patientAge)} (${escapeHtml(birthDateFormatted)})
-              </td>
+              <th style="width: 16%;">PACIENTE</th>
+              <td style="width: 44%;">${escapeHtml(patientName)}</td>
+              <th style="width: 14%;">IDADE</th>
+              <td style="width: 26%;">${escapeHtml(patientAge)}</td>
             </tr>
             <tr>
-              <th style="background: #f1f5f9; padding: 3.5px 6px; text-align: left; font-weight: 800; text-transform: uppercase; border: 1px solid #94a3b8; color: #1e293b;">
-                DOCUMENTOS
-              </th>
-              <td style="padding: 3.5px 6px; font-weight: 600; font-size: 10px; border: 1px solid #94a3b8; color: #1e293b;">
-                ${escapeHtml(docInfo)}
-              </td>
-              <th style="background: #f1f5f9; padding: 3.5px 6px; text-align: left; font-weight: 800; text-transform: uppercase; border: 1px solid #94a3b8; color: #1e293b;">
-                DATA PTS
-              </th>
-              <td style="padding: 3.5px 6px; font-weight: 700; font-size: 10.5px; border: 1px solid #94a3b8; color: #0f172a;">
-                ${escapeHtml(dateStr)}
-              </td>
+              <th>CPF/CNS</th>
+              <td>${escapeHtml(docInfo)}</td>
+              <th>DATA PTS</th>
+              <td>ANAJÁS, ${escapeHtml(dateNumStr)}</td>
             </tr>
-            ${(guardian || address) ? `
             <tr>
-              <th style="background: #f1f5f9; padding: 3.5px 6px; text-align: left; font-weight: 800; text-transform: uppercase; border: 1px solid #94a3b8; color: #1e293b;">
-                FAMÍLIA / REDE
-              </th>
-              <td colspan="3" style="padding: 3.5px 6px; font-weight: 600; font-size: 9.5px; border: 1px solid #94a3b8; color: #334155;">
-                ${[escapeHtml(guardian), escapeHtml(address)].filter(Boolean).join(' • ')}
-              </td>
-            </tr>` : ''}
+              <th>RESPONSÁVEL</th>
+              <td colspan="3">${escapeHtml(guardian)}</td>
+            </tr>
+            <tr>
+              <th style="width: 16%;">REFERÊNCIA TÉCNICA</th>
+              <td style="width: 44%;">${escapeHtml(refProfessional)} - ${escapeHtml(profRole)}</td>
+              <th style="width: 14%;">AVALIAÇÃO</th>
+              <td style="width: 26%;">${escapeHtml(reassessment)}</td>
+            </tr>
           </tbody>
         </table>
 
-        <!-- Reference Professional & Reassessment Banner -->
-        <div style="display: flex; gap: 8px; margin-bottom: 8px;">
-          <div style="flex: 2; border: 1px solid #7c3aed; background: #faf5ff; border-radius: 4px; padding: 6px 10px;">
-            <div style="font-size: 9px; font-weight: 800; text-transform: uppercase; color: #6d28d9; letter-spacing: 0.5px;">
-              PROFISSIONAL DE REFERÊNCIA / GESTOR DO CASO
-            </div>
-            <div style="font-size: 12px; font-weight: 900; text-transform: uppercase; color: #4c1d95; margin-top: 1px;">
-              ${escapeHtml(refProfessional)} ${pts.teamMembers ? `<span style="font-size: 10px; font-weight: 600; color: #6d28d9;">(Equipe: ${escapeHtml(pts.teamMembers)})</span>` : ''}
-            </div>
-          </div>
-          <div style="flex: 1; border: 1px solid #cbd5e1; background: #f8fafc; border-radius: 4px; padding: 6px 10px; display: flex; flex-direction: column; justify-content: center;">
-            <div style="font-size: 9px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
-              PREVISÃO DE REAVALIAÇÃO
-            </div>
-            <div style="font-size: 11.5px; font-weight: 900; text-transform: uppercase; color: #0f172a; margin-top: 1px;">
-              ${escapeHtml(reassessment)}
-            </div>
-          </div>
+        <!-- CID Main Header Title -->
+        <div class="section-main-title">
+          PLANO TERAPÊUTICO SINGULAR (PTS) ELABORADO PARA UM PACIENTE ACOMPANHADO PELO CAPS I COM OS SEGUINTES DIAGNÓSTICOS:
         </div>
 
-        <!-- Axis 1: Situational Diagnosis & Vulnerability -->
-        <div class="axis-card">
-          <div class="axis-title">
-            <span style="color: #7c3aed;">■</span> EIXO 1: DIAGNÓSTICO SITUACIONAL, VULNERABILIDADES E POTENCIALIDADES
-          </div>
-          <div class="axis-content">
-            ${escapeHtml(pts.diagnosisVulnerability || 'Avaliação da dinâmica familiar, fatores de risco e vínculos comunitários.')}
-          </div>
+        <!-- List of CIDs in Italic Bold Size 11 -->
+        <div style="margin-bottom: 10px;">
+          ${formatPtsCidList(pts, parentConsultation)}
         </div>
 
-        <!-- Axis 2: Short-term Goals -->
-        <div class="axis-card">
-          <div class="axis-title">
-            <span style="color: #7c3aed;">■</span> EIXO 2: METAS PACTUADAS DE CURTO PRAZO (INTERVENÇÕES IMEDIATAS / ESTABILIZAÇÃO)
-          </div>
-          <div class="axis-content">
-            ${escapeHtml(pts.shortTermGoals || 'Medidas imediatas pactuadas com usuário e família.')}
-          </div>
+        <!-- Specialty Section 1 (Diagnósticos da Profissão) -->
+        <div class="section-sub-title">
+          ${escapeHtml(diagTitle)}
+        </div>
+        <div style="margin-bottom: 10px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; background: #ffffff;">
+          ${diagnosesContent}
         </div>
 
-        <!-- Axis 3: Medium & Long-term Goals -->
-        <div class="axis-card">
-          <div class="axis-title">
-            <span style="color: #7c3aed;">■</span> EIXO 3: METAS DE MÉDIO E LONGO PRAZO (AUTONOMIA E REABILITAÇÃO PSICOSSOCIAL)
-          </div>
-          <div class="axis-content">
-            ${escapeHtml(pts.mediumLongTermGoals || 'Desenvolvimento de autonomia, inserção social e projetos de vida.')}
-          </div>
+        <!-- Specialty Section 2 (Intervenções / Condutas da Profissão) -->
+        <div class="section-sub-title">
+          ${escapeHtml(actionTitle)}
         </div>
-
-        <!-- Axis 4: Agreed Responsibilities & Actions -->
-        <div class="axis-card">
-          <div class="axis-title">
-            <span style="color: #7c3aed;">■</span> EIXO 4: DIVISÃO DE RESPONSABILIDADES E PACTUAÇÃO DE AÇÕES
-          </div>
-          <div class="axis-content">
-            ${escapeHtml(pts.agreedActions || 'Responsabilidades compartilhadas entre usuário/família, equipe de referência e rede intersetorial.')}
-          </div>
+        <div style="margin-bottom: 10px; border: 1px solid #cbd5e1; border-radius: 4px; padding: 6px 8px; background: #ffffff;">
+          ${interventionsContent}
         </div>
       </div>
 
       <!-- Shared Signatures & Institutional Footer -->
-      <div class="page-break-inside-avoid" style="margin-top: 10px;">
-        <div style="text-align: right; font-size: 10px; font-weight: 600; color: #1e293b; margin-bottom: 12px;">
-          Anajás, ${day} de ${month} de ${year}
-        </div>
+      <div class="page-break-inside-avoid" style="margin-top: 8px;">
 
         <!-- Dual Signature Layout: Professional + User/Family -->
         <div style="display: flex; justify-content: space-between; gap: 20px; margin-bottom: 6px;">
@@ -418,7 +550,7 @@ export function generatePtsHtml(
             ${
               useStamp && stampUrl
                 ? `<div style="text-align: center; margin: 0 auto;">
-                     <img src="${stampUrl}" alt="Carimbo e Assinatura de ${escapeHtml(refProfessional)}" style="max-height: 80px; max-width: 240px; object-fit: contain; margin: 0 auto; display: block;" />
+                     <img src="${stampUrl}" alt="Carimbo e Assinatura de ${escapeHtml(refProfessional)}" style="max-height: 75px; max-width: 230px; object-fit: contain; margin: 0 auto; display: block;" />
                    </div>`
                 : `
                   <div style="border-top: 1.5px solid #0f172a; margin-bottom: 3px;"></div>
@@ -426,7 +558,7 @@ export function generatePtsHtml(
                     ${escapeHtml(refProfessional)}
                   </div>
                   <div style="font-size: 9.5px; font-weight: 700; color: #475569; text-transform: uppercase; margin-top: 1px;">
-                    Profissional de Referência / Equipe de Saúde
+                    Profissional de Referência (${escapeHtml(profRole)})
                   </div>
                 `
             }
@@ -444,7 +576,7 @@ export function generatePtsHtml(
         </div>
 
         <!-- Standard Institutional Footer -->
-        <div style="text-align: center; font-size: 8.5px; font-weight: 600; color: #64748b; text-transform: uppercase; line-height: 1.35; margin-top: 8px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
+        <div style="text-align: center; font-size: 8.5px; font-weight: 600; color: #64748b; text-transform: uppercase; line-height: 1.35; margin-top: 6px; border-top: 1px solid #e2e8f0; padding-top: 4px;">
           <div>TRAVESSA FRANCISCO JR. FILHO • CIDADE NOVA I • ANAJÁS/PA • CEP: 68 810-000</div>
           <div>SISTEMA ÚNICO DE SAÚDE - SUS • REDE DE ATENÇÃO PSICOSSOCIAL (RAPS)</div>
         </div>

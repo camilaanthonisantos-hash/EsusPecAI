@@ -77,7 +77,7 @@ export function generateMedicalCertificateHtml(
   <style>
     @page {
       size: A4 portrait;
-      margin: 12mm 14mm 10mm 14mm;
+      margin: 0;
     }
     * {
       box-sizing: border-box;
@@ -174,27 +174,28 @@ export function generateMedicalCertificateHtml(
       width: 210mm;
       min-height: 297mm;
       background: #ffffff;
-      padding: 14mm 16mm 12mm 16mm;
+      padding: 12mm 14mm 10mm 14mm;
       box-shadow: 0 10px 25px -5px rgba(0,0,0,0.15), 0 8px 10px -6px rgba(0,0,0,0.1);
       display: flex;
       flex-direction: column;
       justify-content: space-between;
       position: relative;
+      box-sizing: border-box;
     }
     .atestado-text {
-      font-size: 13.5px;
-      line-height: 1.85;
+      font-size: 13px;
+      line-height: 1.7;
       color: #1e293b;
       text-align: justify;
-      margin-bottom: 20px;
-      text-indent: 32px;
+      margin-bottom: 14px;
+      text-indent: 28px;
     }
     .highlight-box {
       background: #f0fdfa;
       border: 2px solid #0d9488;
       border-radius: 8px;
-      padding: 16px 20px;
-      margin: 24px 0;
+      padding: 12px 16px;
+      margin: 16px 0;
       text-align: center;
     }
     .highlight-title {
@@ -203,42 +204,64 @@ export function generateMedicalCertificateHtml(
       text-transform: uppercase;
       letter-spacing: 1px;
       color: #0f766e;
-      margin-bottom: 6px;
+      margin-bottom: 4px;
     }
     .highlight-days {
-      font-size: 20px;
+      font-size: 18px;
       font-weight: 900;
       color: #0f172a;
       letter-spacing: 0.5px;
       text-transform: uppercase;
     }
     .highlight-date {
-      font-size: 12px;
+      font-size: 11.5px;
       color: #475569;
       margin-top: 4px;
       font-weight: 600;
     }
     @media print {
-      body {
-        background: none !important;
+      @page {
+        size: A4 portrait;
+        margin: 0;
+      }
+      html, body {
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        margin: 0 !important;
+        padding: 0 !important;
+        overflow: hidden !important;
+        background: #ffffff !important;
       }
       .toolbar-container {
         display: none !important;
       }
       .sheet-wrapper {
         padding: 0 !important;
+        margin: 0 !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
+        overflow: hidden !important;
       }
       .a4-portrait-sheet {
-        width: 100% !important;
+        width: 210mm !important;
+        height: 297mm !important;
+        max-height: 297mm !important;
         min-height: 297mm !important;
-        height: auto !important;
-        padding: 14mm 16mm 12mm 16mm !important;
-        margin: 0 auto !important;
+        padding: 12mm 14mm 10mm 14mm !important;
+        margin: 0 !important;
         box-shadow: none !important;
         border: none !important;
         display: flex !important;
         flex-direction: column !important;
         justify-content: space-between !important;
+        box-sizing: border-box !important;
+        page-break-after: avoid !important;
+        break-after: avoid !important;
+        page-break-inside: avoid !important;
+        break-inside: avoid !important;
+        overflow: hidden !important;
       }
       .no-print {
         display: none !important;
@@ -271,54 +294,54 @@ export function generateMedicalCertificateHtml(
     <div class="a4-portrait-sheet">
       <div>
         <!-- Institutional Header -->
-        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding: 0 10px 10px 10px; margin-bottom: 20px;">
-          <div style="width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+        <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 2px solid #0f172a; padding: 0 10px 8px 10px; margin-bottom: 14px;">
+          <div style="width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <img src="${LOGO_CAPS_BASE64}" alt="Brasão do Município" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
           </div>
 
           <div style="text-align: center; flex-grow: 1; padding: 0 14px;">
-            <div style="font-weight: 900; font-size: 14px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; line-height: 1.2;">
+            <div style="font-weight: 900; font-size: 13.5px; text-transform: uppercase; color: #0f172a; letter-spacing: 0.5px; line-height: 1.2;">
               PREFEITURA MUNICIPAL DE ANAJÁS
             </div>
-            <div style="font-weight: 800; font-size: 11.5px; text-transform: uppercase; color: #334155; margin-top: 2px; letter-spacing: 0.3px;">
+            <div style="font-weight: 800; font-size: 11px; text-transform: uppercase; color: #334155; margin-top: 2px; letter-spacing: 0.3px;">
               SECRETARIA MUNICIPAL DE SAÚDE
             </div>
-            <div style="font-weight: 700; font-size: 10.5px; text-transform: uppercase; color: #0d9488; margin-top: 2px;">
+            <div style="font-weight: 700; font-size: 10px; text-transform: uppercase; color: #0d9488; margin-top: 2px;">
               ${escapeHtml(workplace)}
             </div>
-            <div style="font-weight: 900; font-size: 15px; text-transform: uppercase; color: #0f172a; margin-top: 6px; padding: 4px 22px; background: #f0fdfa; border-radius: 4px; display: inline-block; border: 1.5px solid #99f6e4; letter-spacing: 2px;">
+            <div style="font-weight: 900; font-size: 14.5px; text-transform: uppercase; color: #0f172a; margin-top: 5px; padding: 4px 22px; background: #f0fdfa; border-radius: 4px; display: inline-block; border: 1.5px solid #99f6e4; letter-spacing: 1.5px;">
               ATESTADO MÉDICO
             </div>
           </div>
 
-          <div style="width: 110px; height: 110px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
+          <div style="width: 96px; height: 96px; display: flex; align-items: center; justify-content: center; flex-shrink: 0;">
             <img src="${LOGO_CAPS_BASE64}" alt="Logo SUS" style="max-width: 100%; max-height: 100%; object-fit: contain;" />
           </div>
         </div>
 
         <!-- Patient Identification Box -->
-        <div style="border: 1px solid #94a3b8; border-radius: 6px; overflow: hidden; margin-bottom: 24px; background: #f8fafc;">
+        <div style="border: 1px solid #94a3b8; border-radius: 6px; overflow: hidden; margin-bottom: 14px; background: #f8fafc;">
           <table style="width: 100%; border-collapse: collapse; font-size: 11px;">
             <tbody>
               <tr>
-                <th style="width: 16%; background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; color: #1e293b;">
+                <th style="width: 16%; background: #f1f5f9; padding: 7px 9px; text-align: left; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; color: #1e293b;">
                   PACIENTE:
                 </th>
-                <td style="width: 54%; padding: 8px 10px; font-weight: 800; font-size: 12.5px; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; text-transform: uppercase; color: #0f172a;">
+                <td style="width: 54%; padding: 7px 9px; font-weight: 800; font-size: 12px; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; text-transform: uppercase; color: #0f172a;">
                   ${escapeHtml(patientName)}
                 </td>
-                <th style="width: 12%; background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; color: #1e293b;">
+                <th style="width: 12%; background: #f1f5f9; padding: 7px 9px; text-align: left; font-weight: 800; text-transform: uppercase; border-bottom: 1px solid #cbd5e1; border-right: 1px solid #cbd5e1; color: #1e293b;">
                   IDADE:
                 </th>
-                <td style="width: 18%; padding: 8px 10px; font-weight: 700; font-size: 11.5px; border-bottom: 1px solid #cbd5e1; color: #0f172a;">
+                <td style="width: 18%; padding: 7px 9px; font-weight: 700; font-size: 11px; border-bottom: 1px solid #cbd5e1; color: #0f172a;">
                   ${escapeHtml(ageFormatted)}
                 </td>
               </tr>
               <tr>
-                <th style="width: 16%; background: #f1f5f9; padding: 8px 10px; text-align: left; font-weight: 800; text-transform: uppercase; border-right: 1px solid #cbd5e1; color: #1e293b;">
+                <th style="width: 16%; background: #f1f5f9; padding: 7px 9px; text-align: left; font-weight: 800; text-transform: uppercase; border-right: 1px solid #cbd5e1; color: #1e293b;">
                   DOCUMENTO:
                 </th>
-                <td style="padding: 8px 10px; font-weight: 700; font-size: 11.5px; color: #0f172a;" colspan="3">
+                <td style="padding: 7px 9px; font-weight: 700; font-size: 11px; color: #0f172a;" colspan="3">
                   ${escapeHtml(documentFormatted)}
                 </td>
               </tr>
@@ -327,7 +350,7 @@ export function generateMedicalCertificateHtml(
         </div>
 
         <!-- Declaratory Body Text -->
-        <div style="margin-top: 10px;">
+        <div style="margin-top: 6px;">
           <p class="atestado-text">
             Atesto para os devidos fins que o(a) paciente acima identificado(a) esteve sob meus cuidados profissionais e foi submetido(a) a atendimento médico nesta Unidade de Saúde nesta data, necessitando de repouso e afastamento de suas atividades laborais e habituais por um período de <strong>${escapeHtml(daysOffExtenso)}</strong> a partir do dia <strong>${escapeHtml(startDateFormatted)}</strong>.
           </p>
@@ -335,11 +358,11 @@ export function generateMedicalCertificateHtml(
           ${
             clinicalNotes
               ? `
-          <div style="margin-top: 18px; margin-bottom: 18px; padding: 12px 14px; background: #f8fafc; border-left: 4px solid #0d9488; border-radius: 0 6px 6px 0;">
-            <div style="font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: #0f766e; margin-bottom: 4px; letter-spacing: 0.5px;">
+          <div style="margin-top: 14px; margin-bottom: 14px; padding: 10px 12px; background: #f8fafc; border-left: 4px solid #0d9488; border-radius: 0 6px 6px 0;">
+            <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #0f766e; margin-bottom: 3px; letter-spacing: 0.5px;">
               Recomendações Clínicas / Observações:
             </div>
-            <div style="font-size: 12px; line-height: 1.6; color: #334155;">
+            <div style="font-size: 11.5px; line-height: 1.5; color: #334155;">
               ${escapeHtml(clinicalNotes)}
             </div>
           </div>
@@ -350,14 +373,14 @@ export function generateMedicalCertificateHtml(
           ${
             certificate.includeCid && cid10
               ? `
-          <div style="margin-top: 16px; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 10px 14px; background: #ffffff;">
-            <div style="font-size: 10.5px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
+          <div style="margin-top: 12px; border: 1.5px solid #cbd5e1; border-radius: 6px; padding: 8px 12px; background: #ffffff;">
+            <div style="font-size: 10px; font-weight: 800; text-transform: uppercase; color: #475569; letter-spacing: 0.5px;">
               Diagnóstico / CID-10:
             </div>
-            <div style="font-size: 13px; font-weight: 800; color: #0f172a; margin-top: 3px;">
+            <div style="font-size: 12.5px; font-weight: 800; color: #0f172a; margin-top: 2px;">
               ${escapeHtml(cid10)}
             </div>
-            <div style="font-size: 10px; color: #64748b; margin-top: 4px; font-style: italic;">
+            <div style="font-size: 9.5px; color: #64748b; margin-top: 3px; font-style: italic;">
               * Informação do CID-10 autorizada expressamente pelo(a) paciente / responsável legal (Art. 73 do Código de Ética Médica e Resolução CFM nº 1.658/2002).
             </div>
           </div>
@@ -368,27 +391,27 @@ export function generateMedicalCertificateHtml(
       </div>
 
       <!-- Footer & Signature Block -->
-      <div class="page-break-inside-avoid" style="margin-top: 30px;">
+      <div class="page-break-inside-avoid" style="margin-top: 14px;">
         <!-- Date location -->
-        <div style="text-align: right; font-size: 12.5px; font-weight: 600; color: #334155; margin-bottom: 36px;">
+        <div style="text-align: right; font-size: 12px; font-weight: 600; color: #334155; margin-bottom: 20px;">
           ${escapeHtml(cityDateFormatted)}
         </div>
 
         <!-- Doctor Signature and Seal Box -->
-        <div style="display: flex; justify-content: center; margin-bottom: 24px;">
+        <div style="display: flex; justify-content: center; margin-bottom: 16px;">
           ${
             useStamp && stampUrl
               ? `<div style="text-align: center;">
-                  <img src="${stampUrl}" alt="Carimbo e Assinatura de ${escapeHtml(professionalName)}" style="max-height: 96px; max-width: 280px; object-fit: contain; margin: 0 auto; display: block;" />
+                  <img src="${stampUrl}" alt="Carimbo e Assinatura de ${escapeHtml(professionalName)}" style="max-height: 80px; max-width: 260px; object-fit: contain; margin: 0 auto; display: block;" />
                 </div>`
-              : `<div style="width: 320px; text-align: center; border-top: 1.5px solid #0f172a; padding-top: 8px;">
-                  <div style="font-weight: 900; font-size: 13px; text-transform: uppercase; color: #0f172a;">
+              : `<div style="width: 300px; text-align: center; border-top: 1.5px solid #0f172a; padding-top: 6px;">
+                  <div style="font-weight: 900; font-size: 12.5px; text-transform: uppercase; color: #0f172a;">
                     ${escapeHtml(professionalName)}
                   </div>
-                  <div style="font-size: 11px; font-weight: 700; color: #475569; margin-top: 2px;">
+                  <div style="font-size: 10.5px; font-weight: 700; color: #475569; margin-top: 2px;">
                     ${escapeHtml(professionalSpecialty)}
                   </div>
-                  <div style="font-size: 11.5px; font-weight: 800; color: #0d9488; margin-top: 2px;">
+                  <div style="font-size: 11px; font-weight: 800; color: #0d9488; margin-top: 2px;">
                     ${escapeHtml(professionalCouncil)}
                   </div>
                 </div>`
@@ -396,7 +419,7 @@ export function generateMedicalCertificateHtml(
         </div>
 
         <!-- Standard Institutional Footer -->
-        <div style="text-align: center; font-size: 8.5px; font-weight: 600; color: #64748b; text-transform: uppercase; line-height: 1.35; margin-top: 24px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
+        <div style="text-align: center; font-size: 8.5px; font-weight: 600; color: #64748b; text-transform: uppercase; line-height: 1.35; margin-top: 14px; border-top: 1px solid #e2e8f0; padding-top: 6px;">
           <div>TRAVESSA FRANCISCO JR. FILHO • CIDADE NOVA I • ANAJÁS/PA • CEP: 68 810-000</div>
           <div>SISTEMA ÚNICO DE SAÚDE - SUS • REDE DE ATENÇÃO PSICOSSOCIAL (RAPS)</div>
         </div>

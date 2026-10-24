@@ -1,25 +1,34 @@
-# Plano de Implementação: Painel de Chamada em Tempo Real (Smart TV & Múltiplos Dispositivos)
+# Plano de Implementação: Padronização e Layout A4 do Projeto Terapêutico Singular (PTS) para Todas as Profissões
 
-Ajuste e aprimoramento completo do Painel de Chamada da Fila de Atendimento para que, quando um profissional de saúde clicar na ação **"Chamar no Painel (TV)"** na lista da recepção ou no modal de chamada, o painel exibido em outros equipamentos (Smart TV, monitores de sala de espera ou abas dedicadas `/?painel=chamada`) reaja instantaneamente com o destaque visual em tela cheia do paciente chamado, alerta sonoro de hospital e síntese de voz (TTS - Text-To-Speech) em português.
+Ajuste e padronização visual e estrutural da ficha de impressão A4 do Projeto Terapêutico Singular (PTS) no sistema e-SUS PEC Multiprofissional (CAPS I Anajás), seguindo rigorosamente o modelo especificado com tabela de dados cadastrais, cabeçalho de diagnósticos e seções organizadas por especialidade profissional.
 
 ---
 
 ### User Review & Critical Decisions
 
 > [!IMPORTANT]
-> A funcionalidade utilizará uma arquitetura de sincronização tripla em tempo real (Supabase Realtime PostgreSQL + Web API BroadcastChannel + LocalStorage Event Listener) para garantir **latência zero (<10ms entre abas e <200ms entre dispositivos na rede)** sem perda de dados cadastrais do paciente.
+> O layout do PTS foi configurado para garantia absoluta de impressão em exatamente **1 página A4 Retrato**, utilizando espaçamentos otimizados, limites de conteúdo e estilos CSS de impressão `@media print`.
 
-- **Integridade dos Dados na Chamada**: Garantia de que a alteração de status para `calling` realize a fusão (*deep merge*) dos atributos do paciente (`patientName`, `professionalName`, `professionalProfession`, `riskClassification`, `scheduledDate`), impedindo que objetos parciais cheguem à Smart TV.
-- **Notificação Sonora & Voz na Smart TV**: Execução automática do carrilhão hospitalar (*D5 -> A5*) e do anúncio em síntese de voz em 3 ciclos com contagem regressiva, seguido da atualização do status para em atendimento.
-- **Resiliência a Políticas de Autoplay de Áudio**: Banner interativo de autorização de som caso o navegador da Smart TV bloqueie a reprodução sem interação inicial do usuário.
+- **Decisão Confirmada 1 (Títulos das Seções por Profissão)**: Títulos das seções de diagnóstico e condutas adaptados para cada categoria profissional:
+  - **Enfermagem**: `DIAGNÓSTICOS DE ENFERMAGEM:` e `INTERVENÇÕES:`
+  - **Médico**: `DIAGNÓSTICOS MÉDICOS:` e `CONDUTAS MÉDICAS:`
+  - **Psicologia**: `AVALIAÇÃO E DIAGNÓSTICO PSICOSSOCIAL:` e `INTERVENÇÕES PSICOLÓGICAS:`
+  - **Serviço Social**: `AVALIAÇÃO SOCIOASSISTENCIAL:` e `INTERVENÇÕES SOCIAIS:`
+  - **Demais Profissões (Nutrição, Fisioterapia, Terapia Ocupacional, etc.)**: `AVALIAÇÃO E DIAGNÓSTICO [ESPECIALIDADE]:` e `PLANO TERAPÊUTICO E INTERVENÇÕES:`
+- **Decisão Confirmada 2 (Limite de Conteúdo por Seção)**: Máximo de **6 itens numerados** por seção em formato de lista (1., 2., 3., ... 6.), finalizando com ponto final `.` no último item.
+- **Padrão Tipográfico & Estilização (Conforme Anotações do Modelo)**:
+  - **Tabela de Dados do Paciente**: Texto em verde escuro (`#047857`), tamanho 12px, maiúsculas, com campo `DATA PTS` no formato `DD/MM/AAAA` e menor espaçamento interno.
+  - **Título dos Diagnósticos CAPS**: Maiúsculo, azul escuro (`#1e3a8a`), tamanho 12px, negrito (`font-weight: bold`).
+  - **Itens de Diagnósticos e Conteúdos**: Negrito, itálico, tamanho 11px (`font-size: 11px; font-weight: bold; font-style: italic`), maiúsculas e minúsculas.
+  - **Assinatura e Rodapé Padrão**: Mantidos conforme o modelo oficial pré-determinado na parte inferior do documento.
 
 ---
 
 ### 1. Visão Geral & Conceito Principal
 
-- **O que faz**: Habilita o envio e a exibição em tempo real das chamadas de pacientes para qualquer tela de Smart TV ou monitor da sala de espera conectado ao endereço do painel (`/?painel=chamada`).
-- **Público-Alvo**: Recepção, triagem, equipes multiprofissionais, médicos e cidadãos na sala de espera do posto de saúde ou CAPS.
-- **Valor Agregado**: Elimina a necessidade de chamadas manuais ou falhas de comunicação, garante conformidade com as diretrizes de acessibilidade e regulação do SUS e proporciona uma experiência fluida para unidades de saúde.
+- **O que faz**: Atualiza o gerador de impressão HTML/A4 do PTS (`src/utils/printPts.ts`) e o modal de edição (`src/components/PtsModal.tsx`) para refletir a nova estrutura de tabela de identificação, títulos dinâmicos por profissão, contagem limite de 6 itens e estilo tipográfico especificado na imagem de referência.
+- **Público-Alvo**: Médicos, Enfermeiros, Psicólogos, Assistentes Sociais e demais profissionais de saúde mental do CAPS I.
+- **Valor Agregado**: Garante legibilidade, padronização técnica entre especialidades e enquadramento perfeito em folha única A4 sem quebra de página.
 
 ---
 
@@ -27,69 +36,60 @@ Ajuste e aprimoramento completo do Painel de Chamada da Fila de Atendimento para
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                       PAINEL DE RECEPÇÃO / CONSULTÓRIO                      │
-│   Profissional Clica em "Chamar no Painel (TV)" / CallPatientModal          │
+│                             MODAL DE EDIÇÃO DO PTS                          │
+│        Preenchimento manual ou Síntese Automática com IA (Gemini API)      │
 └──────────────────────────────────────┬──────────────────────────────────────┘
                                        │
-                    ┌──────────────────┴──────────────────┐
-                    │                                     │
-                    ▼                                     ▼
-      ┌───────────────────────────┐         ┌───────────────────────────┐
-      │  Supabase & Server Database│         │ Web API BroadcastChannel  │
-      │  updateQueueItemStatus    │         │ & LocalStorage Event Sync │
-      └─────────────┬─────────────┘         └─────────────┬─────────────┘
-                    │                                     │
-                    └──────────────────┬──────────────────┘
-                                       │ Sincronização Instantânea
                                        ▼
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│                      TELA DE CHAMADA DA TV / SALA DE ESPERA                 │
-│                      PublicQueueCallScreen (/?painel=chamada)               │
+│                     FICHA DE IMPRESSÃO A4 DO PTS (`printPts.ts`)             │
 │                                                                             │
-│   1. Destaque Visual em Tela Cheia (Nome, Profissional, Risco, Idade)       │
-│   2. Som de Alerta Hospitalar + Anúncio de Voz (TTS pt-BR)                 │
-│   3. Loop de 3 Ciclos com Contagem Regressiva                              │
+│ 1. CABEÇALHO INSTITUCIONAL COM LOGOS (SUS / PREFEITURA DE ANAJÁS)            │
+│ 2. TABELA DE IDENTIFICAÇÃO (Verde Escuro #047857, Maiúscula, DD/MM/AAAA)    │
+│ 3. TÍTULO DIAGNÓSTICOS CAPS (Azul Escuro #1e3a8a, Negrito, Tam. 12)          │
+│ 4. LISTA DE DIAGNÓSTICOS INICIAIS (> CID-10 em Itálico Negrito Tam. 11)    │
+│ 5. SEÇÃO 1: DIAGNÓSTICOS [PROFISSÃO] (Máx. 6 itens numerados 1. a 6.)       │
+│ 6. SEÇÃO 2: INTERVENÇÕES / CONDUTAS [PROFISSÃO] (Máx. 6 itens numerados)    │
+│ 7. ASSINATURAS COMPARTILHADAS (Referência Técnica + Paciente)               │
+│ 8. RODAPÉ INSTITUCIONAL PADRÃO                                               │
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-- **Fluxo do Profissional**:
-  1. No painel da Recepção / Fila de Atendimento, o profissional escolhe a ação **"Chamar no Painel (TV)"** na lista do paciente.
-  2. O status do paciente transita para `calling` e dispara o sinal instantâneo de chamada em tempo real.
-- **Fluxo da Smart TV / Tela de Espera (`/?painel=chamada`)**:
-  1. O painel capta a chamada via canal em tempo real.
-  2. A animação da lista é interrompida suavemente e exibe o **Spotlight de Chamada** em destaque centralizado com fundo escuro e bordas verdes pulsantes.
-  3. Toca o carrilhão hospitalar (*D5 -> A5*) e a voz sintetizada anuncia: *"Atenção: [Nome do Paciente], favor dirigir-se ao consultório de [Nome do Profissional]"*.
-  4. O painel executa 3 repetições cronometradas do anúncio e, após a conclusão, redireciona o status para em atendimento.
+- **Seções por Categoria Profissional**:
+  - **Médico**: `DIAGNÓSTICOS MÉDICOS:` + `CONDUTAS MÉDICAS:`
+  - **Enfermagem**: `DIAGNÓSTICOS DE ENFERMAGEM:` + `INTERVENÇÕES:`
+  - **Psicologia**: `AVALIAÇÃO E DIAGNÓSTICO PSICOSSOCIAL:` + `INTERVENÇÕES PSICOLÓGICAS:`
+  - **Serviço Social**: `AVALIAÇÃO SOCIOASSISTENCIAL:` + `INTERVENÇÕES SOCIAIS:`
+  - **Outros**: `AVALIAÇÃO E DIAGNÓSTICO [ESPECIALIDADE]:` + `PLANO TERAPÊUTICO E INTERVENÇÕES:`
 
 ---
 
 ### 3. Decisões do Produto & Estratégia Técnica
 
-- **Estratégia Tripla de Transmissão**:
-  - *Supabase Realtime Postgres Changes*: Sincronização entre diferentes dispositivos e redes.
-  - *Web BroadcastChannel (`pec_queue_call_channel`)*: Comunicação instantânea (<10ms) entre abas e monitores no mesmo computador.
-  - *LocalStorage Storage Event*: Fallback nativo para Smart TVs e navegadores em modo kiosk.
-- **Fusão de Objetos no Banco (`apiDbSave`)**:
-  - Ajuste no envio de atualizações parciais do status da fila para buscar e integrar os dados cadastrais completos antes de gravar no Supabase/Servidor.
+- **Formatação de Listas Numeradas Limpas**:
+  - Processamento dos textos inseridos pelo usuário ou gerados por IA para conversão em listas numeradas limpas (1. ..., 2. ..., até no máximo 6 itens), garantindo ponto final no último item.
+- **Strict A4 Single-Page CSS**:
+  - `max-height: 297mm; overflow: hidden;` no contêiner da folha.
+  - Redução de espaçamentos em margens e padding (`padding: 3px 6px`) na tabela e nas seções.
 
 ---
 
 ### 4. Plano de Alterações em Arquivos
 
-1. **`src/services/firebase.ts`**:
-   - Corrigir `updateQueueItemStatusInFirestore` para mesclar (*merge*) os dados completos do item existente com o novo status (`calling`), garantindo que `patientName` e `professionalName` sejam mantidos no `raw_data` do Supabase.
-2. **`src/components/ReceptionQueueView.tsx`**:
-   - Atualizar `handleCall` para emitir mensagem instantânea via `BroadcastChannel` e evento de `localStorage` imediatamente ao acionar o botão "Chamar".
-3. **`src/components/PublicQueueCallScreen.tsx`**:
-   - Adicionar receptores para o `BroadcastChannel` e eventos de `storage` para reação imediata na tela do painel.
-   - Tratar a inicialização do contexto de áudio em Smart TVs.
-4. **`src/components/CallPatientModal.tsx`**:
-   - Garantir que a ação de rechamar no modal retransmita o evento para o painel da TV.
+1. **`src/utils/printPts.ts`**:
+   - Reestruturar `generatePtsHtml` para aplicar as cores (#047857 para dados do paciente, #1e3a8a para título de diagnósticos), tamanhos de fonte e tipografia (negrito/itálico).
+   - Implementar lógica condicional de títulos de seções por profissão do autor (`docAuthor.profession` / `currentUser.profession`).
+   - Formatador helper para quebra em até 6 itens numerados por seção.
+2. **`src/components/PtsModal.tsx`**:
+   - Ajustar os rótulos dos campos do modal para se adaptarem dinamicamente conforme a profissão do usuário logado (ex: exibindo "Diagnósticos Médicos" para médico, "Diagnósticos de Enfermagem" para enfermagem, etc.).
+3. **`server.ts` (`POST /api/gemini/pts`)**:
+   - Atualizar a instrução do prompt do Gemini para retornar os itens formatados como lista numerada direta de 1 a no máximo 6 itens por eixo/seção conforme a especialidade profissional.
 
 ---
 
 ### 5. Passos de Verificação do Resultado
 
-1. Executar `compile_applet` para confirmar a ausência de erros de build e TypeScript.
-2. Abrir o sistema em duas janelas (uma com a Fila de Atendimento e outra em `/?painel=chamada`).
-3. Clicar em "Chamar no Painel (TV)" para um paciente e verificar se o painel da TV responde instantaneamente ativando a chamada visual e sonora.
+1. Compilar com `compile_applet` para certificar ausência de erros de sintaxe ou tipos.
+2. Abrir a emissão de PTS para um paciente selecionado em diferentes perfis profissionais (Médico, Enfermeiro, Psicólogo, Assistente Social).
+3. Testar a geração e o botão "Salvar e Imprimir PTS A4".
+4. Verificar na visualização de impressão se o documento se mantém em exatamente **1 página A4** com as cores, maiúsculas e formatação especificadas.
