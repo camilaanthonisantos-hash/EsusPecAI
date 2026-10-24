@@ -2265,27 +2265,95 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   // Save or update referral linked to consultation or timeline
   const handleSaveReferral = async (referral: ReferralData, targetConsultationId?: string) => {
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || referralTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           referral,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, referral } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Guia de Encaminhamento atualizada e anexada ao atendimento!', 'Encaminhamento Salvo');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, referral } : prev));
-      showToast('success', 'Guia de Encaminhamento vinculada ao prontuário atual!', 'Encaminhamento Vinculado');
+    const patientForRef = referralTargetPatient || selectedPatient;
+    if (currentRecord && patientForRef) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, referral };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForRef.id,
+        patientName: patientForRef.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: referral.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral,
+        pts: updatedRecord.pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Guia de Encaminhamento vinculada e salva no atendimento com sucesso!', 'Encaminhamento Salvo');
       return;
     }
 
-    const patientForRef = referralTargetPatient || selectedPatient;
     if (patientForRef) {
       const generatedConsId = `cons-ref-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2311,7 +2379,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Guia de Encaminhamento registrada na linha do tempo!', 'Encaminhamento Emitido');
     }
@@ -2329,27 +2401,95 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   // Save or update PTS linked to consultation or timeline
   const handleSavePts = async (pts: PtsData, targetConsultationId?: string) => {
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || ptsTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           pts,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, pts } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Projeto Terapêutico Singular (PTS) atualizado com sucesso!', 'PTS Salvo');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, pts } : prev));
-      showToast('success', 'PTS vinculado ao prontuário gerado!', 'PTS Vinculado');
+    const patientForPts = ptsTargetPatient || selectedPatient;
+    if (currentRecord && patientForPts) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, pts };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForPts.id,
+        patientName: patientForPts.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: pts.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Projeto Terapêutico Singular (PTS) salvo e vinculado ao atendimento na linha do tempo!', 'PTS Salvo');
       return;
     }
 
-    const patientForPts = ptsTargetPatient || selectedPatient;
     if (patientForPts) {
       const generatedConsId = `cons-pts-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2375,7 +2515,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Projeto Terapêutico Singular registrado na linha do tempo!', 'PTS Registrado');
     }
@@ -2398,18 +2542,26 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   // Save or update exam request linked to consultation or timeline
   const handleSaveExamRequest = async (examReq: ExamRequestData, targetConsultationId?: string) => {
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || examRequestTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const safeReq: ExamRequestData = {
           ...examReq,
-          consultationId: targetConsultationId,
+          consultationId: activeConsId,
         };
         const updatedConsultation: Consultation = {
           ...target,
           examRequest: safeReq,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, examRequest: safeReq } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Solicitação de Exames atualizada no atendimento com sucesso!', 'Exames Salvos');
         handleOpenExamRequestPreview(safeReq);
@@ -2417,18 +2569,78 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
+    const patientForExam = examRequestTargetPatient || selectedPatient;
+    if (currentRecord && patientForExam) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const safeReq: ExamRequestData = {
         ...examReq,
-        consultationId: null,
+        consultationId: consId,
       };
-      setCurrentRecord((prev) => (prev ? { ...prev, examRequest: safeReq } : prev));
-      showToast('success', 'Solicitação de Exames vinculada ao prontuário gerado! Salve o atendimento na Linha do Tempo.', 'Exames Vinculados');
+      const updatedRecord = { ...currentRecord, examRequest: safeReq };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForExam.id,
+        patientName: patientForExam.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: safeReq.header?.unitName || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts: updatedRecord.pts,
+        examRequest: safeReq,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Solicitação de Exames vinculada e salva no atendimento com sucesso!', 'Exames Salvos');
       handleOpenExamRequestPreview(safeReq);
       return;
     }
 
-    const patientForExam = examRequestTargetPatient || selectedPatient;
     if (patientForExam) {
       const generatedConsId = `cons-exam-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const safeReq: ExamRequestData = {
@@ -2462,7 +2674,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Solicitação de Exames registrada com sucesso na linha do tempo!', 'Exames Solicitados');
       handleOpenExamRequestPreview(safeReq);
@@ -2486,27 +2702,95 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       return;
     }
 
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || medicalReportTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           medicalReport: report,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, medicalReport: report } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Laudo Médico Oficial atualizado e anexado ao atendimento!', 'Laudo Médico Salvo');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, medicalReport: report } : prev));
-      showToast('success', 'Laudo Médico vinculado ao prontuário gerado! Salve o atendimento na Linha do Tempo.', 'Laudo Vinculado');
+    const patientForReport = medicalReportTargetPatient || selectedPatient;
+    if (currentRecord && patientForReport) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, medicalReport: report };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForReport.id,
+        patientName: patientForReport.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: report.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts: updatedRecord.pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: report,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Laudo Médico Oficial salvo e vinculado ao atendimento na linha do tempo!', 'Laudo Médico Salvo');
       return;
     }
 
-    const patientForReport = medicalReportTargetPatient || selectedPatient;
     if (patientForReport) {
       const generatedConsId = `cons-report-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2532,7 +2816,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Laudo Médico Oficial registrado na linha do tempo!', 'Laudo Emitido');
     }
@@ -2560,27 +2848,95 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       return;
     }
 
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || medicalCertificateTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           medicalCertificate: certificate,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, medicalCertificate: certificate } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Atestado Médico atualizado e anexado ao atendimento!', 'Atestado Salvo');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, medicalCertificate: certificate } : prev));
-      showToast('success', 'Atestado Médico vinculado ao prontuário gerado! Salve o atendimento na Linha do Tempo.', 'Atestado Vinculado');
+    const patientForCert = medicalCertificateTargetPatient || selectedPatient;
+    if (currentRecord && patientForCert) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, medicalCertificate: certificate };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForCert.id,
+        patientName: patientForCert.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: certificate.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts: updatedRecord.pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: certificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Atestado Médico salvo e vinculado ao atendimento na linha do tempo!', 'Atestado Salvo');
       return;
     }
 
-    const patientForCert = medicalCertificateTargetPatient || selectedPatient;
     if (patientForCert) {
       const generatedConsId = `cons-cert-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2606,7 +2962,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Atestado Médico registrado na linha do tempo com sucesso!', 'Atestado Emitido');
     }
@@ -2634,27 +2994,97 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
       return;
     }
 
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || attendanceCertificateTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           attendanceCertificate: certificate,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, attendanceCertificate: certificate } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Atestado de Comparecimento atualizado e anexado ao atendimento!', 'Comparecimento Salvo');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, attendanceCertificate: certificate } : prev));
-      showToast('success', 'Atestado de Comparecimento vinculado ao prontuário gerado! Salve o atendimento na Linha do Tempo.', 'Comparecimento Vinculado');
+    const patientForCert = attendanceCertificateTargetPatient || selectedPatient;
+    if (currentRecord && patientForCert) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, attendanceCertificate: certificate };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForCert.id,
+        patientName: patientForCert.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        authorDigitalStampUrl: currentUser.digitalStampUrl,
+        authorUseDigitalStamp: currentUser.useDigitalStamp,
+        workplace: certificate.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts: updatedRecord.pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: certificate,
+        examMedia: updatedRecord.examMedia,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Atestado de Comparecimento salvo e vinculado ao atendimento na linha do tempo!', 'Comparecimento Salvo');
       return;
     }
 
-    const patientForCert = attendanceCertificateTargetPatient || selectedPatient;
     if (patientForCert) {
       const generatedConsId = `cons-att-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2682,7 +3112,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Atestado de Comparecimento registrado na linha do tempo!', 'Comparecimento Emitido');
     }
@@ -2705,27 +3139,95 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
 
   // Save or update Exam Media linked to consultation or timeline
   const handleSaveExamMedia = async (mediaReport: ExamMediaReportData, targetConsultationId?: string) => {
-    if (targetConsultationId) {
-      const target = consultations.find((c) => c.id === targetConsultationId);
+    const activeConsId = targetConsultationId || savedConsultationId || examMediaTargetConsultation?.id;
+    if (activeConsId) {
+      const target = consultations.find((c) => c.id === activeConsId);
       if (target) {
         const updatedConsultation: Consultation = {
           ...target,
           examMedia: mediaReport,
         };
-        setConsultations((prev) => prev.map((c) => (c.id === targetConsultationId ? updatedConsultation : c)));
+        setConsultations((prev) => {
+          const updated = prev.map((c) => (c.id === activeConsId ? updatedConsultation : c));
+          safeSetItem('pec_consultations', updated);
+          return updated;
+        });
+        if (currentRecord) {
+          setCurrentRecord((prev) => (prev ? { ...prev, examMedia: mediaReport } : prev));
+        }
         await saveConsultationToFirestore(updatedConsultation);
         showToast('success', 'Anexo iconográfico salvo e vinculado ao atendimento com sucesso!', 'Imagens e Vídeos Salvos');
         return;
       }
     }
 
-    if (currentRecord && !isRecordSavedToTimeline) {
-      setCurrentRecord((prev) => (prev ? { ...prev, examMedia: mediaReport } : prev));
-      showToast('success', 'Anexo iconográfico vinculado ao prontuário gerado! Salve o atendimento na Linha do Tempo.', 'Mídias Vinculadas');
+    const patientForMedia = examMediaTargetPatient || selectedPatient;
+    if (currentRecord && patientForMedia) {
+      const consId = savedConsultationId || `cons-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
+      const updatedRecord = { ...currentRecord, examMedia: mediaReport };
+      setCurrentRecord(updatedRecord);
+      setSavedConsultationId(consId);
+
+      const isDoc = isDoctorConsultation(
+        updatedRecord.professionId || selectedProfession,
+        currentUser.professionalRegister
+      );
+      let finalAvaliacao = updatedRecord.avaliacao;
+      let finalPlano = updatedRecord.plano;
+      let finalConduta = updatedRecord.conduta;
+      if (isDoc) {
+        const cleaned = cleanDoctorConsultation(finalAvaliacao, finalPlano, finalConduta);
+        finalAvaliacao = cleaned.avaliacao;
+        finalPlano = cleaned.plano;
+        finalConduta = cleaned.conduta;
+      }
+
+      const newConsultation: Consultation = {
+        id: consId,
+        patientId: patientForMedia.id,
+        patientName: patientForMedia.fullName,
+        authorId: currentUser.id,
+        authorName: currentUser.name,
+        authorProfession: updatedRecord.professionId || selectedProfession,
+        authorRegister: currentUser.professionalRegister,
+        workplace: mediaReport.workplace || currentUser.workplace,
+        timestamp: updatedRecord.timestamp || Date.now(),
+        isFirstConsultation: updatedRecord.isFirstConsultation,
+        clinicalAudit: updatedRecord.clinicalAudit,
+        avaliacao: finalAvaliacao,
+        plano: finalPlano,
+        conduta: finalConduta,
+        rawNotes: updatedRecord.isTriage ? 'Triagem de Sinais Vitais e Antropometria' : rawNotes,
+        modelUsed: updatedRecord.modelUsed || selectedModel,
+        qualitativeChecks: updatedRecord.qualitativeChecks || {
+          hasQualitativeVitals: true,
+          hasFixedCiapSigtap: true,
+        },
+        prescription: updatedRecord.prescription,
+        referral: updatedRecord.referral,
+        pts: updatedRecord.pts,
+        examRequest: updatedRecord.examRequest,
+        medicalReport: updatedRecord.medicalReport,
+        medicalCertificate: updatedRecord.medicalCertificate,
+        attendanceCertificate: updatedRecord.attendanceCertificate,
+        examMedia: mediaReport,
+        isTriage: updatedRecord.isTriage,
+        triageData: updatedRecord.triageData,
+      };
+
+      setConsultations((prev) => {
+        const filtered = prev.filter((c) => c.id !== consId);
+        const updated = [newConsultation, ...filtered];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
+      setIsRecordSavedToTimeline(true);
+
+      await saveConsultationToFirestore(newConsultation);
+      showToast('success', 'Anexo iconográfico salvo e vinculado ao atendimento na linha do tempo!', 'Mídias Salvas');
       return;
     }
 
-    const patientForMedia = examMediaTargetPatient || selectedPatient;
     if (patientForMedia) {
       const generatedConsId = `cons-media-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`;
       const newConsultation: Consultation = {
@@ -2752,7 +3254,11 @@ ${selectedPatient.address ? `Endereço: ${selectedPatient.address}` : ''}`;
         },
       };
 
-      setConsultations((prev) => [newConsultation, ...prev]);
+      setConsultations((prev) => {
+        const updated = [newConsultation, ...prev];
+        safeSetItem('pec_consultations', updated);
+        return updated;
+      });
       await saveConsultationToFirestore(newConsultation);
       showToast('success', 'Anexo iconográfico registrado na linha do tempo com sucesso!', 'Mídias Emitidas');
     }

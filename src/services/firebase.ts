@@ -24,14 +24,8 @@ import { OFFICIAL_SUS_EXAMS } from '../data/susExams';
 import { normalizeSubscriptionExpiresAt } from '../utils/pixExpiration';
 import { safeSetItem, safeGetItem } from '../utils/safeStorage';
 
-import { initializeApp, getApps, getApp } from 'firebase/app';
-import { getAuth } from 'firebase/auth';
-import firebaseConfig from '../../firebase-applet-config.json';
-
-const firebaseApp = getApps().length === 0 ? initializeApp(firebaseConfig) : getApp();
-
 export const db: any = {};
-export const auth = getAuth(firebaseApp);
+export const auth: any = null;
 
 export enum OperationType {
   CREATE = 'create',
@@ -172,12 +166,14 @@ export async function fetchFromSupabaseDirect<T>(colName: string): Promise<T | n
         result.cid10 = result.cid10 || row.cid10 || '';
         result.diagnosticHypothesis = result.diagnosticHypothesis || result.diagnostic_hypothesis || row.diagnostic_hypothesis || '';
         result.vitalSigns = result.vitalSigns || result.vital_signs || row.vital_signs || null;
-        result.prescription = result.prescription || row.prescription || null;
-        result.examRequest = result.examRequest || result.exam_request || row.exam_request || null;
-        result.referral = result.referral || row.referral || null;
-        result.medicalReport = result.medicalReport || result.medical_report || row.medical_report || null;
-        result.attendanceCertificate = result.attendanceCertificate || result.attendance_certificate || row.attendance_certificate || null;
-        result.pts = result.pts || row.pts || null;
+        result.prescription = result.prescription || row.prescription || row.raw_data?.prescription || null;
+        result.examRequest = result.examRequest || result.exam_request || row.exam_request || row.raw_data?.examRequest || null;
+        result.referral = result.referral || row.referral || row.raw_data?.referral || null;
+        result.medicalReport = result.medicalReport || result.medical_report || row.medical_report || row.raw_data?.medicalReport || null;
+        result.medicalCertificate = result.medicalCertificate || result.medical_certificate || row.medical_certificate || row.raw_data?.medicalCertificate || null;
+        result.attendanceCertificate = result.attendanceCertificate || result.attendance_certificate || row.attendance_certificate || row.raw_data?.attendanceCertificate || null;
+        result.pts = result.pts || row.pts || row.raw_data?.pts || null;
+        result.examMedia = result.examMedia || result.exam_media || row.exam_media || row.raw_data?.examMedia || null;
       } else if (tableName === 'patients') {
         result.fullName = result.fullName || result.full_name || result.name || row.full_name || row.name;
         result.cpf = result.cpf || row.cpf || '';
